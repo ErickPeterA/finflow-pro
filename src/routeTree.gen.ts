@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedCustosRouteImport } from './routes/_authenticated/custos'
 import { Route as AuthenticatedDreRouteImport } from './routes/_authenticated/dre'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedReceitasRouteImport } from './routes/_authenticated/receitas'
@@ -29,6 +30,11 @@ const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedCustosRoute = AuthenticatedCustosRouteImport.update({
+  id: '/custos',
+  path: '/custos',
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedDreRoute = AuthenticatedDreRouteImport.update({
   id: '/dre',
@@ -49,6 +55,7 @@ const AuthenticatedReceitasRoute = AuthenticatedReceitasRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/custos': typeof AuthenticatedCustosRoute
   '/dre': typeof AuthenticatedDreRoute
   '/home': typeof AuthenticatedHomeRoute
   '/receitas': typeof AuthenticatedReceitasRoute
@@ -56,6 +63,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/custos': typeof AuthenticatedCustosRoute
   '/dre': typeof AuthenticatedDreRoute
   '/home': typeof AuthenticatedHomeRoute
   '/receitas': typeof AuthenticatedReceitasRoute
@@ -65,20 +73,22 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/_authenticated/custos': typeof AuthenticatedCustosRoute
   '/_authenticated/dre': typeof AuthenticatedDreRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/receitas': typeof AuthenticatedReceitasRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/dre' | '/home' | '/receitas'
+  fullPaths: '/' | '/auth' | '/custos' | '/dre' | '/home' | '/receitas'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/dre' | '/home' | '/receitas'
+  to: '/' | '/auth' | '/custos' | '/dre' | '/home' | '/receitas'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/_authenticated/custos'
     | '/_authenticated/dre'
     | '/_authenticated/home'
     | '/_authenticated/receitas'
@@ -113,6 +123,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/custos': {
+      id: '/_authenticated/custos'
+      path: '/custos'
+      fullPath: '/custos'
+      preLoaderRoute: typeof AuthenticatedCustosRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dre': {
       id: '/_authenticated/dre'
       path: '/dre'
@@ -138,12 +155,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedCustosRoute: typeof AuthenticatedCustosRoute
   AuthenticatedDreRoute: typeof AuthenticatedDreRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedReceitasRoute: typeof AuthenticatedReceitasRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedCustosRoute: AuthenticatedCustosRoute,
   AuthenticatedDreRoute: AuthenticatedDreRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedReceitasRoute: AuthenticatedReceitasRoute,
