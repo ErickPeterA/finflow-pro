@@ -13,14 +13,15 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAnalisesRouteImport } from './routes/_authenticated/analises'
-import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
 import { Route as AuthenticatedCustosRouteImport } from './routes/_authenticated/custos'
 import { Route as AuthenticatedDespesasRouteImport } from './routes/_authenticated/despesas'
 import { Route as AuthenticatedDreRouteImport } from './routes/_authenticated/dre'
+import { Route as AuthenticatedGerenciamentoRouteImport } from './routes/_authenticated/gerenciamento'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedImportacaoRouteImport } from './routes/_authenticated/importacao'
 import { Route as AuthenticatedPlanoAcaoRouteImport } from './routes/_authenticated/plano-acao'
 import { Route as AuthenticatedPontoEquilibrioRouteImport } from './routes/_authenticated/ponto-equilibrio'
+import { Route as AuthenticatedProjetosRouteImport } from './routes/_authenticated/projetos'
 import { Route as AuthenticatedReceitasRouteImport } from './routes/_authenticated/receitas'
 import { Route as AuthenticatedRelatoriosRouteImport } from './routes/_authenticated/relatorios'
 
@@ -43,12 +44,6 @@ const AuthenticatedAnalisesRoute = AuthenticatedAnalisesRouteImport.update({
   path: '/analises',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedConfiguracoesRoute =
-  AuthenticatedConfiguracoesRouteImport.update({
-    id: '/configuracoes',
-    path: '/configuracoes',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
 const AuthenticatedCustosRoute = AuthenticatedCustosRouteImport.update({
   id: '/custos',
   path: '/custos',
@@ -64,6 +59,12 @@ const AuthenticatedDreRoute = AuthenticatedDreRouteImport.update({
   path: '/dre',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedGerenciamentoRoute =
+  AuthenticatedGerenciamentoRouteImport.update({
+    id: '/gerenciamento',
+    path: '/gerenciamento',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedHomeRoute = AuthenticatedHomeRouteImport.update({
   id: '/home',
   path: '/home',
@@ -85,6 +86,11 @@ const AuthenticatedPontoEquilibrioRoute =
     path: '/ponto-equilibrio',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedProjetosRoute = AuthenticatedProjetosRouteImport.update({
+  id: '/projetos',
+  path: '/projetos',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedReceitasRoute = AuthenticatedReceitasRouteImport.update({
   id: '/receitas',
   path: '/receitas',
@@ -100,14 +106,15 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/analises': typeof AuthenticatedAnalisesRoute
-  '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/custos': typeof AuthenticatedCustosRoute
   '/despesas': typeof AuthenticatedDespesasRoute
   '/dre': typeof AuthenticatedDreRoute
+  '/gerenciamento': typeof AuthenticatedGerenciamentoRoute
   '/home': typeof AuthenticatedHomeRoute
   '/importacao': typeof AuthenticatedImportacaoRoute
   '/plano-acao': typeof AuthenticatedPlanoAcaoRoute
   '/ponto-equilibrio': typeof AuthenticatedPontoEquilibrioRoute
+  '/projetos': typeof AuthenticatedProjetosRoute
   '/receitas': typeof AuthenticatedReceitasRoute
   '/relatorios': typeof AuthenticatedRelatoriosRoute
 }
@@ -115,14 +122,15 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/analises': typeof AuthenticatedAnalisesRoute
-  '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/custos': typeof AuthenticatedCustosRoute
   '/despesas': typeof AuthenticatedDespesasRoute
   '/dre': typeof AuthenticatedDreRoute
+  '/gerenciamento': typeof AuthenticatedGerenciamentoRoute
   '/home': typeof AuthenticatedHomeRoute
   '/importacao': typeof AuthenticatedImportacaoRoute
   '/plano-acao': typeof AuthenticatedPlanoAcaoRoute
   '/ponto-equilibrio': typeof AuthenticatedPontoEquilibrioRoute
+  '/projetos': typeof AuthenticatedProjetosRoute
   '/receitas': typeof AuthenticatedReceitasRoute
   '/relatorios': typeof AuthenticatedRelatoriosRoute
 }
@@ -132,14 +140,15 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/analises': typeof AuthenticatedAnalisesRoute
-  '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/_authenticated/custos': typeof AuthenticatedCustosRoute
   '/_authenticated/despesas': typeof AuthenticatedDespesasRoute
   '/_authenticated/dre': typeof AuthenticatedDreRoute
+  '/_authenticated/gerenciamento': typeof AuthenticatedGerenciamentoRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/importacao': typeof AuthenticatedImportacaoRoute
   '/_authenticated/plano-acao': typeof AuthenticatedPlanoAcaoRoute
   '/_authenticated/ponto-equilibrio': typeof AuthenticatedPontoEquilibrioRoute
+  '/_authenticated/projetos': typeof AuthenticatedProjetosRoute
   '/_authenticated/receitas': typeof AuthenticatedReceitasRoute
   '/_authenticated/relatorios': typeof AuthenticatedRelatoriosRoute
 }
@@ -149,14 +158,15 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/analises'
-    | '/configuracoes'
     | '/custos'
     | '/despesas'
     | '/dre'
+    | '/gerenciamento'
     | '/home'
     | '/importacao'
     | '/plano-acao'
     | '/ponto-equilibrio'
+    | '/projetos'
     | '/receitas'
     | '/relatorios'
   fileRoutesByTo: FileRoutesByTo
@@ -164,14 +174,15 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/analises'
-    | '/configuracoes'
     | '/custos'
     | '/despesas'
     | '/dre'
+    | '/gerenciamento'
     | '/home'
     | '/importacao'
     | '/plano-acao'
     | '/ponto-equilibrio'
+    | '/projetos'
     | '/receitas'
     | '/relatorios'
   id:
@@ -180,14 +191,15 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/analises'
-    | '/_authenticated/configuracoes'
     | '/_authenticated/custos'
     | '/_authenticated/despesas'
     | '/_authenticated/dre'
+    | '/_authenticated/gerenciamento'
     | '/_authenticated/home'
     | '/_authenticated/importacao'
     | '/_authenticated/plano-acao'
     | '/_authenticated/ponto-equilibrio'
+    | '/_authenticated/projetos'
     | '/_authenticated/receitas'
     | '/_authenticated/relatorios'
   fileRoutesById: FileRoutesById
@@ -228,13 +240,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAnalisesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/configuracoes': {
-      id: '/_authenticated/configuracoes'
-      path: '/configuracoes'
-      fullPath: '/configuracoes'
-      preLoaderRoute: typeof AuthenticatedConfiguracoesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/custos': {
       id: '/_authenticated/custos'
       path: '/custos'
@@ -254,6 +259,13 @@ declare module '@tanstack/react-router' {
       path: '/dre'
       fullPath: '/dre'
       preLoaderRoute: typeof AuthenticatedDreRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/gerenciamento': {
+      id: '/_authenticated/gerenciamento'
+      path: '/gerenciamento'
+      fullPath: '/gerenciamento'
+      preLoaderRoute: typeof AuthenticatedGerenciamentoRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/home': {
@@ -284,6 +296,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPontoEquilibrioRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/projetos': {
+      id: '/_authenticated/projetos'
+      path: '/projetos'
+      fullPath: '/projetos'
+      preLoaderRoute: typeof AuthenticatedProjetosRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/receitas': {
       id: '/_authenticated/receitas'
       path: '/receitas'
@@ -303,28 +322,30 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAnalisesRoute: typeof AuthenticatedAnalisesRoute
-  AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
   AuthenticatedCustosRoute: typeof AuthenticatedCustosRoute
   AuthenticatedDespesasRoute: typeof AuthenticatedDespesasRoute
   AuthenticatedDreRoute: typeof AuthenticatedDreRoute
+  AuthenticatedGerenciamentoRoute: typeof AuthenticatedGerenciamentoRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedImportacaoRoute: typeof AuthenticatedImportacaoRoute
   AuthenticatedPlanoAcaoRoute: typeof AuthenticatedPlanoAcaoRoute
   AuthenticatedPontoEquilibrioRoute: typeof AuthenticatedPontoEquilibrioRoute
+  AuthenticatedProjetosRoute: typeof AuthenticatedProjetosRoute
   AuthenticatedReceitasRoute: typeof AuthenticatedReceitasRoute
   AuthenticatedRelatoriosRoute: typeof AuthenticatedRelatoriosRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAnalisesRoute: AuthenticatedAnalisesRoute,
-  AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
   AuthenticatedCustosRoute: AuthenticatedCustosRoute,
   AuthenticatedDespesasRoute: AuthenticatedDespesasRoute,
   AuthenticatedDreRoute: AuthenticatedDreRoute,
+  AuthenticatedGerenciamentoRoute: AuthenticatedGerenciamentoRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedImportacaoRoute: AuthenticatedImportacaoRoute,
   AuthenticatedPlanoAcaoRoute: AuthenticatedPlanoAcaoRoute,
   AuthenticatedPontoEquilibrioRoute: AuthenticatedPontoEquilibrioRoute,
+  AuthenticatedProjetosRoute: AuthenticatedProjetosRoute,
   AuthenticatedReceitasRoute: AuthenticatedReceitasRoute,
   AuthenticatedRelatoriosRoute: AuthenticatedRelatoriosRoute,
 }
@@ -340,3 +361,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

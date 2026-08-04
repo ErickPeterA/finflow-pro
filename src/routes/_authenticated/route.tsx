@@ -1,10 +1,8 @@
 import { createFileRoute, redirect, Outlet, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { AppProvider, useApp } from "@/lib/app-context";
+import { AppProvider } from "@/lib/app-context";
 import { AppSidebar } from "@/components/AppSidebar";
-import { useEmpresas } from "@/lib/data";
-import { useEffect } from "react";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -23,23 +21,12 @@ function LayoutErro({ error }: { error: Error }) {
       <div>
         <h1 className="text-lg font-semibold">Não foi possível carregar</h1>
         <p className="mt-2 max-w-md text-sm text-muted-foreground">{error.message}</p>
-        <Link to="/home" className="mt-4 inline-block text-sm text-info underline">
-          Voltar para a Home
+        <Link to="/projetos" className="mt-4 inline-block text-sm text-info underline">
+          Voltar para Projetos
         </Link>
       </div>
     </div>
   );
-}
-
-function AutoSelecionarEmpresa() {
-  const { empresaId, setEmpresaId } = useApp();
-  const { data: empresas } = useEmpresas();
-  useEffect(() => {
-    if (!empresaId && empresas && empresas.length > 0) {
-      setEmpresaId(empresas[0]!.id);
-    }
-  }, [empresaId, empresas, setEmpresaId]);
-  return null;
 }
 
 function Layout() {
@@ -50,7 +37,6 @@ function Layout() {
       <div className="flex min-h-screen w-full bg-background">
         <AppSidebar colapsado={colapsado} onToggle={() => setColapsado((c) => !c)} />
         <div className="flex min-w-0 flex-1 flex-col">
-          <AutoSelecionarEmpresa />
           <Outlet />
         </div>
       </div>

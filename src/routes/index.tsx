@@ -27,7 +27,7 @@ function Index() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      navigate({ to: data.session ? "/home" : "/auth", replace: true });
+      navigate({ to: data.session ? "/projetos" : "/auth", replace: true });
     });
   }, [navigate]);
 

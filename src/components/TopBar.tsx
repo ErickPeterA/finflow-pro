@@ -22,12 +22,14 @@ export function TopBar({
   busca,
   onBusca,
   acoes,
+  mostrarContexto = true,
 }: {
   titulo: string;
   descricao?: string;
   busca?: string;
   onBusca?: (v: string) => void;
   acoes?: ReactNode;
+  mostrarContexto?: boolean;
 }) {
   const { empresaId, setEmpresaId, ano, setAno, mes, setMes } = useApp();
   const { data: empresas = [] } = useEmpresas();
@@ -64,44 +66,48 @@ export function TopBar({
           </div>
         )}
 
-        <Select value={empresaId ?? ""} onValueChange={(v) => setEmpresaId(v)}>
-          <SelectTrigger className="h-9 w-52">
-            <SelectValue placeholder="Selecione a empresa" />
-          </SelectTrigger>
-          <SelectContent>
-            {empresas.map((e) => (
-              <SelectItem key={e.id} value={e.id}>
-                {e.nome}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {mostrarContexto && (
+          <>
+            <Select value={empresaId ?? ""} onValueChange={(v) => setEmpresaId(v)}>
+              <SelectTrigger className="h-9 w-52">
+                <SelectValue placeholder="Selecione a empresa" />
+              </SelectTrigger>
+              <SelectContent>
+                {empresas.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-        <Select value={String(mes)} onValueChange={(v) => setMes(Number(v))}>
-          <SelectTrigger className="h-9 w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {meses.map((m, i) => (
-              <SelectItem key={m} value={String(i)}>
-                {m}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            <Select value={String(mes)} onValueChange={(v) => setMes(Number(v))}>
+              <SelectTrigger className="h-9 w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {meses.map((m, i) => (
+                  <SelectItem key={m} value={String(i)}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-        <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
-          <SelectTrigger className="h-9 w-24">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {[anoAtual + 1, anoAtual, anoAtual - 1, anoAtual - 2].map((a) => (
-              <SelectItem key={a} value={String(a)}>
-                {a}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
+              <SelectTrigger className="h-9 w-24">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[anoAtual + 1, anoAtual, anoAtual - 1, anoAtual - 2].map((a) => (
+                  <SelectItem key={a} value={String(a)}>
+                    {a}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        )}
 
         {acoes}
 

@@ -102,7 +102,7 @@ export function SemEmpresa({ children }: { children?: ReactNode }) {
     <div className="flex min-h-[50vh] flex-col items-center justify-center rounded-xl border border-dashed bg-card p-10 text-center">
       <p className="text-sm font-medium">Nenhuma empresa selecionada</p>
       <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-        Selecione um cliente no topo da tela ou cadastre o primeiro em Configurações.
+        Selecione um projeto no topo da tela ou crie o primeiro em Projetos.
       </p>
       {children}
     </div>

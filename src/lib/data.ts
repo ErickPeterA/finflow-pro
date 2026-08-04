@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Categoria, Lancamento } from "./dre";
+import type { Database } from "@/integrations/supabase/types";
+
+export type Cargo = Database["public"]["Enums"]["app_role"];
 
 export interface Empresa {
   id: string;
@@ -21,6 +24,29 @@ export function useEmpresas() {
         .order("nome");
       if (error) throw error;
       return (data ?? []) as Empresa[];
+    },
+  });
+}
+
+export function useMeuCargo() {
+  return useQuery({
+    queryKey: ["meu-cargo"],
+    queryFn: async (): Promise<Cargo | null> => {
+      const { data: usuario, error: userError } = await supabase.auth.getUser();
+      if (userError || !usuario.user) return null;
+
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", usuario.user.id);
+
+      if (error) throw error;
+
+      const cargos = (data ?? []).map((r) => r.role);
+      if (cargos.includes("admin")) return "admin";
+      if (cargos.includes("consultor")) return "consultor";
+      if (cargos.includes("cliente")) return "cliente";
+      return null;
     },
   });
 }

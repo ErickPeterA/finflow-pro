@@ -1,5 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
+  FolderKanban,
+  ShieldCheck,
   LayoutDashboard,
   Upload,
   Table2,
@@ -10,13 +12,20 @@ import {
   Scale,
   ListChecks,
   FileText,
-  Settings,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useMeuCargo } from "@/lib/data";
 
-const itens = [
+const itemProjetos = {
+  to: "/projetos",
+  label: "Projetos",
+  icon: FolderKanban,
+} as const;
+
+const itensProjeto = [
+  itemProjetos,
   { to: "/home", label: "Home", icon: LayoutDashboard },
   { to: "/importacao", label: "Importação NIBO", icon: Upload },
   { to: "/dre", label: "DRE Gerencial", icon: Table2 },
@@ -27,8 +36,17 @@ const itens = [
   { to: "/ponto-equilibrio", label: "Ponto de Equilíbrio", icon: Scale },
   { to: "/plano-acao", label: "Plano de Ação", icon: ListChecks },
   { to: "/relatorios", label: "Relatórios", icon: FileText },
-  { to: "/configuracoes", label: "Configurações", icon: Settings },
 ] as const;
+
+const itensEntrada = [
+  { to: "/projetos", label: "Projetos", icon: FolderKanban },
+] as const;
+
+const itemGerenciamento = {
+  to: "/gerenciamento",
+  label: "Gerenciamento",
+  icon: ShieldCheck,
+} as const;
 
 export function AppSidebar({
   colapsado,
@@ -38,6 +56,10 @@ export function AppSidebar({
   onToggle: () => void;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { data: cargo } = useMeuCargo();
+  const estaNoProjeto = pathname !== "/projetos" && pathname !== "/gerenciamento";
+  const itensBase = estaNoProjeto ? itensProjeto : itensEntrada;
+  const itensVisiveis = cargo === "admin" ? [...itensBase, itemGerenciamento] : itensBase;
 
   return (
     <aside
@@ -59,7 +81,7 @@ export function AppSidebar({
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
-        {itens.map((item) => {
+        {itensVisiveis.map((item) => {
           const ativo = pathname === item.to || pathname.startsWith(item.to + "/");
           return (
             <Link

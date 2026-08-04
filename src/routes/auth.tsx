@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createServerFn, useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,8 +26,73 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+const criarUsuarioConfirmado = createServerFn({ method: "POST" })
+  .validator((data: { email: string; senha: string; nome: string }) => data)
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.auth.admin.createUser({
+      email: data.email,
+      password: data.senha,
+      email_confirm: true,
+      user_metadata: { nome: data.nome },
+    });
+
+    if (error && !error.message.toLowerCase().includes("already")) {
+      throw error;
+    }
+
+    return { ok: true };
+  });
+
+function mensagemErroAutenticacao(err: unknown) {
+  if (!(err instanceof Error)) return "Não foi possível autenticar.";
+
+  const erro = err as Error & { code?: string; status?: number };
+  const mensagem = erro.message.toLowerCase();
+
+  if (
+    erro.status === 429 ||
+    erro.code === "over_email_send_rate_limit" ||
+    mensagem.includes("email rate limit")
+  ) {
+    return "Limite de envio de e-mails atingido. Aguarde um tempo antes de tentar novamente ou configure SMTP próprio no Supabase.";
+  }
+
+  return erro.message;
+}
+
+function criarEmailAutenticacao(valor: string) {
+  const entrada = valor.trim().toLowerCase();
+  if (!entrada) return null;
+  if (!entrada.includes("@")) return null;
+
+  const partes = entrada.split("@");
+  if (partes.length !== 2) return null;
+
+  const [nomeUsuario, dominioUsuario] = partes;
+  if (!nomeUsuario || !dominioUsuario) return null;
+
+  const usuario = nomeUsuario
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .replace(/[._-]{2,}/g, "-");
+  const dominio = dominioUsuario
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/[.-]{2,}/g, "-");
+
+  if (!usuario || !dominio) return null;
+
+  return `${usuario}@${dominio.includes(".") ? dominio : `${dominio}.local`}`;
+}
+
 function AuthPage() {
   const navigate = useNavigate();
+  const criarUsuario = useServerFn(criarUsuarioConfirmado);
   const [modo, setModo] = useState<"entrar" | "criar">("entrar");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
@@ -35,37 +101,40 @@ function AuthPage() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/home", replace: true });
+      if (data.session) navigate({ to: "/projetos", replace: true });
     });
   }, [navigate]);
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
+    const emailAutenticacao = criarEmailAutenticacao(email);
+
+    if (!emailAutenticacao) {
+      toast.error("Informe um e-mail fictício com @, como erick@vg.");
+      return;
+    }
+
     setCarregando(true);
     try {
       if (modo === "entrar") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
-        if (error) throw error;
-        navigate({ to: "/home", replace: true });
-      } else {
-        const { data, error } = await supabase.auth.signUp({
-          email,
+        const { error } = await supabase.auth.signInWithPassword({
+          email: emailAutenticacao,
           password: senha,
-          options: {
-            emailRedirectTo: window.location.origin,
-            data: { nome },
-          },
         });
         if (error) throw error;
-        if (data.session) {
-          navigate({ to: "/home", replace: true });
-        } else {
-          toast.success("Conta criada. Confirme o e-mail para acessar.");
-          setModo("entrar");
-        }
+        navigate({ to: "/projetos", replace: true });
+      } else {
+        await criarUsuario({ data: { email: emailAutenticacao, senha, nome } });
+
+        const { error } = await supabase.auth.signInWithPassword({
+          email: emailAutenticacao,
+          password: senha,
+        });
+        if (error) throw error;
+        navigate({ to: "/projetos", replace: true });
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Não foi possível autenticar.");
+      toast.error(mensagemErroAutenticacao(err));
     } finally {
       setCarregando(false);
     }
@@ -108,12 +177,14 @@ function AuthPage() {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="email">E-mail</Label>
+            <Label htmlFor="email">E-mail fictício</Label>
             <Input
               id="email"
-              type="email"
+              type="text"
+              placeholder="erick@vg ou erick@vg.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="username"
               required
             />
           </div>
