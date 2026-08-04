@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedCustosRouteImport } from './routes/_authenticated/custos'
+import { Route as AuthenticatedDespesasRouteImport } from './routes/_authenticated/despesas'
 import { Route as AuthenticatedDreRouteImport } from './routes/_authenticated/dre'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedReceitasRouteImport } from './routes/_authenticated/receitas'
@@ -36,6 +37,11 @@ const AuthenticatedCustosRoute = AuthenticatedCustosRouteImport.update({
   path: '/custos',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedDespesasRoute = AuthenticatedDespesasRouteImport.update({
+  id: '/despesas',
+  path: '/despesas',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDreRoute = AuthenticatedDreRouteImport.update({
   id: '/dre',
   path: '/dre',
@@ -56,6 +62,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/custos': typeof AuthenticatedCustosRoute
+  '/despesas': typeof AuthenticatedDespesasRoute
   '/dre': typeof AuthenticatedDreRoute
   '/home': typeof AuthenticatedHomeRoute
   '/receitas': typeof AuthenticatedReceitasRoute
@@ -64,6 +71,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/custos': typeof AuthenticatedCustosRoute
+  '/despesas': typeof AuthenticatedDespesasRoute
   '/dre': typeof AuthenticatedDreRoute
   '/home': typeof AuthenticatedHomeRoute
   '/receitas': typeof AuthenticatedReceitasRoute
@@ -74,21 +82,24 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/custos': typeof AuthenticatedCustosRoute
+  '/_authenticated/despesas': typeof AuthenticatedDespesasRoute
   '/_authenticated/dre': typeof AuthenticatedDreRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/receitas': typeof AuthenticatedReceitasRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/custos' | '/dre' | '/home' | '/receitas'
+  fullPaths:
+    '/' | '/auth' | '/custos' | '/despesas' | '/dre' | '/home' | '/receitas'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/custos' | '/dre' | '/home' | '/receitas'
+  to: '/' | '/auth' | '/custos' | '/despesas' | '/dre' | '/home' | '/receitas'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/custos'
+    | '/_authenticated/despesas'
     | '/_authenticated/dre'
     | '/_authenticated/home'
     | '/_authenticated/receitas'
@@ -130,6 +141,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCustosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/despesas': {
+      id: '/_authenticated/despesas'
+      path: '/despesas'
+      fullPath: '/despesas'
+      preLoaderRoute: typeof AuthenticatedDespesasRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dre': {
       id: '/_authenticated/dre'
       path: '/dre'
@@ -156,6 +174,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedCustosRoute: typeof AuthenticatedCustosRoute
+  AuthenticatedDespesasRoute: typeof AuthenticatedDespesasRoute
   AuthenticatedDreRoute: typeof AuthenticatedDreRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedReceitasRoute: typeof AuthenticatedReceitasRoute
@@ -163,6 +182,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCustosRoute: AuthenticatedCustosRoute,
+  AuthenticatedDespesasRoute: AuthenticatedDespesasRoute,
   AuthenticatedDreRoute: AuthenticatedDreRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedReceitasRoute: AuthenticatedReceitasRoute,
