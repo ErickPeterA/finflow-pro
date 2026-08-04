@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAnalisesRouteImport } from './routes/_authenticated/analises'
+import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
 import { Route as AuthenticatedCustosRouteImport } from './routes/_authenticated/custos'
 import { Route as AuthenticatedDespesasRouteImport } from './routes/_authenticated/despesas'
 import { Route as AuthenticatedDreRouteImport } from './routes/_authenticated/dre'
@@ -42,6 +43,12 @@ const AuthenticatedAnalisesRoute = AuthenticatedAnalisesRouteImport.update({
   path: '/analises',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedConfiguracoesRoute =
+  AuthenticatedConfiguracoesRouteImport.update({
+    id: '/configuracoes',
+    path: '/configuracoes',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedCustosRoute = AuthenticatedCustosRouteImport.update({
   id: '/custos',
   path: '/custos',
@@ -93,6 +100,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/analises': typeof AuthenticatedAnalisesRoute
+  '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/custos': typeof AuthenticatedCustosRoute
   '/despesas': typeof AuthenticatedDespesasRoute
   '/dre': typeof AuthenticatedDreRoute
@@ -107,6 +115,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/analises': typeof AuthenticatedAnalisesRoute
+  '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/custos': typeof AuthenticatedCustosRoute
   '/despesas': typeof AuthenticatedDespesasRoute
   '/dre': typeof AuthenticatedDreRoute
@@ -123,6 +132,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/analises': typeof AuthenticatedAnalisesRoute
+  '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/_authenticated/custos': typeof AuthenticatedCustosRoute
   '/_authenticated/despesas': typeof AuthenticatedDespesasRoute
   '/_authenticated/dre': typeof AuthenticatedDreRoute
@@ -139,6 +149,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/analises'
+    | '/configuracoes'
     | '/custos'
     | '/despesas'
     | '/dre'
@@ -153,6 +164,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/analises'
+    | '/configuracoes'
     | '/custos'
     | '/despesas'
     | '/dre'
@@ -168,6 +180,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/analises'
+    | '/_authenticated/configuracoes'
     | '/_authenticated/custos'
     | '/_authenticated/despesas'
     | '/_authenticated/dre'
@@ -213,6 +226,13 @@ declare module '@tanstack/react-router' {
       path: '/analises'
       fullPath: '/analises'
       preLoaderRoute: typeof AuthenticatedAnalisesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/configuracoes': {
+      id: '/_authenticated/configuracoes'
+      path: '/configuracoes'
+      fullPath: '/configuracoes'
+      preLoaderRoute: typeof AuthenticatedConfiguracoesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/custos': {
@@ -283,6 +303,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAnalisesRoute: typeof AuthenticatedAnalisesRoute
+  AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
   AuthenticatedCustosRoute: typeof AuthenticatedCustosRoute
   AuthenticatedDespesasRoute: typeof AuthenticatedDespesasRoute
   AuthenticatedDreRoute: typeof AuthenticatedDreRoute
@@ -296,6 +317,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAnalisesRoute: AuthenticatedAnalisesRoute,
+  AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
   AuthenticatedCustosRoute: AuthenticatedCustosRoute,
   AuthenticatedDespesasRoute: AuthenticatedDespesasRoute,
   AuthenticatedDreRoute: AuthenticatedDreRoute,
