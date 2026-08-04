@@ -18,6 +18,7 @@ import { Route as AuthenticatedDespesasRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedDreRouteImport } from './routes/_authenticated/dre'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedImportacaoRouteImport } from './routes/_authenticated/importacao'
+import { Route as AuthenticatedPlanoAcaoRouteImport } from './routes/_authenticated/plano-acao'
 import { Route as AuthenticatedPontoEquilibrioRouteImport } from './routes/_authenticated/ponto-equilibrio'
 import { Route as AuthenticatedReceitasRouteImport } from './routes/_authenticated/receitas'
 
@@ -65,6 +66,11 @@ const AuthenticatedImportacaoRoute = AuthenticatedImportacaoRouteImport.update({
   path: '/importacao',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedPlanoAcaoRoute = AuthenticatedPlanoAcaoRouteImport.update({
+  id: '/plano-acao',
+  path: '/plano-acao',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPontoEquilibrioRoute =
   AuthenticatedPontoEquilibrioRouteImport.update({
     id: '/ponto-equilibrio',
@@ -86,6 +92,7 @@ export interface FileRoutesByFullPath {
   '/dre': typeof AuthenticatedDreRoute
   '/home': typeof AuthenticatedHomeRoute
   '/importacao': typeof AuthenticatedImportacaoRoute
+  '/plano-acao': typeof AuthenticatedPlanoAcaoRoute
   '/ponto-equilibrio': typeof AuthenticatedPontoEquilibrioRoute
   '/receitas': typeof AuthenticatedReceitasRoute
 }
@@ -98,6 +105,7 @@ export interface FileRoutesByTo {
   '/dre': typeof AuthenticatedDreRoute
   '/home': typeof AuthenticatedHomeRoute
   '/importacao': typeof AuthenticatedImportacaoRoute
+  '/plano-acao': typeof AuthenticatedPlanoAcaoRoute
   '/ponto-equilibrio': typeof AuthenticatedPontoEquilibrioRoute
   '/receitas': typeof AuthenticatedReceitasRoute
 }
@@ -112,6 +120,7 @@ export interface FileRoutesById {
   '/_authenticated/dre': typeof AuthenticatedDreRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/importacao': typeof AuthenticatedImportacaoRoute
+  '/_authenticated/plano-acao': typeof AuthenticatedPlanoAcaoRoute
   '/_authenticated/ponto-equilibrio': typeof AuthenticatedPontoEquilibrioRoute
   '/_authenticated/receitas': typeof AuthenticatedReceitasRoute
 }
@@ -126,6 +135,7 @@ export interface FileRouteTypes {
     | '/dre'
     | '/home'
     | '/importacao'
+    | '/plano-acao'
     | '/ponto-equilibrio'
     | '/receitas'
   fileRoutesByTo: FileRoutesByTo
@@ -138,6 +148,7 @@ export interface FileRouteTypes {
     | '/dre'
     | '/home'
     | '/importacao'
+    | '/plano-acao'
     | '/ponto-equilibrio'
     | '/receitas'
   id:
@@ -151,6 +162,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dre'
     | '/_authenticated/home'
     | '/_authenticated/importacao'
+    | '/_authenticated/plano-acao'
     | '/_authenticated/ponto-equilibrio'
     | '/_authenticated/receitas'
   fileRoutesById: FileRoutesById
@@ -226,6 +238,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedImportacaoRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/plano-acao': {
+      id: '/_authenticated/plano-acao'
+      path: '/plano-acao'
+      fullPath: '/plano-acao'
+      preLoaderRoute: typeof AuthenticatedPlanoAcaoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/ponto-equilibrio': {
       id: '/_authenticated/ponto-equilibrio'
       path: '/ponto-equilibrio'
@@ -250,6 +269,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDreRoute: typeof AuthenticatedDreRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedImportacaoRoute: typeof AuthenticatedImportacaoRoute
+  AuthenticatedPlanoAcaoRoute: typeof AuthenticatedPlanoAcaoRoute
   AuthenticatedPontoEquilibrioRoute: typeof AuthenticatedPontoEquilibrioRoute
   AuthenticatedReceitasRoute: typeof AuthenticatedReceitasRoute
 }
@@ -261,6 +281,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDreRoute: AuthenticatedDreRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedImportacaoRoute: AuthenticatedImportacaoRoute,
+  AuthenticatedPlanoAcaoRoute: AuthenticatedPlanoAcaoRoute,
   AuthenticatedPontoEquilibrioRoute: AuthenticatedPontoEquilibrioRoute,
   AuthenticatedReceitasRoute: AuthenticatedReceitasRoute,
 }
