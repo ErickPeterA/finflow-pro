@@ -31,10 +31,10 @@ export function Kpi({
 }: {
   titulo: string;
   valor: number;
-  variacaoPct?: number | null;
-  anterior?: number;
-  tom?: Tom;
-  legenda?: string;
+  variacaoPct?: number | null | undefined;
+  anterior?: number | undefined;
+  tom?: Tom | undefined;
+  legenda?: string | undefined;
 }) {
   const sobe = (variacaoPct ?? 0) > 0;
   const desce = (variacaoPct ?? 0) < 0;
@@ -82,9 +82,9 @@ export function Bloco({
   className,
 }: {
   titulo: string;
-  acoes?: ReactNode;
+  acoes?: ReactNode | undefined;
   children: ReactNode;
-  className?: string;
+  className?: string | undefined;
 }) {
   return (
     <section className={cn("rounded-xl border bg-card shadow-card", className)}>
