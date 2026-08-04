@@ -106,7 +106,9 @@ function ImportacaoPage() {
           tipo,
           competencia,
           arquivo_nome: arquivo?.name ?? "arquivo",
-          total_linhas: previa.length,
+          total_registros: previa.length,
+          valor_total: totalPrevia,
+          duplicados: 0,
           status: "processando",
         })
         .select("id")
@@ -146,8 +148,8 @@ function ImportacaoPage() {
         .from("importacoes")
         .update({
           status: "concluida",
-          total_importados: inseridos,
-          total_duplicados: ignorados,
+          total_registros: inseridos,
+          duplicados: ignorados,
         })
         .eq("id", imp.id);
 
@@ -344,10 +346,10 @@ function ImportacaoPage() {
                             {String(i.competencia).slice(0, 4)}
                           </td>
                           <td className="tabular px-3 py-2 text-right">
-                            {Number(i.total_importados ?? 0)}
+                            {Number(i.total_registros ?? 0)}
                           </td>
                           <td className="tabular px-3 py-2 text-right text-muted-foreground">
-                            {Number(i.total_duplicados ?? 0)}
+                            {Number(i.duplicados ?? 0)}
                           </td>
                           <td className="px-5 py-2">
                             <span

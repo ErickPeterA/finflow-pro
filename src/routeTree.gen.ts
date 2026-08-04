@@ -16,6 +16,7 @@ import { Route as AuthenticatedCustosRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedDespesasRouteImport } from './routes/_authenticated/despesas'
 import { Route as AuthenticatedDreRouteImport } from './routes/_authenticated/dre'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
+import { Route as AuthenticatedImportacaoRouteImport } from './routes/_authenticated/importacao'
 import { Route as AuthenticatedReceitasRouteImport } from './routes/_authenticated/receitas'
 
 const IndexRoute = IndexRouteImport.update({
@@ -52,6 +53,11 @@ const AuthenticatedHomeRoute = AuthenticatedHomeRouteImport.update({
   path: '/home',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedImportacaoRoute = AuthenticatedImportacaoRouteImport.update({
+  id: '/importacao',
+  path: '/importacao',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedReceitasRoute = AuthenticatedReceitasRouteImport.update({
   id: '/receitas',
   path: '/receitas',
@@ -65,6 +71,7 @@ export interface FileRoutesByFullPath {
   '/despesas': typeof AuthenticatedDespesasRoute
   '/dre': typeof AuthenticatedDreRoute
   '/home': typeof AuthenticatedHomeRoute
+  '/importacao': typeof AuthenticatedImportacaoRoute
   '/receitas': typeof AuthenticatedReceitasRoute
 }
 export interface FileRoutesByTo {
@@ -74,6 +81,7 @@ export interface FileRoutesByTo {
   '/despesas': typeof AuthenticatedDespesasRoute
   '/dre': typeof AuthenticatedDreRoute
   '/home': typeof AuthenticatedHomeRoute
+  '/importacao': typeof AuthenticatedImportacaoRoute
   '/receitas': typeof AuthenticatedReceitasRoute
 }
 export interface FileRoutesById {
@@ -85,14 +93,30 @@ export interface FileRoutesById {
   '/_authenticated/despesas': typeof AuthenticatedDespesasRoute
   '/_authenticated/dre': typeof AuthenticatedDreRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
+  '/_authenticated/importacao': typeof AuthenticatedImportacaoRoute
   '/_authenticated/receitas': typeof AuthenticatedReceitasRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/auth' | '/custos' | '/despesas' | '/dre' | '/home' | '/receitas'
+    | '/'
+    | '/auth'
+    | '/custos'
+    | '/despesas'
+    | '/dre'
+    | '/home'
+    | '/importacao'
+    | '/receitas'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/custos' | '/despesas' | '/dre' | '/home' | '/receitas'
+  to:
+    | '/'
+    | '/auth'
+    | '/custos'
+    | '/despesas'
+    | '/dre'
+    | '/home'
+    | '/importacao'
+    | '/receitas'
   id:
     | '__root__'
     | '/'
@@ -102,6 +126,7 @@ export interface FileRouteTypes {
     | '/_authenticated/despesas'
     | '/_authenticated/dre'
     | '/_authenticated/home'
+    | '/_authenticated/importacao'
     | '/_authenticated/receitas'
   fileRoutesById: FileRoutesById
 }
@@ -162,6 +187,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedHomeRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/importacao': {
+      id: '/_authenticated/importacao'
+      path: '/importacao'
+      fullPath: '/importacao'
+      preLoaderRoute: typeof AuthenticatedImportacaoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/receitas': {
       id: '/_authenticated/receitas'
       path: '/receitas'
@@ -177,6 +209,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDespesasRoute: typeof AuthenticatedDespesasRoute
   AuthenticatedDreRoute: typeof AuthenticatedDreRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
+  AuthenticatedImportacaoRoute: typeof AuthenticatedImportacaoRoute
   AuthenticatedReceitasRoute: typeof AuthenticatedReceitasRoute
 }
 
@@ -185,6 +218,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDespesasRoute: AuthenticatedDespesasRoute,
   AuthenticatedDreRoute: AuthenticatedDreRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
+  AuthenticatedImportacaoRoute: AuthenticatedImportacaoRoute,
   AuthenticatedReceitasRoute: AuthenticatedReceitasRoute,
 }
 
