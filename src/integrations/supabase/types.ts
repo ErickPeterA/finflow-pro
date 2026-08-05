@@ -471,6 +471,57 @@ export type Database = {
         }
         Relationships: []
       }
+      projeto_usuarios: {
+        Row: {
+          ativo: boolean
+          cargo: string
+          created_at: string
+          created_by: string | null
+          empresa_id: string
+          id: string
+          perfil: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ativo?: boolean
+          cargo: string
+          created_at?: string
+          created_by?: string | null
+          empresa_id: string
+          id?: string
+          perfil: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ativo?: boolean
+          cargo?: string
+          created_at?: string
+          created_by?: string | null
+          empresa_id?: string
+          id?: string
+          perfil?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "projeto_usuarios_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projeto_usuarios_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       relatorios: {
         Row: {
           blocos: Json

@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { createServerFn, useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { BarChart3, LogIn, Shield, TrendingUp, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,39 +10,20 @@ import { Label } from "@/components/ui/label";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Acessar | Ecossistema Financeiro BPO" },
+      { title: "Acessar | VG Finance" },
       {
         name: "description",
-        content:
-          "Acesso restrito da equipe VG ao ecossistema de gestão financeira e DRE gerencial dos clientes de BPO.",
+        content: "Plataforma de gestão financeira e inteligência de negócios.",
       },
-      { property: "og:title", content: "Acessar | Ecossistema Financeiro BPO" },
+      { property: "og:title", content: "Acessar | VG Finance" },
       {
         property: "og:description",
-        content: "Área restrita da plataforma de BPO financeiro da VG.",
+        content: "Área restrita da plataforma de gestão financeira.",
       },
     ],
   }),
   component: AuthPage,
 });
-
-const criarUsuarioConfirmado = createServerFn({ method: "POST" })
-  .validator((data: { email: string; senha: string; nome: string }) => data)
-  .handler(async ({ data }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin.auth.admin.createUser({
-      email: data.email,
-      password: data.senha,
-      email_confirm: true,
-      user_metadata: { nome: data.nome },
-    });
-
-    if (error && !error.message.toLowerCase().includes("already")) {
-      throw error;
-    }
-
-    return { ok: true };
-  });
 
 function mensagemErroAutenticacao(err: unknown) {
   if (!(err instanceof Error)) return "Não foi possível autenticar.";
@@ -92,11 +73,8 @@ function criarEmailAutenticacao(valor: string) {
 
 function AuthPage() {
   const navigate = useNavigate();
-  const criarUsuario = useServerFn(criarUsuarioConfirmado);
-  const [modo, setModo] = useState<"entrar" | "criar">("entrar");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
-  const [nome, setNome] = useState("");
   const [carregando, setCarregando] = useState(false);
 
   useEffect(() => {
@@ -116,23 +94,12 @@ function AuthPage() {
 
     setCarregando(true);
     try {
-      if (modo === "entrar") {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: emailAutenticacao,
-          password: senha,
-        });
-        if (error) throw error;
-        navigate({ to: "/projetos", replace: true });
-      } else {
-        await criarUsuario({ data: { email: emailAutenticacao, senha, nome } });
-
-        const { error } = await supabase.auth.signInWithPassword({
-          email: emailAutenticacao,
-          password: senha,
-        });
-        if (error) throw error;
-        navigate({ to: "/projetos", replace: true });
-      }
+      const { error } = await supabase.auth.signInWithPassword({
+        email: emailAutenticacao,
+        password: senha,
+      });
+      if (error) throw error;
+      navigate({ to: "/projetos", replace: true });
     } catch (err) {
       toast.error(mensagemErroAutenticacao(err));
     } finally {
@@ -142,77 +109,109 @@ function AuthPage() {
 
   return (
     <main className="grid min-h-screen lg:grid-cols-2">
-      <section className="hidden flex-col justify-between bg-navy-deep p-12 text-navy-foreground lg:flex">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">
-          VG
+      <section className="bg-[#042558] px-7 py-8 text-white lg:min-h-screen lg:px-9 lg:py-9">
+        <div className="flex items-center justify-center ">
+          <img src="logobranca.png" alt="" className="h-20 w-auto object-contain" />
         </div>
-        <div>
-          <h2 className="max-w-md text-3xl font-semibold leading-tight">
-            Do relatório do NIBO ao relatório do cliente, em um único ecossistema.
-          </h2>
-          <p className="mt-4 max-w-md text-sm text-navy-foreground/70">
-            Importação, conferência, classificação, DRE gerencial por regime de caixa, análises
-            automáticas, plano de ação e relatório final.
-          </p>
-        </div>
-        <p className="text-xs text-navy-foreground/50">BPO Financeiro · VG</p>
-      </section>
 
-      <section className="flex items-center justify-center p-8">
-        <form onSubmit={enviar} className="w-full max-w-sm space-y-5">
+        <div className="mt-20 max-w-[56rem] space-y-8 lg:mt-[5.25rem]">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {modo === "entrar" ? "Acessar plataforma" : "Criar acesso"}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Área restrita da equipe de BPO financeiro.
+            <h2 className="text-3xl font-bold leading-tight">Inteligência financeira</h2>
+            <p className="mt-4 text-sm leading-relaxed text-white/70">
+              Automatize a gestão de contas a pagar e receber, acompanhe indicadores em tempo real
+              e tome decisões estratégicas com dados confiáveis para decisões mais ágeis.
             </p>
           </div>
 
-          {modo === "criar" && (
-            <div className="space-y-2">
-              <Label htmlFor="nome">Nome</Label>
-              <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} required />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded-lg bg-white/5 p-4">
+              <Wallet className="h-5 w-5 text-white/60" />
+              <p className="mt-2 text-xs font-medium text-white/70">Contas a Pagar</p>
             </div>
-          )}
+            <div className="rounded-lg bg-white/5 p-4">
+              <TrendingUp className="h-5 w-5 text-white/60" />
+              <p className="mt-2 text-xs font-medium text-white/70">Contas a Receber</p>
+            </div>
+            <div className="rounded-lg bg-white/5 p-4">
+              <BarChart3 className="h-5 w-5 text-white/60" />
+              <p className="mt-2 text-xs font-medium text-white/70">Relatórios e Gráficos</p>
+            </div>
+            <div className="rounded-lg bg-white/5 p-4">
+              <Shield className="h-5 w-5 text-white/60" />
+              <p className="mt-2 text-xs font-medium text-white/70">Dados Seguros</p>
+            </div>
+          </div>
+        </div>
+      </section>
 
-          <div className="space-y-2">
-            <Label htmlFor="email">E-mail fictício</Label>
-            <Input
-              id="email"
-              type="text"
-              placeholder="erick@vg ou erick@vg.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="username"
-              required
-            />
+      <section className="flex min-h-screen items-center justify-center bg-gray-50 p-8 lg:items-start lg:px-16 lg:pt-[13.25rem]">
+        <div className="w-full max-w-sm space-y-6">
+          <div className="flex items-center justify-center gap-2 lg:hidden">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#042558]">
+              <BarChart3 className="h-4 w-4 text-white" />
+            </div>
+            <span className="text-lg font-bold text-[#042558]">VG Finance</span>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="senha">Senha</Label>
-            <Input
-              id="senha"
-              type="password"
-              value={senha}
-              minLength={6}
-              onChange={(e) => setSenha(e.target.value)}
-              required
-            />
+          <div className="space-y-1 text-center lg:text-left">
+            <h1 className="text-2xl font-bold text-[#042558]">Acessar plataforma</h1>
+            <p className="text-sm text-gray-500">
+              Entre com suas credenciais para acessar o sistema.
+            </p>
           </div>
 
-          <Button type="submit" className="w-full" disabled={carregando}>
-            {carregando ? "Aguarde..." : modo === "entrar" ? "Entrar" : "Criar conta"}
-          </Button>
+          <form onSubmit={enviar} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+                E-mail
+              </Label>
+              <Input
+                id="email"
+                type="text"
+                placeholder="seu@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="username"
+                className="border-gray-200 focus:border-[#042558] focus:ring-[#042558]/20"
+                required
+              />
+            </div>
 
-          <button
-            type="button"
-            onClick={() => setModo(modo === "entrar" ? "criar" : "entrar")}
-            className="w-full text-center text-sm text-muted-foreground underline-offset-4 hover:underline"
-          >
-            {modo === "entrar" ? "Não tenho acesso ainda" : "Já tenho acesso"}
-          </button>
-        </form>
+            <div className="space-y-1.5">
+              <Label htmlFor="senha" className="text-sm font-medium text-gray-700">
+                Senha
+              </Label>
+              <Input
+                id="senha"
+                type="password"
+                value={senha}
+                minLength={6}
+                onChange={(e) => setSenha(e.target.value)}
+                placeholder="••••••••"
+                className="border-gray-200 focus:border-[#042558] focus:ring-[#042558]/20"
+                required
+              />
+            </div>
+
+            <Button
+              type="submit"
+              disabled={carregando}
+              className="w-full bg-[#042558] text-white transition-all hover:bg-[#042558]/90 hover:shadow-lg hover:shadow-[#042558]/20"
+            >
+              {carregando ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Aguarde...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <LogIn className="h-4 w-4" />
+                  Entrar
+                </span>
+              )}
+            </Button>
+          </form>
+        </div>
       </section>
     </main>
   );

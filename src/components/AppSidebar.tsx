@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
+  ChevronDown,
   FolderKanban,
-  ShieldCheck,
   LayoutDashboard,
   Upload,
   Table2,
@@ -12,6 +12,7 @@ import {
   Scale,
   ListChecks,
   FileText,
+  Menu,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -45,8 +46,14 @@ const itensEntrada = [
 const itemGerenciamento = {
   to: "/gerenciamento",
   label: "Gerenciamento",
-  icon: ShieldCheck,
+  icon: Menu,
 } as const;
+
+const subItensGerenciamento = [
+  { label: "Criar login", aba: "criar-login" },
+  { label: "Gerenciar usuários", aba: "gerenciar-usuarios" },
+  { label: "Atrelar usuários", aba: "atrelar-usuarios" },
+] as const;
 
 export function AppSidebar({
   colapsado,
@@ -56,10 +63,14 @@ export function AppSidebar({
   onToggle: () => void;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const abaGerenciamento = useRouterState({
+    select: (s) => String((s.location.search as { aba?: unknown }).aba ?? "criar-login"),
+  });
   const { data: cargo } = useMeuCargo();
   const estaNoProjeto = pathname !== "/projetos" && pathname !== "/gerenciamento";
   const itensBase = estaNoProjeto ? itensProjeto : itensEntrada;
   const itensVisiveis = cargo === "admin" ? [...itensBase, itemGerenciamento] : itensBase;
+  const gerenciamentoAberto = cargo === "admin" && pathname === "/gerenciamento";
 
   return (
     <aside
@@ -84,20 +95,56 @@ export function AppSidebar({
         {itensVisiveis.map((item) => {
           const ativo = pathname === item.to || pathname.startsWith(item.to + "/");
           return (
-            <Link
-              key={item.to}
-              to={item.to}
-              title={item.label}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
-                ativo
-                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-[inset_3px_0_0_0_var(--sidebar-primary)]"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+            <div key={item.to}>
+              <Link
+                to={item.to}
+                title={item.label}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
+                  ativo
+                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-[inset_3px_0_0_0_var(--sidebar-primary)]"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                )}
+              >
+                <item.icon className="h-[18px] w-[18px] shrink-0" />
+                {!colapsado && (
+                  <>
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {item.to === "/gerenciamento" && (
+                      <ChevronDown
+                        className={cn(
+                          "h-4 w-4 shrink-0 transition-transform",
+                          gerenciamentoAberto && "rotate-180",
+                        )}
+                      />
+                    )}
+                  </>
+                )}
+              </Link>
+
+              {item.to === "/gerenciamento" && gerenciamentoAberto && !colapsado && (
+                <div className="mt-1 space-y-1 border-l border-sidebar-border/70 pl-5">
+                  {subItensGerenciamento.map((subItem) => {
+                    const subAtivo = abaGerenciamento === subItem.aba;
+                    return (
+                      <Link
+                        key={subItem.aba}
+                        to="/gerenciamento"
+                        search={{ aba: subItem.aba }}
+                        className={cn(
+                          "block rounded-md px-3 py-2 text-xs transition-colors",
+                          subAtivo
+                            ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                            : "text-sidebar-foreground/60 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                        )}
+                      >
+                        {subItem.label}
+                      </Link>
+                    );
+                  })}
+                </div>
               )}
-            >
-              <item.icon className="h-[18px] w-[18px] shrink-0" />
-              {!colapsado && <span className="truncate">{item.label}</span>}
-            </Link>
+            </div>
           );
         })}
       </nav>
