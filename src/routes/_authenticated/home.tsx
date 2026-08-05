@@ -15,7 +15,7 @@ import { TopBar } from "@/components/TopBar";
 import { Bloco, Kpi, SemDados, SemEmpresa, type Tom } from "@/components/ui-blocos";
 import { useApp } from "@/lib/app-context";
 import { useCategorias, useConfiguracao, useEmpresas, useLancamentos, useMetas } from "@/lib/data";
-import { calcularDre, qualidadeResultado } from "@/lib/dre";
+import { calcularDre, qualidadeResultado, type ResultadoMes } from "@/lib/dre";
 import { calcularImpactos, gerarAlertas } from "@/lib/insights";
 import { brl, meses, pct, variacao } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -46,6 +46,24 @@ const qualidadeEstilo: Record<string, { classe: string; rotulo: string }> = {
   extraordinario: { classe: "bg-extra-soft text-extra", rotulo: "Extraordinário" },
 };
 
+function calcularMetricasHome(m: ResultadoMes): ResultadoMes {
+  const saidasOperacionais = m.deducoes + m.custos + m.despesas;
+  const resultadoOperacional = -saidasOperacionais;
+  const resultadoOpFin = resultadoOperacional + m.financeiro;
+  const resultadoLiquido = resultadoOpFin + m.naoOperacional;
+  const margemOperacional = m.receitaBruta ? (resultadoOperacional / m.receitaBruta) * 100 : 0;
+  const margemLiquida = m.receitaBruta ? (resultadoLiquido / m.receitaBruta) * 100 : 0;
+
+  return {
+    ...m,
+    resultadoOperacional,
+    resultadoOpFin,
+    resultadoLiquido,
+    margemOperacional,
+    margemLiquida,
+  };
+}
+
 function HomePage() {
   const { empresaId, ano, mes } = useApp();
   const { data: empresas = [] } = useEmpresas();
@@ -58,8 +76,11 @@ function HomePage() {
   const margemDesejada = Number(config?.margem_desejada ?? 15);
 
   const resultados = useMemo(() => calcularDre(lancamentos, categorias), [lancamentos, categorias]);
+  const resultadosHome = useMemo(() => resultados.map(calcularMetricasHome), [resultados]);
   const atual = resultados[mes]!;
   const anterior = mes > 0 ? resultados[mes - 1] : undefined;
+  const atualHome = resultadosHome[mes]!;
+  const anteriorHome = mes > 0 ? resultadosHome[mes - 1] : undefined;
 
   const metaReceita = useMemo(() => {
     const alvo = metas.find(
@@ -73,11 +94,11 @@ function HomePage() {
     [lancamentos, categorias, mes],
   );
   const alertas = useMemo(
-    () => gerarAlertas(resultados, lancamentos, categorias, mes, metaReceita, margemDesejada),
-    [resultados, lancamentos, categorias, mes, metaReceita, margemDesejada],
+    () => gerarAlertas(resultadosHome, lancamentos, categorias, mes, metaReceita, margemDesejada),
+    [resultadosHome, lancamentos, categorias, mes, metaReceita, margemDesejada],
   );
 
-  const qualidade = qualidadeResultado(atual, margemDesejada);
+  const qualidade = qualidadeResultado(atualHome, margemDesejada);
   const estilo = qualidadeEstilo[qualidade.nivel]!;
 
   const grafico = [
@@ -86,8 +107,8 @@ function HomePage() {
     { nome: "Despesas", valor: atual.despesas, cor: "var(--negative)" },
     {
       nome: "Resultado Op.",
-      valor: atual.resultadoOperacional,
-      cor: atual.resultadoOperacional >= 0 ? "var(--positive)" : "var(--negative)",
+      valor: atualHome.resultadoOperacional,
+      cor: atualHome.resultadoOperacional >= 0 ? "var(--positive)" : "var(--negative)",
     },
   ];
 
@@ -125,27 +146,27 @@ function HomePage() {
               />
               <Kpi
                 titulo="Resultado Operacional"
-                valor={atual.resultadoOperacional}
+                valor={atualHome.resultadoOperacional}
                 variacaoPct={variacao(
-                  atual.resultadoOperacional,
-                  anterior?.resultadoOperacional ?? 0,
+                  atualHome.resultadoOperacional,
+                  anteriorHome?.resultadoOperacional ?? 0,
                 )}
-                anterior={anterior?.resultadoOperacional}
-                tom={tom(atual.resultadoOperacional)}
+                anterior={anteriorHome?.resultadoOperacional}
+                tom={tom(atualHome.resultadoOperacional)}
               />
               <Kpi
                 titulo="Operacional + Financeiro"
-                valor={atual.resultadoOpFin}
-                variacaoPct={variacao(atual.resultadoOpFin, anterior?.resultadoOpFin ?? 0)}
-                anterior={anterior?.resultadoOpFin}
-                tom={tom(atual.resultadoOpFin)}
+                valor={atualHome.resultadoOpFin}
+                variacaoPct={variacao(atualHome.resultadoOpFin, anteriorHome?.resultadoOpFin ?? 0)}
+                anterior={anteriorHome?.resultadoOpFin}
+                tom={tom(atualHome.resultadoOpFin)}
               />
               <Kpi
                 titulo="Resultado Líquido"
-                valor={atual.resultadoLiquido}
-                variacaoPct={variacao(atual.resultadoLiquido, anterior?.resultadoLiquido ?? 0)}
-                anterior={anterior?.resultadoLiquido}
-                tom={tom(atual.resultadoLiquido)}
+                valor={atualHome.resultadoLiquido}
+                variacaoPct={variacao(atualHome.resultadoLiquido, anteriorHome?.resultadoLiquido ?? 0)}
+                anterior={anteriorHome?.resultadoLiquido}
+                tom={tom(atualHome.resultadoLiquido)}
               />
             </div>
 
@@ -165,8 +186,8 @@ function HomePage() {
                 <Operador icone="igual" />
                 <Etapa
                   rotulo="Resultado Operacional"
-                  valor={atual.resultadoOperacional}
-                  tom={tom(atual.resultadoOperacional)}
+                  valor={atualHome.resultadoOperacional}
+                  tom={tom(atualHome.resultadoOperacional)}
                   destaque
                 />
                 <Operador icone="mais" />
@@ -174,8 +195,8 @@ function HomePage() {
                 <Operador icone="igual" />
                 <Etapa
                   rotulo="Resultado Líquido"
-                  valor={atual.resultadoLiquido}
-                  tom={tom(atual.resultadoLiquido)}
+                  valor={atualHome.resultadoLiquido}
+                  tom={tom(atualHome.resultadoLiquido)}
                   destaque
                 />
               </div>
@@ -219,7 +240,7 @@ function HomePage() {
                   </ResponsiveContainer>
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Margem operacional do mês: {pct(atual.margemOperacional)}
+                  Margem operacional do mês: {pct(atualHome.margemOperacional)}
                 </p>
               </Bloco>
 
@@ -234,7 +255,7 @@ function HomePage() {
                 </span>
                 <p className="mt-3 text-sm text-muted-foreground">{qualidade.texto}</p>
                 <dl className="mt-4 space-y-2 text-sm">
-                  <Linha rotulo="Gerado pela operação" valor={atual.resultadoOperacional} />
+                  <Linha rotulo="Gerado pela operação" valor={atualHome.resultadoOperacional} />
                   <Linha rotulo="Resultado financeiro" valor={atual.financeiro} />
                   <Linha rotulo="Aportes e empréstimos" valor={atual.aportesEmprestimos} />
                   <Linha
@@ -242,7 +263,7 @@ function HomePage() {
                     valor={atual.naoOperacional - atual.aportesEmprestimos}
                   />
                   <div className="border-t pt-2">
-                    <Linha rotulo="Margem operacional" valor={atual.margemOperacional} percentual />
+                    <Linha rotulo="Margem operacional" valor={atualHome.margemOperacional} percentual />
                   </div>
                 </dl>
               </Bloco>

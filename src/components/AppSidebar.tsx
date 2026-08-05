@@ -26,7 +26,6 @@ const itemProjetos = {
 } as const;
 
 const itensProjeto = [
-  itemProjetos,
   { to: "/home", label: "Home", icon: LayoutDashboard },
   { to: "/importacao", label: "Importação NIBO", icon: Upload },
   { to: "/dre", label: "DRE Gerencial", icon: Table2 },
@@ -69,7 +68,8 @@ export function AppSidebar({
   const { data: cargo } = useMeuCargo();
   const estaNoProjeto = pathname !== "/projetos" && pathname !== "/gerenciamento";
   const itensBase = estaNoProjeto ? itensProjeto : itensEntrada;
-  const itensVisiveis = cargo === "admin" ? [...itensBase, itemGerenciamento] : itensBase;
+  const itensVisiveis =
+    cargo === "admin" && !estaNoProjeto ? [...itensBase, itemGerenciamento] : itensBase;
   const gerenciamentoAberto = cargo === "admin" && pathname === "/gerenciamento";
 
   return (

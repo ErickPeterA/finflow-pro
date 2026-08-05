@@ -100,6 +100,8 @@ export function grupoDoLancamento(l: Lancamento, categorias: Categoria[]): Grupo
   if (NAO_OPERACIONAL_TRATAMENTOS.includes(l.tratamento)) return "nao_operacional";
   if (FINANCEIRO_TRATAMENTOS.includes(l.tratamento)) return "financeiro";
   const cat = categorias.find((c) => c.id === l.categoria_id);
+  const grupoCodigo = grupoPorPrefixo(prefixoCategoria(l.categoria_nibo, cat?.nome));
+  if (grupoCodigo) return grupoCodigo;
   if (cat) return cat.grupo;
   return l.tipo === "recebida" ? "receita_operacional" : "despesas";
 }
@@ -108,6 +110,25 @@ export function nomeCategoria(l: Lancamento, categorias: Categoria[]): string {
   const cat = categorias.find((c) => c.id === l.categoria_id);
   if (cat) return cat.nome;
   return l.categoria_nibo?.trim() || "Não classificado";
+}
+
+function prefixoCategoria(...valores: Array<string | null | undefined>): string | null {
+  for (const valor of valores) {
+    const texto = String(valor ?? "").trim();
+    const prefixo = texto.match(/^(\d+)(?:[.\-\s]|$)/)?.[1];
+    if (prefixo) return prefixo;
+  }
+  return null;
+}
+
+function grupoPorPrefixo(prefixo: string | null): GrupoDre | null {
+  if (!prefixo) return null;
+  if (prefixo.startsWith("1")) return "receita_operacional";
+  if (prefixo.startsWith("2")) return "despesas";
+  if (prefixo.startsWith("3")) return "custos";
+  if (prefixo.startsWith("4")) return "financeiro";
+  if (prefixo.startsWith("5")) return "nao_operacional";
+  return null;
 }
 
 /** Valor com sinal para composição do resultado. */

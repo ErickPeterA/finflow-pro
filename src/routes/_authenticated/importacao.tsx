@@ -7,13 +7,6 @@ import { TopBar } from "@/components/TopBar";
 import { Bloco, SemDados, SemEmpresa } from "@/components/ui-blocos";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "@/lib/app-context";
 import { useImportacoes, useLancamentos, useMapeamentos } from "@/lib/data";
@@ -40,8 +33,6 @@ export const Route = createFileRoute("/_authenticated/importacao")({
   component: ImportacaoPage,
 });
 
-type Tipo = "recebida" | "paga";
-
 function ImportacaoPage() {
   const { empresaId, ano, mes } = useApp();
   const queryClient = useQueryClient();
@@ -49,7 +40,6 @@ function ImportacaoPage() {
   const { data: mapeamentos = [] } = useMapeamentos(empresaId);
   const { data: lancamentos = [] } = useLancamentos(empresaId, ano);
 
-  const [tipo, setTipo] = useState<Tipo>("recebida");
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [previa, setPrevia] = useState<LinhaImportada[]>([]);
   const [erros, setErros] = useState<string[]>([]);
@@ -57,15 +47,17 @@ function ImportacaoPage() {
   const [processando, setProcessando] = useState(false);
 
   const hashesExistentes = useMemo(
-    () => new Set(lancamentos.map((l) => `${l.tipo}|${l.data_efetiva}`)),
+    () => new Set(lancamentos.map((l) => l.hash)),
     [lancamentos],
   );
 
-  const duplicadas = previa.filter((l) =>
-    hashesExistentes.has(`${tipo}|${l.data_efetiva}`) ? false : false,
-  ).length;
+  const duplicadas = previa.filter((l) => hashesExistentes.has(l.hash)).length;
 
-  const totalPrevia = previa.reduce((s, l) => s + l.valor, 0);
+  const totalRecebidas = previa
+    .filter((l) => l.tipo === "recebida")
+    .reduce((s, l) => s + l.valor, 0);
+  const totalPagas = previa.filter((l) => l.tipo === "paga").reduce((s, l) => s + l.valor, 0);
+  const totalPrevia = totalRecebidas - totalPagas;
   const semCategoria = previa.filter((l) => !l.categoria_nibo).length;
 
   async function selecionar(file: File | null) {
@@ -76,7 +68,7 @@ function ImportacaoPage() {
     if (!file) return;
     setProcessando(true);
     try {
-      const r = await parseArquivoNibo(file, tipo);
+      const r = await parseArquivoNibo(file, competenciaDate(ano, mes));
       setPrevia(r.linhas);
       setErros(r.erros);
       setAvisos(r.avisos);
@@ -99,59 +91,70 @@ function ImportacaoPage() {
         ]),
       );
 
-      const { data: imp, error: erroImp } = await supabase
-        .from("importacoes")
-        .insert({
-          empresa_id: empresaId,
-          tipo,
-          competencia,
-          arquivo_nome: arquivo?.name ?? "arquivo",
-          total_registros: previa.length,
-          valor_total: totalPrevia,
-          duplicados: 0,
-          status: "processando",
-        })
-        .select("id")
-        .single();
-      if (erroImp) throw erroImp;
-
-      const registros = previa.map((l) => ({
-        empresa_id: empresaId,
-        importacao_id: imp.id,
-        tipo,
-        data_efetiva: l.data_efetiva,
-        competencia,
-        descricao: l.descricao,
-        categoria_nibo: l.categoria_nibo || null,
-        categoria_id: mapaCat.get(l.categoria_nibo.toLowerCase()) ?? null,
-        pessoa: l.pessoa || null,
-        centro_custo: l.centro_custo || null,
-        conta_bancaria: l.conta_bancaria || null,
-        valor: l.valor,
-        hash: l.hash,
-      }));
-
       let inseridos = 0;
       let ignorados = 0;
-      for (let i = 0; i < registros.length; i += 400) {
-        const lote = registros.slice(i, i + 400);
-        const { data, error } = await supabase
-          .from("lancamentos")
-          .upsert(lote, { onConflict: "empresa_id,hash", ignoreDuplicates: true })
-          .select("id");
-        if (error) throw error;
-        inseridos += data?.length ?? 0;
-        ignorados += lote.length - (data?.length ?? 0);
-      }
 
-      await supabase
-        .from("importacoes")
-        .update({
-          status: "concluida",
-          total_registros: inseridos,
-          duplicados: ignorados,
-        })
-        .eq("id", imp.id);
+      for (const tipoImportacao of ["recebida", "paga"] as const) {
+        const linhasTipo = previa.filter((l) => l.tipo === tipoImportacao);
+        if (!linhasTipo.length) continue;
+
+        const { data: imp, error: erroImp } = await supabase
+          .from("importacoes")
+          .insert({
+            empresa_id: empresaId,
+            tipo: tipoImportacao,
+            competencia,
+            arquivo_nome: arquivo?.name ?? "arquivo",
+            total_registros: linhasTipo.length,
+            valor_total: linhasTipo.reduce((s, l) => s + l.valor, 0),
+            duplicados: 0,
+            status: "processando",
+          })
+          .select("id")
+          .single();
+        if (erroImp) throw erroImp;
+
+        const registros = linhasTipo.map((l) => ({
+          empresa_id: empresaId,
+          importacao_id: imp.id,
+          tipo: l.tipo,
+          data_efetiva: l.data_efetiva,
+          competencia,
+          descricao: l.descricao,
+          categoria_nibo: l.categoria_nibo || null,
+          categoria_id: mapaCat.get(l.categoria_nibo.toLowerCase()) ?? null,
+          pessoa: l.pessoa || null,
+          centro_custo: l.centro_custo || null,
+          conta_bancaria: l.conta_bancaria || null,
+          valor: l.valor,
+          hash: l.hash,
+        }));
+
+        let inseridosTipo = 0;
+        let ignoradosTipo = 0;
+        for (let i = 0; i < registros.length; i += 400) {
+          const lote = registros.slice(i, i + 400);
+          const { data, error } = await supabase
+            .from("lancamentos")
+            .upsert(lote, { onConflict: "empresa_id,hash", ignoreDuplicates: true })
+            .select("id");
+          if (error) throw error;
+          inseridosTipo += data?.length ?? 0;
+          ignoradosTipo += lote.length - (data?.length ?? 0);
+        }
+
+        inseridos += inseridosTipo;
+        ignorados += ignoradosTipo;
+
+        await supabase
+          .from("importacoes")
+          .update({
+            status: "concluida",
+            total_registros: inseridosTipo,
+            duplicados: ignoradosTipo,
+          })
+          .eq("id", imp.id);
+      }
 
       return { inseridos, ignorados };
     },
@@ -182,31 +185,16 @@ function ImportacaoPage() {
               <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Tipo de relatório</Label>
-                    <Select
-                      value={tipo}
-                      onValueChange={(v) => {
-                        setTipo(v as Tipo);
-                        setPrevia([]);
-                        setArquivo(null);
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="recebida">Contas recebidas</SelectItem>
-                        <SelectItem value="paga">Contas pagas</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
                     <Label>Competência</Label>
                     <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
                       {meses[mes]} de {ano}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       Definida pelo seletor de período no topo da tela.
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      O tipo é identificado pelo código/tópico da categoria, pelo sinal do
+                      valor e pelo nome da aba. As datas da planilha são ignoradas.
                     </p>
                   </div>
                 </div>
@@ -271,12 +259,19 @@ function ImportacaoPage() {
                   </Button>
                 }
               >
-                <div className="grid gap-3 sm:grid-cols-4">
+                <div className="grid gap-3 sm:grid-cols-5">
                   <Resumo rotulo="Linhas válidas" valor={String(previa.length)} />
-                  <Resumo rotulo="Valor total" valor={brl(totalPrevia)} />
+                  <Resumo rotulo="Recebidas" valor={brl(totalRecebidas)} />
+                  <Resumo rotulo="Pagas" valor={brl(totalPagas)} />
+                  <Resumo rotulo="Saldo" valor={brl(totalPrevia)} />
                   <Resumo rotulo="Sem categoria NIBO" valor={String(semCategoria)} alerta={semCategoria > 0} />
-                  <Resumo rotulo="Duplicidades no arquivo" valor={String(duplicadas)} />
                 </div>
+                {duplicadas > 0 && (
+                  <p className="mt-3 flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    {duplicadas} lançamento(s) já existem no sistema e serão ignorados.
+                  </p>
+                )}
                 <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
                   <CheckCircle2 className="h-3.5 w-3.5 text-positive" />
                   Lançamentos já existentes são detectados pela chave única e ignorados
@@ -287,7 +282,8 @@ function ImportacaoPage() {
                   <table className="w-full min-w-[760px] text-sm">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                       <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
-                        <th className="px-5 py-2 text-left font-medium">Data</th>
+                        <th className="px-5 py-2 text-left font-medium">Competência</th>
+                        <th className="px-3 py-2 text-left font-medium">Tipo</th>
                         <th className="px-3 py-2 text-left font-medium">Descrição</th>
                         <th className="px-3 py-2 text-left font-medium">Pessoa</th>
                         <th className="px-3 py-2 text-left font-medium">Categoria NIBO</th>
@@ -298,6 +294,18 @@ function ImportacaoPage() {
                       {previa.slice(0, 200).map((l) => (
                         <tr key={l.hash} className="border-b">
                           <td className="px-5 py-2 text-muted-foreground">{dataBR(l.data_efetiva)}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={cn(
+                                "rounded px-2 py-0.5 text-xs font-medium",
+                                l.tipo === "recebida"
+                                  ? "bg-positive-soft text-positive"
+                                  : "bg-negative-soft text-negative",
+                              )}
+                            >
+                              {l.tipo === "recebida" ? "Recebida" : "Paga"}
+                            </span>
+                          </td>
                           <td className="max-w-[260px] truncate px-3 py-2">{l.descricao || "—"}</td>
                           <td className="max-w-[180px] truncate px-3 py-2 text-muted-foreground">
                             {l.pessoa || "—"}

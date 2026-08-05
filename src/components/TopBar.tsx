@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { LogOut, Search } from "lucide-react";
 import type { ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -34,14 +34,21 @@ export function TopBar({
   const { empresaId, setEmpresaId, ano, setAno, mes, setMes } = useApp();
   const { data: empresas = [] } = useEmpresas();
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const queryClient = useQueryClient();
   const anoAtual = new Date().getFullYear();
+  const estaNoProjeto = pathname !== "/projetos" && pathname !== "/gerenciamento";
 
   async function sair() {
     await queryClient.cancelQueries();
     queryClient.clear();
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
+  }
+
+  function voltarParaProjetos() {
+    setEmpresaId(null);
+    navigate({ to: "/projetos" });
   }
 
   return (
@@ -111,7 +118,13 @@ export function TopBar({
 
         {acoes}
 
-        <Button variant="ghost" size="icon" className="h-9 w-9" onClick={sair} title="Sair">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9"
+          onClick={estaNoProjeto ? voltarParaProjetos : sair}
+          title={estaNoProjeto ? "Voltar para Projetos" : "Sair"}
+        >
           <LogOut className="h-4 w-4" />
         </Button>
       </div>
