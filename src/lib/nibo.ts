@@ -5,6 +5,7 @@ export type TipoLancamento = "recebida" | "paga";
 export interface LinhaImportada {
   tipo: TipoLancamento;
   data_efetiva: string;
+  competencia: string;
   descricao: string;
   categoria_nibo: string;
   pessoa: string;
@@ -206,6 +207,10 @@ function parseData(v: unknown): string | null {
   return null;
 }
 
+function competenciaDaData(data: string): string {
+  return `${data.slice(0, 7)}-01`;
+}
+
 function pontuar(contexto: string, termos: string[]): number {
   return termos.reduce((total, termo) => total + (contexto.includes(normalizar(termo)) ? 1 : 0), 0);
 }
@@ -253,6 +258,7 @@ function gerarHash(linha: Omit<LinhaImportada, "hash">, origem: string): string 
     normalizar(linha.descricao),
     normalizar(linha.pessoa),
     normalizar(linha.categoria_nibo),
+    normalizar(linha.centro_custo),
   ].join("|");
 }
 
@@ -286,6 +292,7 @@ export async function parseArquivoNibo(
     const colunas = Object.keys(bruto[0] ?? {});
     colunas.forEach((coluna) => colunasArquivo.add(coluna));
 
+    const colData = acharColuna(colunas, "data");
     const colValor = acharColuna(colunas, "valor");
     const colDesc = acharColuna(colunas, "descricao");
     const colCat = acharColuna(colunas, "categoria");
@@ -301,9 +308,15 @@ export async function parseArquivoNibo(
     if (!colCat) {
       avisos.push(`Aba "${nomeAba}": coluna de categoria não encontrada.`);
     }
+    if (!colData) {
+      avisos.push(
+        `Aba "${nomeAba}": coluna de data não encontrada; usando a competência selecionada.`,
+      );
+    }
 
     abasLidas += 1;
     const tipoContexto = inferirTipoDaAba(nomeAba, colunas, "recebida");
+    let datasInvalidas = 0;
 
     bruto.forEach((row, index) => {
       const valorAssinado = parseValor(row[colValor]);
@@ -311,10 +324,13 @@ export async function parseArquivoNibo(
       if (!valorAssinado) return;
       const codigo_nibo = String(colCodigo ? (row[colCodigo] ?? "") : "").trim();
       const categoria = String(colCat ? (row[colCat] ?? "") : "").trim();
+      const dataEfetiva = colData ? parseData(row[colData]) : null;
+      if (colData && !dataEfetiva) datasInvalidas += 1;
 
       candidatas.push({
         tipoContexto,
-        data_efetiva: dataPadrao,
+        data_efetiva: dataEfetiva ?? dataPadrao,
+        competencia: competenciaDaData(dataEfetiva ?? dataPadrao),
         descricao: String(colDesc ? (row[colDesc] ?? "") : "").trim(),
         categoria_nibo: combinarCodigoCategoria(codigo_nibo, categoria),
         codigo_nibo,
@@ -325,10 +341,15 @@ export async function parseArquivoNibo(
         origem: `${nomeAba}:${index + 2}`,
       });
     });
+
+    if (datasInvalidas) {
+      avisos.push(
+        `Aba "${nomeAba}": ${datasInvalidas} linha(s) sem data válida usaram a competência selecionada.`,
+      );
+    }
   }
 
   if (abasLidas > 1) avisos.push(`Foram lidas ${abasLidas} abas do arquivo.`);
-  avisos.push("Datas da planilha ignoradas: todos os lançamentos usam a competência selecionada.");
 
   if (!candidatas.length) {
     const mensagem = abasLidas
@@ -348,19 +369,24 @@ export async function parseArquivoNibo(
     );
   }
 
-  let classificadasPorCodigo = 0;
+  let divergenciasSinalCategoria = 0;
 
   const linhas = candidatas.map((linha) => {
     const tipoPorCodigo = inferirTipoPorCodigo(linha.codigo_nibo, linha.categoria_nibo);
-    const tipoLinha: TipoLancamento =
-      tipoPorCodigo ??
-      (linha.valorAssinado < 0 ? "paga" : arquivoMisto ? "recebida" : linha.tipoContexto);
+    const tipoPorSinal: TipoLancamento = linha.valorAssinado < 0 ? "paga" : "recebida";
+    const tipoLinha: TipoLancamento = tipoPorSinal;
 
-    if (tipoPorCodigo) classificadasPorCodigo += 1;
+    if (
+      (tipoPorCodigo && tipoPorCodigo !== tipoPorSinal) ||
+      (!tipoPorCodigo && linha.tipoContexto !== tipoPorSinal)
+    ) {
+      divergenciasSinalCategoria += 1;
+    }
 
     const normalizada: Omit<LinhaImportada, "hash"> = {
       tipo: tipoLinha,
       data_efetiva: linha.data_efetiva,
+      competencia: linha.competencia,
       descricao: linha.descricao,
       categoria_nibo: linha.categoria_nibo,
       pessoa: linha.pessoa,
@@ -372,9 +398,9 @@ export async function parseArquivoNibo(
     return { ...normalizada, hash: gerarHash(normalizada, linha.origem) };
   });
 
-  if (classificadasPorCodigo) {
+  if (divergenciasSinalCategoria) {
     avisos.push(
-      `${classificadasPorCodigo} linha(s) classificada(s) pelo código/tópico da categoria.`,
+      `${divergenciasSinalCategoria} linha(s) tinham categoria/aba divergente, mas o sinal do valor foi priorizado.`,
     );
   }
 

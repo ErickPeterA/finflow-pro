@@ -1,12 +1,7 @@
 import { mesesCurtos } from "./format";
 
 export type GrupoDre =
-  | "receita_operacional"
-  | "deducoes"
-  | "custos"
-  | "despesas"
-  | "financeiro"
-  | "nao_operacional";
+  "receita_operacional" | "deducoes" | "custos" | "despesas" | "financeiro" | "nao_operacional";
 
 export type Tratamento =
   | "operacional"
@@ -43,11 +38,11 @@ export const tratamentoLabels: Record<Tratamento, string> = {
 
 export const grupoLabels: Record<GrupoDre, string> = {
   receita_operacional: "Receita Operacional",
-  deducoes: "Deduções",
-  custos: "Custos",
-  despesas: "Despesas",
-  financeiro: "Financeiro",
-  nao_operacional: "Não Operacional",
+  deducoes: "Dedução da Receita Bruta",
+  custos: "Custos Operacionais",
+  despesas: "Despesas Operacionais",
+  financeiro: "Atividade de Investimento",
+  nao_operacional: "Atividade de Financiamento",
 };
 
 export const FINANCEIRO_TRATAMENTOS: Tratamento[] = [
@@ -124,8 +119,8 @@ function prefixoCategoria(...valores: Array<string | null | undefined>): string 
 function grupoPorPrefixo(prefixo: string | null): GrupoDre | null {
   if (!prefixo) return null;
   if (prefixo.startsWith("1")) return "receita_operacional";
-  if (prefixo.startsWith("2")) return "despesas";
-  if (prefixo.startsWith("3")) return "custos";
+  if (prefixo.startsWith("2")) return "custos";
+  if (prefixo.startsWith("3")) return "despesas";
   if (prefixo.startsWith("4")) return "financeiro";
   if (prefixo.startsWith("5")) return "nao_operacional";
   return null;
@@ -134,16 +129,7 @@ function grupoPorPrefixo(prefixo: string | null): GrupoDre | null {
 /** Valor com sinal para composição do resultado. */
 export function valorAssinado(grupo: GrupoDre, l: Lancamento): number {
   const v = Math.abs(Number(l.valor) || 0);
-  switch (grupo) {
-    case "receita_operacional":
-      return v;
-    case "deducoes":
-    case "custos":
-    case "despesas":
-      return -v;
-    default:
-      return l.tipo === "recebida" ? v : -v;
-  }
+  return l.tipo === "recebida" ? v : -v;
 }
 
 export interface ResultadoMes {
@@ -191,10 +177,7 @@ export function mesDaCompetencia(competencia: string): number {
 }
 
 /** Calcula o DRE gerencial (regime de caixa) para os 12 meses do ano. */
-export function calcularDre(
-  lancamentos: Lancamento[],
-  categorias: Categoria[],
-): ResultadoMes[] {
+export function calcularDre(lancamentos: Lancamento[], categorias: Categoria[]): ResultadoMes[] {
   const meses = Array.from({ length: 12 }, (_, i) => vazio(i));
 
   for (const l of lancamentos) {
@@ -210,13 +193,13 @@ export function calcularDre(
         m.receitaBruta += v;
         break;
       case "deducoes":
-        m.deducoes += Math.abs(v);
+        m.deducoes += -v;
         break;
       case "custos":
-        m.custos += Math.abs(v);
+        m.custos += -v;
         break;
       case "despesas":
-        m.despesas += Math.abs(v);
+        m.despesas += -v;
         break;
       case "financeiro":
         m.financeiro += v;
@@ -231,16 +214,15 @@ export function calcularDre(
   }
 
   for (const m of meses) {
+    const receitaBase = m.receitaBruta;
     m.receitaLiquida = m.receitaBruta - m.deducoes;
     m.resultadoBruto = m.receitaLiquida - m.custos;
     m.resultadoOperacional = m.resultadoBruto - m.despesas;
     m.resultadoOpFin = m.resultadoOperacional + m.financeiro;
     m.resultadoLiquido = m.resultadoOpFin + m.naoOperacional;
-    m.margemBruta = m.receitaLiquida ? (m.resultadoBruto / m.receitaLiquida) * 100 : 0;
-    m.margemOperacional = m.receitaLiquida
-      ? (m.resultadoOperacional / m.receitaLiquida) * 100
-      : 0;
-    m.margemLiquida = m.receitaLiquida ? (m.resultadoLiquido / m.receitaLiquida) * 100 : 0;
+    m.margemBruta = receitaBase ? (m.resultadoBruto / receitaBase) * 100 : 0;
+    m.margemOperacional = receitaBase ? (m.resultadoOperacional / receitaBase) * 100 : 0;
+    m.margemLiquida = receitaBase ? (m.resultadoLiquido / receitaBase) * 100 : 0;
   }
 
   return meses;
@@ -276,6 +258,10 @@ export interface LinhaCategoria {
   valores: number[];
 }
 
+export interface LinhaCentroCategoria extends LinhaCategoria {
+  centroCusto: string;
+}
+
 /** Agrega valores absolutos por categoria e mês, dentro de um grupo. */
 export function agregarPorCategoria(
   lancamentos: Lancamento[],
@@ -300,16 +286,45 @@ export function agregarPorCategoria(
     const linha = mapa.get(key)!;
     const idx = mesDaCompetencia(l.competencia);
     if (idx >= 0 && idx < 12) {
-      const sinal =
-        grupo === "financeiro" || grupo === "nao_operacional"
-          ? l.tipo === "recebida"
-            ? 1
-            : -1
-          : 1;
-      linha.valores[idx] = (linha.valores[idx] ?? 0) + Math.abs(Number(l.valor) || 0) * sinal;
+      linha.valores[idx] = (linha.valores[idx] ?? 0) + valorAssinado(grupo, l);
     }
   }
   return [...mapa.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
+export function agregarPorCentroCategoria(
+  lancamentos: Lancamento[],
+  categorias: Categoria[],
+): LinhaCentroCategoria[] {
+  const mapa = new Map<string, LinhaCentroCategoria>();
+  for (const l of lancamentos) {
+    const grupo = grupoDoLancamento(l, categorias);
+    const cat = categorias.find((c) => c.id === l.categoria_id);
+    const nome = nomeCategoria(l, categorias);
+    const centroCusto = l.centro_custo?.trim() || "Sem centro de custo";
+    const key = `${grupo}::${centroCusto}::${nome}`;
+    if (!mapa.has(key)) {
+      mapa.set(key, {
+        categoriaId: cat?.id ?? null,
+        nome,
+        grupo,
+        centroCusto,
+        classificacao: cat?.classificacao ?? "variavel",
+        recorrente: cat ? cat.recorrente : !l.nao_recorrente,
+        valores: Array(12).fill(0),
+      });
+    }
+    const linha = mapa.get(key)!;
+    const idx = mesDaCompetencia(l.competencia);
+    if (idx >= 0 && idx < 12) {
+      linha.valores[idx] = (linha.valores[idx] ?? 0) + valorAssinado(grupo, l);
+    }
+  }
+  return [...mapa.values()].sort((a, b) => {
+    const centro = a.centroCusto.localeCompare(b.centroCusto, "pt-BR");
+    if (centro !== 0) return centro;
+    return a.nome.localeCompare(b.nome, "pt-BR");
+  });
 }
 
 export function serieMensal(resultados: ResultadoMes[], ateMes: number) {
@@ -317,6 +332,7 @@ export function serieMensal(resultados: ResultadoMes[], ateMes: number) {
     .filter((m) => m.mes <= ateMes)
     .map((m) => ({
       mes: mesesCurtos[m.mes],
+      receita: m.receitaBruta,
       receitaLiquida: m.receitaLiquida,
       custos: m.custos,
       despesas: m.despesas,
@@ -329,7 +345,10 @@ export function serieMensal(resultados: ResultadoMes[], ateMes: number) {
 
 export type Qualidade = "saudavel" | "atencao" | "critico" | "extraordinario";
 
-export function qualidadeResultado(m: ResultadoMes, margemDesejada = 15): {
+export function qualidadeResultado(
+  m: ResultadoMes,
+  margemDesejada = 15,
+): {
   nivel: Qualidade;
   texto: string;
 } {

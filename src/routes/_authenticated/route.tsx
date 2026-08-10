@@ -34,9 +34,10 @@ function Layout() {
 
   return (
     <AppProvider>
-      <div className="flex min-h-screen w-full bg-background">
+      <div className="flex min-h-screen w-full bg-sidebar">
         <AppSidebar colapsado={colapsado} onToggle={() => setColapsado((c) => !c)} />
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="w-3 shrink-0 bg-sidebar shadow-[inset_-1px_0_0_rgba(255,255,255,0.22)]" />
+        <div className="flex min-w-0 flex-1 flex-col bg-[linear-gradient(180deg,#08245a_0%,#0f3f86_42%,#0f3f86_100%)]">
           <Outlet />
         </div>
       </div>

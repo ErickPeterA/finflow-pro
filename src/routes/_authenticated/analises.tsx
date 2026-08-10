@@ -55,7 +55,7 @@ function AnalisesPage() {
   );
 
   const comMovimento = resultados.filter((m) => m.temMovimento);
-  const receitaMedia = mediaFechados(resultados, (m) => m.receitaLiquida);
+  const receitaMedia = mediaFechados(resultados, (m) => m.receitaBruta);
   const resultadoMedio = mediaFechados(resultados, (m) => m.resultadoOperacional);
   const margemMedia = mediaFechados(resultados, (m) => m.margemOperacional);
 
@@ -68,9 +68,7 @@ function AnalisesPage() {
     const vals = comMovimento.map((m) => m.resultadoOperacional);
     if (vals.length < 2) return 0;
     const media = vals.reduce((s, v) => s + v, 0) / vals.length;
-    const desvio = Math.sqrt(
-      vals.reduce((s, v) => s + (v - media) ** 2, 0) / vals.length,
-    );
+    const desvio = Math.sqrt(vals.reduce((s, v) => s + (v - media) ** 2, 0) / vals.length);
     return media !== 0 ? (desvio / Math.abs(media)) * 100 : 0;
   }, [comMovimento]);
 
@@ -133,8 +131,8 @@ function AnalisesPage() {
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Bar
                       yAxisId="esq"
-                      dataKey="receitaLiquida"
-                      name="Receita Líquida"
+                      dataKey="receita"
+                      name="Receita"
                       fill="var(--info)"
                       radius={[4, 4, 0, 0]}
                     />
@@ -162,14 +160,11 @@ function AnalisesPage() {
             <div className="grid gap-5 xl:grid-cols-3">
               <Bloco titulo="Médias do exercício" className="xl:col-span-1">
                 <dl className="space-y-3 text-sm">
-                  <Item rotulo="Receita líquida média" valor={brl(receitaMedia)} />
+                  <Item rotulo="Receita média" valor={brl(receitaMedia)} />
                   <Item rotulo="Resultado operacional médio" valor={brl(resultadoMedio)} />
                   <Item rotulo="Margem operacional média" valor={pct(margemMedia)} />
                   <Item rotulo="Margem desejada" valor={pct(margemDesejada)} />
-                  <Item
-                    rotulo="Meses com movimento"
-                    valor={`${comMovimento.length} de 12`}
-                  />
+                  <Item rotulo="Meses com movimento" valor={`${comMovimento.length} de 12`} />
                   <Item
                     rotulo="Volatilidade do resultado"
                     valor={pct(volatilidade)}
@@ -195,7 +190,11 @@ function AnalisesPage() {
                             .reduce((s, x) => s + x.resultadoOperacional, 0),
                         }))}
                     >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="var(--border)"
+                      />
                       <XAxis dataKey="mes" tickLine={false} axisLine={false} fontSize={12} />
                       <YAxis
                         tickFormatter={(v) => brl(Number(v), true)}

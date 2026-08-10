@@ -1,10 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type DragEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileSpreadsheet, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/TopBar";
 import { Bloco, SemDados, SemEmpresa } from "@/components/ui-blocos";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
@@ -40,16 +51,15 @@ function ImportacaoPage() {
   const { data: mapeamentos = [] } = useMapeamentos(empresaId);
   const { data: lancamentos = [] } = useLancamentos(empresaId, ano);
 
-  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [arquivos, setArquivos] = useState<File[]>([]);
   const [previa, setPrevia] = useState<LinhaImportada[]>([]);
   const [erros, setErros] = useState<string[]>([]);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [processando, setProcessando] = useState(false);
+  const [excluindoId, setExcluindoId] = useState<string | null>(null);
+  const [arrastando, setArrastando] = useState(false);
 
-  const hashesExistentes = useMemo(
-    () => new Set(lancamentos.map((l) => l.hash)),
-    [lancamentos],
-  );
+  const hashesExistentes = useMemo(() => new Set(lancamentos.map((l) => l.hash)), [lancamentos]);
 
   const duplicadas = previa.filter((l) => hashesExistentes.has(l.hash)).length;
 
@@ -59,9 +69,23 @@ function ImportacaoPage() {
   const totalPagas = previa.filter((l) => l.tipo === "paga").reduce((s, l) => s + l.valor, 0);
   const totalPrevia = totalRecebidas - totalPagas;
   const semCategoria = previa.filter((l) => !l.categoria_nibo).length;
+  const competenciasPrevia = useMemo(
+    () => Array.from(new Set(previa.map((l) => l.competencia))).sort(),
+    [previa],
+  );
+  const anosPrevia = useMemo(
+    () => Array.from(new Set(competenciasPrevia.map((c) => c.slice(0, 4)))).sort(),
+    [competenciasPrevia],
+  );
+  const nomesArquivos = useMemo(() => {
+    if (!arquivos.length) return "";
+    if (arquivos.length === 1) return arquivos[0]?.name ?? "";
+    return `${arquivos.length} arquivos: ${arquivos.map((f) => f.name).join(", ")}`;
+  }, [arquivos]);
+  const nomeImportacao = nomesArquivos || "arquivo";
 
   async function selecionar(file: File | null) {
-    setArquivo(file);
+    setArquivos(file ? [file] : []);
     setPrevia([]);
     setErros([]);
     setAvisos([]);
@@ -80,10 +104,61 @@ function ImportacaoPage() {
     }
   }
 
+  function arquivoAceito(file: File) {
+    return /\.(xlsx|xls|csv)$/i.test(file.name);
+  }
+
+  async function selecionarArquivos(lista: File[]) {
+    const arquivosValidos = lista.filter(arquivoAceito);
+    const rejeitados = lista.length - arquivosValidos.length;
+
+    setArquivos(arquivosValidos);
+    setPrevia([]);
+    setErros([]);
+    setAvisos([]);
+
+    if (rejeitados) {
+      toast.error("Alguns arquivos foram ignorados. Use apenas Excel (.xlsx, .xls) ou CSV.");
+    }
+    if (!arquivosValidos.length) return;
+
+    setProcessando(true);
+    try {
+      const resultados = await Promise.all(
+        arquivosValidos.map(async (file) => ({
+          file,
+          resultado: await parseArquivoNibo(file, competenciaDate(ano, mes)),
+        })),
+      );
+      const linhas = resultados.flatMap((item) => item.resultado.linhas);
+      const errosArquivos = resultados.flatMap((item) =>
+        item.resultado.erros.map((erro) => `${item.file.name}: ${erro}`),
+      );
+      const avisosArquivos = resultados.flatMap((item) =>
+        item.resultado.avisos.map((aviso) => `${item.file.name}: ${aviso}`),
+      );
+
+      setPrevia(linhas);
+      setErros(errosArquivos);
+      setAvisos(avisosArquivos);
+      if (linhas.length) toast.success(`${linhas.length} lançamento(s) prontos para importar.`);
+    } catch {
+      setErros(["Não foi possível ler o arquivo. Verifique se é um Excel ou CSV do NIBO."]);
+    } finally {
+      setProcessando(false);
+    }
+  }
+
+  function aoSoltar(e: DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setArrastando(false);
+    selecionarArquivos(Array.from(e.dataTransfer.files));
+  }
+
   const importar = useMutation({
     mutationFn: async () => {
       if (!empresaId) throw new Error("Selecione uma empresa.");
-      const competencia = competenciaDate(ano, mes);
       const mapaCat = new Map(
         mapeamentos.map((m) => [
           String(m.categoria_nibo).toLowerCase(),
@@ -93,10 +168,19 @@ function ImportacaoPage() {
 
       let inseridos = 0;
       let ignorados = 0;
+      const grupos = new Map<string, LinhaImportada[]>();
 
-      for (const tipoImportacao of ["recebida", "paga"] as const) {
-        const linhasTipo = previa.filter((l) => l.tipo === tipoImportacao);
+      for (const linha of previa) {
+        const chave = `${linha.tipo}::${linha.competencia}`;
+        grupos.set(chave, [...(grupos.get(chave) ?? []), linha]);
+      }
+
+      for (const [chave, linhasTipo] of grupos) {
         if (!linhasTipo.length) continue;
+        const [tipoImportacao, competencia] = chave.split("::") as [
+          LinhaImportada["tipo"],
+          string,
+        ];
 
         const { data: imp, error: erroImp } = await supabase
           .from("importacoes")
@@ -104,7 +188,7 @@ function ImportacaoPage() {
             empresa_id: empresaId,
             tipo: tipoImportacao,
             competencia,
-            arquivo_nome: arquivo?.name ?? "arquivo",
+            arquivo_nome: nomeImportacao,
             total_registros: linhasTipo.length,
             valor_total: linhasTipo.reduce((s, l) => s + l.valor, 0),
             duplicados: 0,
@@ -119,7 +203,7 @@ function ImportacaoPage() {
           importacao_id: imp.id,
           tipo: l.tipo,
           data_efetiva: l.data_efetiva,
-          competencia,
+          competencia: l.competencia,
           descricao: l.descricao,
           categoria_nibo: l.categoria_nibo || null,
           categoria_id: mapaCat.get(l.categoria_nibo.toLowerCase()) ?? null,
@@ -163,19 +247,38 @@ function ImportacaoPage() {
         `${inseridos} lançamento(s) importado(s).${ignorados ? ` ${ignorados} duplicado(s) ignorado(s).` : ""}`,
       );
       setPrevia([]);
-      setArquivo(null);
+      setArquivos([]);
       queryClient.invalidateQueries({ queryKey: ["lancamentos"] });
       queryClient.invalidateQueries({ queryKey: ["importacoes"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao importar."),
   });
 
+  const excluirImportacao = useMutation({
+    mutationFn: async (importacaoId: string) => {
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+
+      const { error } = await supabase
+        .from("importacoes")
+        .delete()
+        .eq("id", importacaoId)
+        .eq("empresa_id", empresaId);
+
+      if (error) throw error;
+    },
+    onMutate: (importacaoId) => setExcluindoId(importacaoId),
+    onSuccess: () => {
+      toast.success("Importação excluída. Os lançamentos desse arquivo foram removidos.");
+      queryClient.invalidateQueries({ queryKey: ["importacoes"] });
+      queryClient.invalidateQueries({ queryKey: ["lancamentos"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao excluir a importação."),
+    onSettled: () => setExcluindoId(null),
+  });
+
   return (
     <>
-      <TopBar
-        titulo="Importação NIBO"
-        descricao="Contas recebidas e pagas · regime de caixa"
-      />
+      <TopBar titulo="Importação NIBO" descricao="Contas recebidas e pagas · regime de caixa" />
       <main className="space-y-5 p-6">
         {!empresaId ? (
           <SemEmpresa />
@@ -187,34 +290,53 @@ function ImportacaoPage() {
                   <div className="space-y-2">
                     <Label>Competência</Label>
                     <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-                      {meses[mes]} de {ano}
+                      Reconhecida pela data da planilha
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Definida pelo seletor de período no topo da tela.
+                      Se a planilha tiver um ano inteiro, cada linha entra no mês e ano da própria
+                      data do NIBO.
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      O tipo é identificado pelo código/tópico da categoria, pelo sinal do
-                      valor e pelo nome da aba. As datas da planilha são ignoradas.
+                      O tipo é identificado primeiro pelo sinal do valor, e só usa categoria/aba
+                      como referência. Se alguma linha vier sem data válida, ela usa o período
+                      selecionado no topo como fallback.
                     </p>
                   </div>
                 </div>
 
                 <div>
                   <label
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      setArrastando(true);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "copy";
+                      setArrastando(true);
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                        setArrastando(false);
+                      }
+                    }}
+                    onDrop={aoSoltar}
                     className={cn(
                       "flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors hover:border-info hover:bg-info-soft/40",
-                      arquivo && "border-info bg-info-soft/30",
+                      arquivos.length > 0 && "border-info bg-info-soft/30",
+                      arrastando && "border-info bg-info-soft/60 ring-2 ring-info/20",
                     )}
                   >
                     <input
                       type="file"
                       accept=".xlsx,.xls,.csv"
+                      multiple
                       className="hidden"
-                      onChange={(e) => selecionar(e.target.files?.[0] ?? null)}
+                      onChange={(e) => selecionarArquivos(Array.from(e.target.files ?? []))}
                     />
                     <FileSpreadsheet className="h-8 w-8 text-info" />
                     <p className="mt-3 text-sm font-medium">
-                      {arquivo ? arquivo.name : "Selecione o arquivo exportado do NIBO"}
+                      {nomesArquivos || "Arraste e solte as planilhas do NIBO aqui"}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Excel (.xlsx, .xls) ou CSV · colunas reconhecidas automaticamente
@@ -249,23 +371,33 @@ function ImportacaoPage() {
               <Bloco
                 titulo="Conferência antes de importar"
                 acoes={
-                  <Button
-                    size="sm"
-                    onClick={() => importar.mutate()}
-                    disabled={importar.isPending}
-                  >
+                  <Button size="sm" onClick={() => importar.mutate()} disabled={importar.isPending}>
                     <Upload className="mr-2 h-4 w-4" />
                     {importar.isPending ? "Importando..." : `Importar ${previa.length}`}
                   </Button>
                 }
               >
-                <div className="grid gap-3 sm:grid-cols-5">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
                   <Resumo rotulo="Linhas válidas" valor={String(previa.length)} />
                   <Resumo rotulo="Recebidas" valor={brl(totalRecebidas)} />
                   <Resumo rotulo="Pagas" valor={brl(totalPagas)} />
                   <Resumo rotulo="Saldo" valor={brl(totalPrevia)} />
-                  <Resumo rotulo="Sem categoria NIBO" valor={String(semCategoria)} alerta={semCategoria > 0} />
+                  <Resumo rotulo="Competências" valor={`${competenciasPrevia.length} mês(es)`} />
+                  <Resumo
+                    rotulo="Sem categoria"
+                    valor={String(semCategoria)}
+                    alerta={semCategoria > 0}
+                  />
                 </div>
+                {competenciasPrevia.length > 0 && (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Período detectado: {meses[Number(competenciasPrevia[0]?.slice(5, 7)) - 1]}/
+                    {competenciasPrevia[0]?.slice(0, 4)} até{" "}
+                    {meses[Number(competenciasPrevia.at(-1)?.slice(5, 7)) - 1]}/
+                    {competenciasPrevia.at(-1)?.slice(0, 4)}
+                    {anosPrevia.length > 1 ? ` · ${anosPrevia.length} anos` : ""}
+                  </p>
+                )}
                 {duplicadas > 0 && (
                   <p className="mt-3 flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -279,10 +411,11 @@ function ImportacaoPage() {
                 </p>
 
                 <div className="-mx-5 mt-4 max-h-96 overflow-auto border-t">
-                  <table className="w-full min-w-[760px] text-sm">
+                  <table className="w-full min-w-[840px] text-sm">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                       <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
-                        <th className="px-5 py-2 text-left font-medium">Competência</th>
+                        <th className="px-5 py-2 text-left font-medium">Data</th>
+                        <th className="px-3 py-2 text-left font-medium">Competência</th>
                         <th className="px-3 py-2 text-left font-medium">Tipo</th>
                         <th className="px-3 py-2 text-left font-medium">Descrição</th>
                         <th className="px-3 py-2 text-left font-medium">Pessoa</th>
@@ -293,7 +426,13 @@ function ImportacaoPage() {
                     <tbody>
                       {previa.slice(0, 200).map((l) => (
                         <tr key={l.hash} className="border-b">
-                          <td className="px-5 py-2 text-muted-foreground">{dataBR(l.data_efetiva)}</td>
+                          <td className="px-5 py-2 text-muted-foreground">
+                            {dataBR(l.data_efetiva)}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {meses[Number(l.competencia.slice(5, 7)) - 1]}/
+                            {l.competencia.slice(0, 4)}
+                          </td>
                           <td className="px-3 py-2">
                             <span
                               className={cn(
@@ -315,7 +454,14 @@ function ImportacaoPage() {
                               <span className="text-warning">Sem categoria</span>
                             )}
                           </td>
-                          <td className="tabular px-5 py-2 text-right font-medium">{brl(l.valor)}</td>
+                          <td
+                            className={cn(
+                              "tabular px-5 py-2 text-right font-medium",
+                              valorAssinadoPrevia(l) < 0 ? "text-negative" : "text-positive",
+                            )}
+                          >
+                            {brl(valorAssinadoPrevia(l))}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -338,6 +484,7 @@ function ImportacaoPage() {
                         <th className="px-3 py-2 text-right font-medium">Importados</th>
                         <th className="px-3 py-2 text-right font-medium">Duplicados</th>
                         <th className="px-5 py-2 text-left font-medium">Status</th>
+                        <th className="px-5 py-2 text-right font-medium">Ações</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -371,6 +518,42 @@ function ImportacaoPage() {
                               {i.status === "concluida" ? "Concluída" : String(i.status)}
                             </span>
                           </td>
+                          <td className="px-5 py-2 text-right">
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground hover:bg-negative-soft hover:text-negative"
+                                  disabled={excluirImportacao.isPending}
+                                  title="Excluir dados desta importação"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Excluir esta importação?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Isso vai apagar os lançamentos importados de "
+                                    {String(i.arquivo_nome)}" (
+                                    {i.tipo === "recebida" ? "recebidas" : "pagas"}) e remover essa
+                                    linha do histórico. As outras importações permanecem intactas.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    disabled={excluindoId === String(i.id)}
+                                    onClick={() => excluirImportacao.mutate(String(i.id))}
+                                  >
+                                    {excluindoId === String(i.id) ? "Excluindo..." : "Excluir"}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -385,19 +568,15 @@ function ImportacaoPage() {
   );
 }
 
-function Resumo({
-  rotulo,
-  valor,
-  alerta,
-}: {
-  rotulo: string;
-  valor: string;
-  alerta?: boolean;
-}) {
+function Resumo({ rotulo, valor, alerta }: { rotulo: string; valor: string; alerta?: boolean }) {
   return (
     <div className={cn("rounded-lg border px-4 py-3", alerta && "border-warning bg-warning-soft")}>
       <p className="text-xs text-muted-foreground">{rotulo}</p>
       <p className="tabular mt-1 text-base font-semibold">{valor}</p>
     </div>
   );
+}
+
+function valorAssinadoPrevia(linha: LinhaImportada) {
+  return linha.tipo === "paga" ? -linha.valor : linha.valor;
 }

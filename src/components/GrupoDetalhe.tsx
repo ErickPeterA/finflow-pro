@@ -38,23 +38,30 @@ export function GrupoDetalhe({
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
   const [busca, setBusca] = useState("");
+  const gruposDetalhe = useMemo<GrupoDre[]>(
+    () => (grupo === "custos" ? ["deducoes", "custos"] : [grupo]),
+    [grupo],
+  );
 
   const resultados = useMemo(() => calcularDre(lancamentos, categorias), [lancamentos, categorias]);
   const linhas = useMemo(
-    () => agregarPorCategoria(lancamentos, categorias).filter((l) => l.grupo === grupo),
-    [lancamentos, categorias, grupo],
+    () =>
+      agregarPorCategoria(lancamentos, categorias).filter((l) =>
+        gruposDetalhe.includes(l.grupo),
+      ),
+    [lancamentos, categorias, gruposDetalhe],
   );
 
   const doGrupo = useMemo(
-    () => lancamentos.filter((l) => grupoDoLancamento(l, categorias) === grupo),
-    [lancamentos, categorias, grupo],
+    () => lancamentos.filter((l) => gruposDetalhe.includes(grupoDoLancamento(l, categorias))),
+    [lancamentos, categorias, gruposDetalhe],
   );
 
   const pick = (m: (typeof resultados)[number]) =>
     grupo === "receita_operacional"
       ? m.receitaBruta
       : grupo === "custos"
-        ? m.custos
+        ? m.deducoes + m.custos
         : grupo === "despesas"
           ? m.despesas
           : 0;
@@ -65,7 +72,7 @@ export function GrupoDetalhe({
   const totalAnterior = anterior ? pick(anterior) : 0;
   const media = mediaFechados(resultados, pick);
   const acumuladoAno = resultados.reduce((s, m) => s + pick(m), 0);
-  const receitaMes = atual.receitaLiquida;
+  const receitaMes = atual.receitaBruta;
 
   const serie = resultados
     .filter((m) => m.temMovimento)
@@ -122,7 +129,9 @@ export function GrupoDetalhe({
               <Kpi titulo="Média mensal" valor={media} legenda="meses com movimento" />
               <Kpi titulo="Acumulado no ano" valor={acumuladoAno} legenda={`exercício ${ano}`} />
               <Kpi
-                titulo={grupo === "receita_operacional" ? "Ticket por categoria" : "% da Receita Líquida"}
+                titulo={
+                  grupo === "receita_operacional" ? "Ticket por categoria" : "% da Receita"
+                }
                 valor={
                   grupo === "receita_operacional"
                     ? totalMes / Math.max(ranking.length, 1)
@@ -131,7 +140,9 @@ export function GrupoDetalhe({
                 legenda={
                   grupo === "receita_operacional"
                     ? `${ranking.length} categorias ativas`
-                    : `representa ${receitaMes ? pct((totalMes / receitaMes) * 100) : "—"} da receita líquida`
+                    : `representa ${
+                        receitaMes ? pct((totalMes / receitaMes) * 100) : "—"
+                      } da receita`
                 }
               />
             </div>

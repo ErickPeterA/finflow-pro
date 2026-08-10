@@ -5,7 +5,13 @@ import { TopBar } from "@/components/TopBar";
 import { Bloco, SemDados, SemEmpresa } from "@/components/ui-blocos";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/lib/app-context";
-import { useCategorias, useConfiguracao, useEmpresas, useLancamentos, usePlanosAcao } from "@/lib/data";
+import {
+  useCategorias,
+  useConfiguracao,
+  useEmpresas,
+  useLancamentos,
+  usePlanosAcao,
+} from "@/lib/data";
 import { calcularDre, qualidadeResultado } from "@/lib/dre";
 import { calcularImpactos, gerarAlertas } from "@/lib/insights";
 import { brl, meses, pct } from "@/lib/format";
@@ -84,10 +90,10 @@ function RelatoriosPage() {
               </p>
               <dl className="mt-4 grid gap-3 sm:grid-cols-2">
                 <Item rotulo="Receita do mês" valor={brl(atual.receitaBruta)} />
-                <Item rotulo="Receita líquida" valor={brl(atual.receitaLiquida)} />
-                <Item rotulo="Custos" valor={brl(atual.custos)} />
-                <Item rotulo="Despesas" valor={brl(atual.despesas)} />
+                <Item rotulo="Custos operacionais" valor={brl(atual.deducoes + atual.custos)} />
+                <Item rotulo="Despesas operacionais" valor={brl(atual.despesas)} />
                 <Item rotulo="Resultado operacional" valor={brl(atual.resultadoOperacional)} />
+                <Item rotulo="Resultado OP + financeiro" valor={brl(atual.resultadoOpFin)} />
                 <Item rotulo="Resultado líquido" valor={brl(atual.resultadoLiquido)} />
                 <Item rotulo="Margem operacional" valor={pct(atual.margemOperacional)} />
                 <Item rotulo="Qualidade do resultado" valor={qualidade.texto} />
@@ -97,7 +103,10 @@ function RelatoriosPage() {
             <Bloco titulo="Principais impactos do período">
               <ul className="space-y-2 text-sm">
                 {[...impactos.positivos.slice(0, 3), ...impactos.negativos.slice(0, 3)].map((i) => (
-                  <li key={i.nome} className="flex items-center justify-between gap-3 border-b pb-2">
+                  <li
+                    key={i.nome}
+                    className="flex items-center justify-between gap-3 border-b pb-2"
+                  >
                     <span>{i.nome}</span>
                     <span className="tabular font-medium">
                       {i.efeito > 0 ? "+" : ""}

@@ -1,4 +1,11 @@
-import { agregarPorCategoria, grupoLabels, type Categoria, type Lancamento, type ResultadoMes, mediaFechados } from "./dre";
+import {
+  agregarPorCategoria,
+  grupoLabels,
+  type Categoria,
+  type Lancamento,
+  type ResultadoMes,
+  mediaFechados,
+} from "./dre";
 import { brl, pct } from "./format";
 
 export interface Impacto {
@@ -18,12 +25,12 @@ export function calcularImpactos(
   const impactos: Impacto[] = [];
 
   for (const l of linhas) {
-    if (l.grupo === "nao_operacional") continue;
+    if (l.grupo === "financeiro" || l.grupo === "nao_operacional") continue;
     const atual = l.valores[mes] ?? 0;
     const anterior = mes > 0 ? (l.valores[mes - 1] ?? 0) : 0;
     const delta = atual - anterior;
     if (Math.abs(delta) < 0.01) continue;
-    const receita = l.grupo === "receita_operacional" || l.grupo === "financeiro";
+    const receita = l.grupo === "receita_operacional";
     const efeito = receita ? delta : -delta;
     impactos.push({ nome: l.nome, grupo: grupoLabels[l.grupo], delta, efeito });
   }
@@ -70,7 +77,11 @@ export function gerarAlertas(
     });
   }
 
-  if (atual.resultadoLiquido > 0 && atual.resultadoOperacional <= 0 && atual.aportesEmprestimos > 0) {
+  if (
+    atual.resultadoLiquido > 0 &&
+    atual.resultadoOperacional <= 0 &&
+    atual.aportesEmprestimos > 0
+  ) {
     alertas.push({
       titulo: "Resultado líquido sustentado por aporte ou empréstimo",
       detalhe: `${brl(atual.aportesEmprestimos)} entraram por aporte/empréstimo e não representam geração operacional.`,
@@ -78,11 +89,11 @@ export function gerarAlertas(
     });
   }
 
-  if (anterior && anterior.receitaLiquida > 0) {
-    const varReceita = ((atual.receitaLiquida - anterior.receitaLiquida) / anterior.receitaLiquida) * 100;
+  if (anterior && anterior.receitaBruta > 0) {
+    const varReceita = ((atual.receitaBruta - anterior.receitaBruta) / anterior.receitaBruta) * 100;
     alertas.push({
-      titulo: varReceita >= 0 ? "Receita líquida cresceu" : "Receita líquida caiu",
-      detalhe: `${pct(Math.abs(varReceita))} em relação ao mês anterior (${brl(atual.receitaLiquida)}).`,
+      titulo: varReceita >= 0 ? "Receita cresceu" : "Receita caiu",
+      detalhe: `${pct(Math.abs(varReceita))} em relação ao mês anterior (${brl(atual.receitaBruta)}).`,
       nivel: varReceita >= 0 ? "positivo" : "negativo",
     });
   }
@@ -91,13 +102,15 @@ export function gerarAlertas(
   if (mediaOp !== 0) {
     const acima = atual.resultadoOperacional >= mediaOp;
     alertas.push({
-      titulo: acima ? "Resultado operacional acima da média" : "Resultado operacional abaixo da média",
+      titulo: acima
+        ? "Resultado operacional acima da média"
+        : "Resultado operacional abaixo da média",
       detalhe: `Média dos meses fechados: ${brl(mediaOp)}.`,
       nivel: acima ? "positivo" : "atencao",
     });
   }
 
-  if (atual.margemOperacional < margemDesejada && atual.receitaLiquida > 0) {
+  if (atual.margemOperacional < margemDesejada && atual.receitaBruta > 0) {
     alertas.push({
       titulo: "Margem operacional abaixo da desejada",
       detalhe: `Realizado ${pct(atual.margemOperacional)} contra meta de ${pct(margemDesejada)}.`,

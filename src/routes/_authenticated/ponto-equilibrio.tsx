@@ -62,12 +62,13 @@ function PontoEquilibrioPage() {
     0,
   );
 
-  const receita = atual.receitaLiquida;
+  const receita = atual.receitaBruta;
   const margemContribuicaoValor = receita - variaveis;
   const indiceMC = receita ? margemContribuicaoValor / receita : 0;
   const pontoEquilibrio = indiceMC > 0 ? fixos / indiceMC : 0;
   const pontoComLucro = indiceMC > 0 ? (fixos + lucroDesejado) / indiceMC : 0;
-  const margemSeguranca = receita && pontoEquilibrio ? ((receita - pontoEquilibrio) / receita) * 100 : 0;
+  const margemSeguranca =
+    receita && pontoEquilibrio ? ((receita - pontoEquilibrio) / receita) * 100 : 0;
   const faturamentoDiario = pontoEquilibrio / 30;
 
   const serie = useMemo(() => {
@@ -84,7 +85,10 @@ function PontoEquilibrioPage() {
 
   return (
     <>
-      <TopBar titulo="Ponto de Equilíbrio" descricao={`${meses[mes]} de ${ano} · regime de caixa`} />
+      <TopBar
+        titulo="Ponto de Equilíbrio"
+        descricao={`${meses[mes]} de ${ano} · regime de caixa`}
+      />
       <main className="space-y-5 p-6">
         {!empresaId ? (
           <SemEmpresa />
@@ -102,7 +106,7 @@ function PontoEquilibrioPage() {
                 tom={atingiu ? "positivo" : "negativo"}
               />
               <Kpi
-                titulo="Receita líquida do mês"
+                titulo="Receita do mês"
                 valor={receita}
                 legenda={atingiu ? "acima do ponto de equilíbrio" : "abaixo do ponto de equilíbrio"}
                 tom={atingiu ? "positivo" : "negativo"}
@@ -129,7 +133,7 @@ function PontoEquilibrioPage() {
             >
               {atingiu
                 ? `A empresa superou o ponto de equilíbrio em ${brl(receita - pontoEquilibrio)}, com margem de segurança de ${pct(margemSeguranca)}.`
-                : `Faltaram ${brl(pontoEquilibrio - receita)} de receita líquida para cobrir a estrutura do mês.`}
+                : `Faltaram ${brl(pontoEquilibrio - receita)} de receita para cobrir a estrutura do mês.`}
             </div>
 
             <div className="grid gap-5 xl:grid-cols-3">
@@ -230,7 +234,9 @@ function PontoEquilibrioPage() {
                           <tr key={l.nome} className="border-b">
                             <td className="px-5 py-2 font-medium">{l.nome}</td>
                             <td className="px-3 py-2 text-muted-foreground">
-                              {l.grupo === "custos" ? "Custos" : "Despesas"}
+                              {l.grupo === "custos"
+                                ? "Custos Operacionais"
+                                : "Despesas Operacionais"}
                             </td>
                             <td className="tabular px-3 py-2 text-right">{brl(v)}</td>
                             <td className="tabular px-5 py-2 text-right text-muted-foreground">

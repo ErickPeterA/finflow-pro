@@ -5,18 +5,37 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowRight, Minus, Plus, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  Activity,
+  ArrowRight,
+  BadgeDollarSign,
+  Gauge,
+  Minus,
+  Plus,
+  ShieldCheck,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  type LucideIcon,
+} from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { Bloco, Kpi, SemDados, SemEmpresa, type Tom } from "@/components/ui-blocos";
 import { useApp } from "@/lib/app-context";
-import { useCategorias, useConfiguracao, useEmpresas, useLancamentos, useMetas } from "@/lib/data";
-import { calcularDre, qualidadeResultado, type ResultadoMes } from "@/lib/dre";
-import { calcularImpactos, gerarAlertas } from "@/lib/insights";
+import { useCategorias, useConfiguracao, useEmpresas, useLancamentos } from "@/lib/data";
+import {
+  calcularDre,
+  mesDaCompetencia,
+  qualidadeResultado,
+  type Categoria,
+  type Lancamento,
+} from "@/lib/dre";
+import { calcularImpactos } from "@/lib/insights";
 import { brl, meses, pct, variacao } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -26,8 +45,7 @@ export const Route = createFileRoute("/_authenticated/home")({
       { title: "Home Executiva | Ecossistema Financeiro BPO" },
       {
         name: "description",
-        content:
-          "Visão executiva do mês: indicadores, formação do resultado, principais impactos e análises automáticas.",
+        content: "Visão executiva do mês: indicadores, caminho do resultado e principais impactos.",
       },
       { property: "og:title", content: "Home Executiva | Ecossistema Financeiro BPO" },
       {
@@ -46,69 +64,49 @@ const qualidadeEstilo: Record<string, { classe: string; rotulo: string }> = {
   extraordinario: { classe: "bg-extra-soft text-extra", rotulo: "Extraordinário" },
 };
 
-function calcularMetricasHome(m: ResultadoMes): ResultadoMes {
-  const saidasOperacionais = m.deducoes + m.custos + m.despesas;
-  const resultadoOperacional = -saidasOperacionais;
-  const resultadoOpFin = resultadoOperacional + m.financeiro;
-  const resultadoLiquido = resultadoOpFin + m.naoOperacional;
-  const margemOperacional = m.receitaBruta ? (resultadoOperacional / m.receitaBruta) * 100 : 0;
-  const margemLiquida = m.receitaBruta ? (resultadoLiquido / m.receitaBruta) * 100 : 0;
-
-  return {
-    ...m,
-    resultadoOperacional,
-    resultadoOpFin,
-    resultadoLiquido,
-    margemOperacional,
-    margemLiquida,
-  };
-}
-
 function HomePage() {
   const { empresaId, ano, mes } = useApp();
   const { data: empresas = [] } = useEmpresas();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
-  const { data: metas = [] } = useMetas(empresaId, ano);
   const { data: config } = useConfiguracao(empresaId);
 
   const empresa = empresas.find((e) => e.id === empresaId);
   const margemDesejada = Number(config?.margem_desejada ?? 15);
 
   const resultados = useMemo(() => calcularDre(lancamentos, categorias), [lancamentos, categorias]);
-  const resultadosHome = useMemo(() => resultados.map(calcularMetricasHome), [resultados]);
   const atual = resultados[mes]!;
   const anterior = mes > 0 ? resultados[mes - 1] : undefined;
-  const atualHome = resultadosHome[mes]!;
-  const anteriorHome = mes > 0 ? resultadosHome[mes - 1] : undefined;
-
-  const metaReceita = useMemo(() => {
-    const alvo = metas.find(
-      (m) => m.tipo === "receita" && Number(m.competencia.slice(5, 7)) - 1 === mes,
-    );
-    return alvo ? Number(alvo.valor) : undefined;
-  }, [metas, mes]);
+  const custosOperacionais = atual.deducoes + atual.custos;
 
   const impactos = useMemo(
     () => calcularImpactos(lancamentos, categorias, mes),
     [lancamentos, categorias, mes],
   );
-  const alertas = useMemo(
-    () => gerarAlertas(resultadosHome, lancamentos, categorias, mes, metaReceita, margemDesejada),
-    [resultadosHome, lancamentos, categorias, mes, metaReceita, margemDesejada],
+  const caminhoGastos = useMemo(
+    () => calcularCaminhoGastos(lancamentos, categorias, mes, custosOperacionais, atual.despesas),
+    [lancamentos, categorias, mes, custosOperacionais, atual.despesas],
   );
 
-  const qualidade = qualidadeResultado(atualHome, margemDesejada);
+  const qualidade = qualidadeResultado(atual, margemDesejada);
   const estilo = qualidadeEstilo[qualidade.nivel]!;
+  const pesoCustos = percentualSobreReceita(custosOperacionais, atual.receitaBruta);
+  const pesoDespesas = percentualSobreReceita(atual.despesas, atual.receitaBruta);
+  const pesoResultado = percentualSobreReceita(atual.resultadoOperacional, atual.receitaBruta);
+  const scoreQualidade = Math.max(
+    0,
+    Math.min(100, Math.round((atual.margemOperacional / Math.max(margemDesejada * 1.5, 1)) * 100)),
+  );
+  const gapMeta = atual.margemOperacional - margemDesejada;
 
   const grafico = [
-    { nome: "Receita Líquida", valor: atual.receitaLiquida, cor: "var(--info)" },
-    { nome: "Custos", valor: atual.custos, cor: "var(--warning)" },
-    { nome: "Despesas", valor: atual.despesas, cor: "var(--negative)" },
+    { nome: "Receita", valor: atual.receitaBruta, cor: "var(--info)" },
+    { nome: "Custos Op.", valor: custosOperacionais, cor: "var(--warning)" },
+    { nome: "Despesas Op.", valor: atual.despesas, cor: "var(--negative)" },
     {
       nome: "Resultado Op.",
-      valor: atualHome.resultadoOperacional,
-      cor: atualHome.resultadoOperacional >= 0 ? "var(--positive)" : "var(--negative)",
+      valor: atual.resultadoOperacional,
+      cor: atual.resultadoOperacional >= 0 ? "var(--positive)" : "var(--negative)",
     },
   ];
 
@@ -120,7 +118,7 @@ function HomePage() {
         titulo="Home"
         descricao={`${empresa?.nome ?? "Selecione uma empresa"} · ${meses[mes]} de ${ano}`}
       />
-      <main className="space-y-5 p-6">
+      <main className="space-y-5 p-6 ">
         {!empresaId ? (
           <SemEmpresa />
         ) : isLoading ? (
@@ -129,7 +127,7 @@ function HomePage() {
           <SemDados mensagem="Nenhum lançamento importado para este mês. Comece pela tela de Importação NIBO." />
         ) : (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5 ">
               <Kpi
                 titulo="Receita do mês"
                 valor={atual.receitaBruta}
@@ -146,125 +144,278 @@ function HomePage() {
               />
               <Kpi
                 titulo="Resultado Operacional"
-                valor={atualHome.resultadoOperacional}
+                valor={atual.resultadoOperacional}
                 variacaoPct={variacao(
-                  atualHome.resultadoOperacional,
-                  anteriorHome?.resultadoOperacional ?? 0,
+                  atual.resultadoOperacional,
+                  anterior?.resultadoOperacional ?? 0,
                 )}
-                anterior={anteriorHome?.resultadoOperacional}
-                tom={tom(atualHome.resultadoOperacional)}
+                anterior={anterior?.resultadoOperacional}
+                tom={tom(atual.resultadoOperacional)}
               />
               <Kpi
-                titulo="Operacional + Financeiro"
-                valor={atualHome.resultadoOpFin}
-                variacaoPct={variacao(atualHome.resultadoOpFin, anteriorHome?.resultadoOpFin ?? 0)}
-                anterior={anteriorHome?.resultadoOpFin}
-                tom={tom(atualHome.resultadoOpFin)}
+                titulo="Resultado OP + Financeiro"
+                valor={atual.resultadoOpFin}
+                variacaoPct={variacao(atual.resultadoOpFin, anterior?.resultadoOpFin ?? 0)}
+                anterior={anterior?.resultadoOpFin}
+                tom={tom(atual.resultadoOpFin)}
               />
               <Kpi
                 titulo="Resultado Líquido"
-                valor={atualHome.resultadoLiquido}
-                variacaoPct={variacao(atualHome.resultadoLiquido, anteriorHome?.resultadoLiquido ?? 0)}
-                anterior={anteriorHome?.resultadoLiquido}
-                tom={tom(atualHome.resultadoLiquido)}
+                valor={atual.resultadoLiquido}
+                variacaoPct={variacao(atual.resultadoLiquido, anterior?.resultadoLiquido ?? 0)}
+                anterior={anterior?.resultadoLiquido}
+                tom={tom(atual.resultadoLiquido)}
               />
             </div>
 
-            <Bloco titulo="Formação do resultado">
-              <div className="flex flex-wrap items-stretch gap-2">
-                <Etapa rotulo="Receita do mês" valor={atual.receitaBruta} tom="neutro" />
-                <Operador icone="menos" />
-                <Etapa rotulo="Deduções" valor={atual.deducoes} tom="negativo" />
-                <Operador icone="igual" />
-                <Etapa rotulo="Receita Líquida" valor={atual.receitaLiquida} tom="neutro" destaque />
-                <Operador icone="menos" />
-                <Etapa rotulo="Custos" valor={atual.custos} tom="negativo" />
-                <Operador icone="igual" />
-                <Etapa rotulo="Resultado Bruto" valor={atual.resultadoBruto} tom={tom(atual.resultadoBruto)} destaque />
-                <Operador icone="menos" />
-                <Etapa rotulo="Despesas" valor={atual.despesas} tom="negativo" />
-                <Operador icone="igual" />
+            <Bloco
+              titulo="Caminho dos gastos"
+              acoes={
+                <span className="text-xs text-muted-foreground">
+                  Custos + despesas operacionais
+                </span>
+              }
+            >
+              <div className="flex flex-wrap items-stretch gap-2 ">
                 <Etapa
-                  rotulo="Resultado Operacional"
-                  valor={atualHome.resultadoOperacional}
-                  tom={tom(atualHome.resultadoOperacional)}
+                  rotulo="Custos operacionais"
+                  valor={caminhoGastos.custosOperacionais}
+                  tom="negativo"
                   destaque
                 />
-                <Operador icone="mais" />
-                <Etapa rotulo="Resultado Financeiro" valor={atual.financeiro} tom={tom(atual.financeiro)} />
                 <Operador icone="igual" />
                 <Etapa
-                  rotulo="Resultado Líquido"
-                  valor={atualHome.resultadoLiquido}
-                  tom={tom(atualHome.resultadoLiquido)}
+                  rotulo="Dedução de receita"
+                  valor={caminhoGastos.deducaoReceita}
+                  tom="negativo"
+                />
+                <Operador icone="mais" />
+                <Etapa rotulo="Custos diretos" valor={caminhoGastos.custosDiretos} tom="negativo" />
+                <Operador icone="mais" />
+                <Etapa
+                  rotulo="Custos indiretos"
+                  valor={caminhoGastos.custosIndiretos}
+                  tom="negativo"
+                />
+                <Operador icone="mais" />
+                <Etapa
+                  rotulo="Comissionamento"
+                  valor={caminhoGastos.comissionamento}
+                  tom="negativo"
+                />
+                <Operador icone="mais" />
+                <Etapa
+                  rotulo="Custos pessoais"
+                  valor={caminhoGastos.custosPessoais}
+                  tom="negativo"
+                />
+                <Operador icone="mais" />
+                <Etapa
+                  rotulo="Custos de marketing"
+                  valor={caminhoGastos.custosMarketing}
+                  tom="negativo"
+                />
+                <Operador icone="mais" />
+                <Etapa
+                  rotulo="Despesas operacionais"
+                  valor={caminhoGastos.despesasOperacionais}
+                  tom="negativo"
+                />
+                <Operador icone="igual" />
+                <Etapa
+                  rotulo="Total de gastos"
+                  valor={caminhoGastos.totalGastos}
+                  tom="negativo"
                   destaque
                 />
               </div>
-              {atual.naoOperacional !== 0 && (
-                <p className="mt-4 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-                  {brl(atual.naoOperacional)} de movimentações não operacionais (aportes,
-                  empréstimos, transferências, investimentos) afetam o caixa e o resultado líquido,
-                  mas não o resultado operacional.
-                </p>
-              )}
             </Bloco>
 
             <div className="grid gap-5 xl:grid-cols-3">
-              <Bloco titulo="Visão geral do mês" className="xl:col-span-2">
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={grafico} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-                      <XAxis dataKey="nome" tickLine={false} axisLine={false} fontSize={12} />
-                      <YAxis
-                        tickFormatter={(v) => brl(Number(v), true)}
-                        tickLine={false}
-                        axisLine={false}
-                        fontSize={12}
-                        width={80}
-                      />
-                      <Tooltip
-                        formatter={(v) => brl(Number(v))}
-                        contentStyle={{
-                          borderRadius: 10,
-                          border: "1px solid var(--border)",
-                          background: "var(--card)",
-                        }}
-                      />
-                      <Bar dataKey="valor" radius={[6, 6, 0, 0]}>
-                        {grafico.map((g) => (
-                          <Cell key={g.nome} fill={g.cor} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+              <Bloco
+                titulo="Visão geral do mês"
+                className="xl:col-span-2"
+                acoes={
+                  <span className="text-xs text-muted-foreground">
+                    Margem operacional {pct(atual.margemOperacional)}
+                  </span>
+                }
+              >
+                <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_240px]">
+                  <div className="h-72 min-w-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={grafico} margin={{ top: 28, right: 8, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="grafico-receita" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#2563eb" />
+                            <stop offset="100%" stopColor="#60a5fa" />
+                          </linearGradient>
+                          <linearGradient id="grafico-custos" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#f59e0b" />
+                            <stop offset="100%" stopColor="#fcd34d" />
+                          </linearGradient>
+                          <linearGradient id="grafico-despesas" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#ef4444" />
+                            <stop offset="100%" stopColor="#fca5a5" />
+                          </linearGradient>
+                          <linearGradient id="grafico-resultado" x1="0" x2="0" y1="0" y2="1">
+                            <stop
+                              offset="0%"
+                              stopColor={atual.resultadoOperacional >= 0 ? "#16a34a" : "#ef4444"}
+                            />
+                            <stop
+                              offset="100%"
+                              stopColor={atual.resultadoOperacional >= 0 ? "#86efac" : "#fca5a5"}
+                            />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          vertical={false}
+                          stroke="var(--border)"
+                        />
+                        <XAxis dataKey="nome" tickLine={false} axisLine={false} fontSize={12} />
+                        <YAxis
+                          tickFormatter={(v) => brl(Number(v), true)}
+                          tickLine={false}
+                          axisLine={false}
+                          fontSize={12}
+                          width={76}
+                        />
+                        <Tooltip
+                          formatter={(v) => brl(Number(v))}
+                          contentStyle={{
+                            borderRadius: 10,
+                            border: "1px solid var(--border)",
+                            background: "var(--card)",
+                            boxShadow: "var(--shadow-card)",
+                          }}
+                        />
+                        <Bar dataKey="valor" radius={[8, 8, 0, 0]} barSize={42}>
+                          <LabelList
+                            dataKey="valor"
+                            position="top"
+                            formatter={(v: number) => brl(Number(v), true)}
+                            fontSize={11}
+                            fill="var(--foreground)"
+                          />
+                          {grafico.map((g) => (
+                            <Cell
+                              key={g.nome}
+                              fill={
+                                g.nome === "Receita"
+                                  ? "url(#grafico-receita)"
+                                  : g.nome === "Custos Op."
+                                    ? "url(#grafico-custos)"
+                                    : g.nome === "Despesas Op."
+                                      ? "url(#grafico-despesas)"
+                                      : "url(#grafico-resultado)"
+                              }
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex flex-col justify-center gap-4 border-t pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+                    <IndicadorPeso
+                      icone={BadgeDollarSign}
+                      rotulo="Custos sobre receita"
+                      valor={custosOperacionais}
+                      percentual={pesoCustos}
+                      tom="atencao"
+                    />
+                    <IndicadorPeso
+                      icone={TrendingDown}
+                      rotulo="Despesas sobre receita"
+                      valor={atual.despesas}
+                      percentual={pesoDespesas}
+                      tom="negativo"
+                    />
+                    <IndicadorPeso
+                      icone={TrendingUp}
+                      rotulo="Resultado sobre receita"
+                      valor={atual.resultadoOperacional}
+                      percentual={pesoResultado}
+                      tom={tom(atual.resultadoOperacional)}
+                    />
+                  </div>
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Margem operacional do mês: {pct(atualHome.margemOperacional)}
-                </p>
               </Bloco>
 
-              <Bloco titulo="Qualidade do resultado">
-                <span
-                  className={cn(
-                    "inline-flex rounded-full px-3 py-1 text-xs font-semibold",
-                    estilo.classe,
-                  )}
-                >
-                  {estilo.rotulo}
-                </span>
-                <p className="mt-3 text-sm text-muted-foreground">{qualidade.texto}</p>
-                <dl className="mt-4 space-y-2 text-sm">
-                  <Linha rotulo="Gerado pela operação" valor={atualHome.resultadoOperacional} />
-                  <Linha rotulo="Resultado financeiro" valor={atual.financeiro} />
-                  <Linha rotulo="Aportes e empréstimos" valor={atual.aportesEmprestimos} />
-                  <Linha
-                    rotulo="Outras entradas extraordinárias"
-                    valor={atual.naoOperacional - atual.aportesEmprestimos}
-                  />
-                  <div className="border-t pt-2">
-                    <Linha rotulo="Margem operacional" valor={atualHome.margemOperacional} percentual />
+              <Bloco
+                titulo="Qualidade do resultado"
+                acoes={
+                  <span
+                    className={cn(
+                      "inline-flex rounded-full px-3 py-1 text-xs font-semibold",
+                      estilo.classe,
+                    )}
+                  >
+                    {estilo.rotulo}
+                  </span>
+                }
+              >
+                <div className="flex flex-col items-center gap-4 text-center">
+                  <div
+                    className="grid size-32 place-items-center rounded-full p-2"
+                    style={{
+                      background: `conic-gradient(var(--positive) ${scoreQualidade}%, var(--muted) 0)`,
+                    }}
+                  >
+                    <div className="grid size-full place-items-center rounded-full bg-card">
+                      <div>
+                        <p className="tabular text-2xl font-semibold">
+                          {pct(atual.margemOperacional, 0)}
+                        </p>
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                          margem
+                        </p>
+                      </div>
+                    </div>
                   </div>
+                  <p className="text-sm text-muted-foreground">{qualidade.texto}</p>
+                </div>
+
+                <div className="mt-5 space-y-4">
+                  <IndicadorMeta
+                    icone={Target}
+                    rotulo="Meta operacional"
+                    valor={pct(margemDesejada)}
+                    detalhe={
+                      gapMeta >= 0
+                        ? `${pct(gapMeta)} acima da meta`
+                        : `${pct(Math.abs(gapMeta))} abaixo da meta`
+                    }
+                    progresso={scoreQualidade}
+                    tom={gapMeta >= 0 ? "positivo" : "atencao"}
+                  />
+                  <IndicadorMeta
+                    icone={Gauge}
+                    rotulo="Resultado gerado"
+                    valor={brl(atual.resultadoOperacional, true)}
+                    detalhe={`sobre ${brl(atual.receitaBruta, true)} de receita`}
+                    progresso={Math.max(0, Math.min(100, Math.abs(pesoResultado)))}
+                    tom={tom(atual.resultadoOperacional)}
+                  />
+                </div>
+
+                <dl className="mt-5 space-y-2 border-t pt-4 text-sm">
+                  <LinhaDiagnostico
+                    icone={Activity}
+                    rotulo="Operação"
+                    valor={atual.resultadoOperacional}
+                  />
+                  <LinhaDiagnostico
+                    icone={TrendingUp}
+                    rotulo="Investimentos"
+                    valor={atual.financeiro}
+                  />
+                  <LinhaDiagnostico
+                    icone={ShieldCheck}
+                    rotulo="Financiamento"
+                    valor={atual.naoOperacional}
+                  />
                 </dl>
               </Bloco>
             </div>
@@ -300,30 +451,6 @@ function HomePage() {
                 Impacto líquido no resultado operacional: {brl(impactos.liquido)}
               </p>
             </Bloco>
-
-            <Bloco titulo="Análises automáticas">
-              {alertas.length === 0 ? (
-                <SemDados mensagem="Sem alertas relevantes para o período." />
-              ) : (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {alertas.map((a) => (
-                    <div
-                      key={a.titulo}
-                      className={cn(
-                        "rounded-lg border-l-4 bg-muted/40 px-4 py-3",
-                        a.nivel === "positivo" && "border-l-positive",
-                        a.nivel === "negativo" && "border-l-negative",
-                        a.nivel === "atencao" && "border-l-warning",
-                        a.nivel === "neutro" && "border-l-info",
-                      )}
-                    >
-                      <p className="text-sm font-medium">{a.titulo}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{a.detalhe}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Bloco>
           </>
         )}
       </main>
@@ -331,13 +458,77 @@ function HomePage() {
   );
 }
 
+function calcularCaminhoGastos(
+  lancamentos: Lancamento[],
+  categorias: Categoria[],
+  mes: number,
+  custosOperacionais: number,
+  despesasOperacionais: number,
+) {
+  const valorPorPrefixo = (prefixo: string, nomeContem?: string) =>
+    lancamentos.reduce((total, lancamento) => {
+      if (mesDaCompetencia(lancamento.competencia) !== mes) return total;
+      const categoria = categorias.find((c) => c.id === lancamento.categoria_id);
+      const textos = [lancamento.categoria_nibo, categoria?.nome]
+        .filter(Boolean)
+        .map((texto) => normalizarTexto(String(texto)));
+      const temPrefixo = textos.some((texto) => textoComecaComPrefixo(texto, prefixo));
+      const temNome = nomeContem
+        ? textos.some((texto) => texto.includes(normalizarTexto(nomeContem)))
+        : false;
+      const pareceCustoOperacional =
+        categoria?.grupo === "custos" || textos.some((texto) => textoComecaComPrefixo(texto, "2"));
+
+      if (!temPrefixo && !(temNome && pareceCustoOperacional)) return total;
+      return total + Math.abs(Number(lancamento.valor) || 0);
+    }, 0);
+
+  const deducaoReceita = valorPorPrefixo("2.1");
+  const custosDiretos = valorPorPrefixo("2.2");
+  const custosIndiretos = valorPorPrefixo("2.3");
+  const comissionamento = valorPorPrefixo("2.4", "comissionamento");
+  const custosPessoais = valorPorPrefixo("2.5", "pessoais");
+  const custosMarketing = valorPorPrefixo("2.6", "marketing");
+
+  return {
+    custosOperacionais,
+    deducaoReceita,
+    custosDiretos,
+    custosIndiretos,
+    comissionamento,
+    custosPessoais,
+    custosMarketing,
+    despesasOperacionais,
+    totalGastos: custosOperacionais + despesasOperacionais,
+  };
+}
+
+function percentualSobreReceita(valor: number, receita: number) {
+  return receita ? (valor / receita) * 100 : 0;
+}
+
+function normalizarTexto(texto: string) {
+  return texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function textoComecaComPrefixo(texto: string, prefixo: string) {
+  const prefixoSeguro = prefixo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${prefixoSeguro}(?:[.\\-\\s]|$)`).test(texto);
+}
+
 function Etapa({
   rotulo,
+  descricao,
   valor,
   tom,
   destaque,
 }: {
   rotulo: string;
+  descricao?: string;
   valor: number;
   tom: Tom;
   destaque?: boolean;
@@ -357,6 +548,7 @@ function Etapa({
       )}
     >
       <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{rotulo}</p>
+      {descricao && <p className="mt-1 text-xs text-muted-foreground">{descricao}</p>}
       <p className={cn("tabular mt-1 text-base font-semibold", cores[tom])}>{brl(valor)}</p>
     </div>
   );
@@ -376,28 +568,139 @@ function Operador({ icone }: { icone: "mais" | "menos" | "igual" }) {
   );
 }
 
-function Linha({
+function IndicadorPeso({
+  icone: Icone,
   rotulo,
   valor,
   percentual,
+  tom,
 }: {
+  icone: LucideIcon;
   rotulo: string;
   valor: number;
-  percentual?: boolean;
+  percentual: number;
+  tom: Tom;
 }) {
+  const estilo = tomEstilo(tom);
+  const largura = Math.max(0, Math.min(100, Math.abs(percentual)));
+
   return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="text-muted-foreground">{rotulo}</dt>
-      <dd
-        className={cn(
-          "tabular font-medium",
-          valor > 0 ? "text-positive" : valor < 0 ? "text-negative" : "text-foreground",
-        )}
-      >
-        {percentual ? pct(valor) : brl(valor)}
-      </dd>
+    <div>
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", estilo.soft)}>
+            <Icone className="h-3.5 w-3.5" />
+          </span>
+          <span className="truncate text-sm font-medium">{rotulo}</span>
+        </div>
+        <div className="text-right">
+          <p className={cn("tabular text-sm font-semibold", estilo.texto)}>{pct(percentual)}</p>
+          <p className="tabular text-[11px] text-muted-foreground">{brl(valor, true)}</p>
+        </div>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div className={cn("h-full rounded-full", estilo.barra)} style={{ width: `${largura}%` }} />
+      </div>
     </div>
   );
+}
+
+function IndicadorMeta({
+  icone: Icone,
+  rotulo,
+  valor,
+  detalhe,
+  progresso,
+  tom,
+}: {
+  icone: LucideIcon;
+  rotulo: string;
+  valor: string;
+  detalhe: string;
+  progresso: number;
+  tom: Tom;
+}) {
+  const estilo = tomEstilo(tom);
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", estilo.soft)}>
+            <Icone className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{rotulo}</p>
+            <p className="truncate text-xs text-muted-foreground">{detalhe}</p>
+          </div>
+        </div>
+        <span className={cn("tabular text-sm font-semibold", estilo.texto)}>{valor}</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn("h-full rounded-full", estilo.barra)}
+          style={{ width: `${Math.max(0, Math.min(100, progresso))}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function LinhaDiagnostico({
+  icone: Icone,
+  rotulo,
+  valor,
+}: {
+  icone: LucideIcon;
+  rotulo: string;
+  valor: number;
+}) {
+  const tomLinha = valor > 0 ? "positivo" : valor < 0 ? "negativo" : "neutro";
+  const estilo = tomEstilo(tomLinha);
+
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="flex min-w-0 items-center gap-2 text-muted-foreground">
+        <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", estilo.soft)}>
+          <Icone className="h-3.5 w-3.5" />
+        </span>
+        <span className="truncate">{rotulo}</span>
+      </dt>
+      <dd className={cn("tabular font-medium", estilo.texto)}>{brl(valor)}</dd>
+    </div>
+  );
+}
+
+function tomEstilo(tom: Tom) {
+  const estilos: Record<Tom, { texto: string; soft: string; barra: string }> = {
+    positivo: {
+      texto: "text-positive",
+      soft: "bg-positive-soft text-positive",
+      barra: "bg-positive",
+    },
+    negativo: {
+      texto: "text-negative",
+      soft: "bg-negative-soft text-negative",
+      barra: "bg-negative",
+    },
+    atencao: {
+      texto: "text-warning",
+      soft: "bg-warning-soft text-warning",
+      barra: "bg-warning",
+    },
+    neutro: {
+      texto: "text-info",
+      soft: "bg-info-soft text-info",
+      barra: "bg-info",
+    },
+    extra: {
+      texto: "text-extra",
+      soft: "bg-extra-soft text-extra",
+      barra: "bg-extra",
+    },
+  };
+
+  return estilos[tom];
 }
 
 function ListaImpactos({
@@ -425,10 +728,7 @@ function ListaImpactos({
           <li className="text-sm text-muted-foreground">Nenhum fator relevante.</li>
         )}
         {itens.map((i, idx) => (
-          <li
-            key={i.nome}
-            className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2"
-          >
+          <li key={i.nome} className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold">
               {idx + 1}
             </span>
