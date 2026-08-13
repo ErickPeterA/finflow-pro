@@ -23,14 +23,7 @@ export interface ResultadoParse {
 }
 
 type ChaveColuna =
-  | "data"
-  | "valor"
-  | "descricao"
-  | "categoria"
-  | "codigo"
-  | "pessoa"
-  | "centro"
-  | "banco";
+  "data" | "valor" | "descricao" | "categoria" | "codigo" | "pessoa" | "centro" | "banco";
 
 type LinhaCandidata = Omit<LinhaImportada, "tipo" | "valor" | "hash"> & {
   valorAssinado: number;
@@ -56,6 +49,11 @@ const ALIASES: Record<ChaveColuna, string[]> = {
   valor: [
     "valor pago",
     "valor recebido",
+    "valor de categoria",
+    "valor da categoria",
+    "valor categoria",
+    "valor do lancamento",
+    "valor do lançamento",
     "valor liquido",
     "valor líquido",
     "valor total",
@@ -69,7 +67,15 @@ const ALIASES: Record<ChaveColuna, string[]> = {
     "debito",
     "débito",
   ],
-  descricao: ["descricao", "descrição", "historico", "histórico", "observacao", "observação", "memo"],
+  descricao: [
+    "descricao",
+    "descrição",
+    "historico",
+    "histórico",
+    "observacao",
+    "observação",
+    "memo",
+  ],
   categoria: [
     "categoria",
     "categoria nibo",
@@ -92,7 +98,15 @@ const ALIASES: Record<ChaveColuna, string[]> = {
     "topico",
     "tópico",
   ],
-  pessoa: ["cliente", "fornecedor", "pessoa", "nome", "cliente/fornecedor", "favorecido", "pagador"],
+  pessoa: [
+    "cliente",
+    "fornecedor",
+    "pessoa",
+    "nome",
+    "cliente/fornecedor",
+    "favorecido",
+    "pagador",
+  ],
   centro: ["centro de custo", "centro custo", "centro de resultado", "departamento"],
   banco: ["conta bancaria", "conta bancária", "banco", "conta corrente", "conta financeira"],
 };
@@ -143,7 +157,10 @@ function normalizar(s: unknown): string {
 
 function acharColuna(colunas: string[], chave: ChaveColuna): string | null {
   const alvos = ALIASES[chave] ?? [];
-  const normalizadas = colunas.map((coluna) => ({ original: coluna, normalizada: normalizar(coluna) }));
+  const normalizadas = colunas.map((coluna) => ({
+    original: coluna,
+    normalizada: normalizar(coluna),
+  }));
 
   for (const alvo of alvos) {
     const alvoNormalizado = normalizar(alvo);
@@ -160,18 +177,32 @@ function acharColuna(colunas: string[], chave: ChaveColuna): string | null {
   return null;
 }
 
+function temSinalNegativoVisivel(v: unknown): boolean {
+  if (v == null || v === "") return false;
+  const texto = String(v)
+    .trim()
+    .replace(/[\u2212\u2010\u2011\u2012\u2013\u2014\u2015]/g, "-");
+  return texto.includes("-") || /\([^)]*\d[^)]*\)/.test(texto);
+}
+
 function parseValor(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
   if (v == null || v === "") return 0;
 
-  const original = String(v).trim();
-  const negativo = original.includes("-") || /^\(.*\)$/.test(original);
-  let texto = original
-    .replace(/[R$\s]/g, "")
-    .replace(/[()]/g, "")
-    .replace(/-/g, "");
+  const original = String(v)
+    .trim()
+    .replace(/[\u2212\u2010\u2011\u2012\u2013\u2014\u2015]/g, "-");
+  const negativo = temSinalNegativoVisivel(original);
+  let texto = original.replace(/[^\d,.-]/g, "").replace(/-/g, "");
 
-  if (texto.includes(",")) {
+  const ultimaVirgula = texto.lastIndexOf(",");
+  const ultimoPonto = texto.lastIndexOf(".");
+
+  if (ultimaVirgula >= 0 && ultimoPonto >= 0) {
+    const separadorDecimal = ultimaVirgula > ultimoPonto ? "," : ".";
+    const separadorMilhar = separadorDecimal === "," ? "." : ",";
+    texto = texto.split(separadorMilhar).join("").replace(separadorDecimal, ".");
+  } else if (ultimaVirgula >= 0) {
     texto = texto.replace(/\./g, "").replace(",", ".");
   } else if (/^\d{1,3}(\.\d{3})+$/.test(texto)) {
     texto = texto.replace(/\./g, "");
@@ -180,6 +211,23 @@ function parseValor(v: unknown): number {
   const numero = Number(texto);
   if (!Number.isFinite(numero)) return 0;
   return negativo ? -Math.abs(numero) : numero;
+}
+
+function parseValorCelula(valorBruto: unknown, valorFormatado: unknown): number {
+  if (temSinalNegativoVisivel(valorFormatado)) return parseValor(valorFormatado);
+  if (temSinalNegativoVisivel(valorBruto)) return parseValor(valorBruto);
+
+  const formatado = parseValor(valorFormatado);
+  if (formatado) return Math.abs(formatado);
+
+  const bruto = parseValor(valorBruto);
+  return bruto < 0 ? bruto : Math.abs(bruto);
+}
+
+function textoCelula(valorFormatado: unknown, valorBruto: unknown): string {
+  const formatado = String(valorFormatado ?? "").trim();
+  if (formatado) return formatado;
+  return String(valorBruto ?? "").trim();
 }
 
 function formatarData(y: number, m: number, d: number): string {
@@ -262,10 +310,7 @@ function gerarHash(linha: Omit<LinhaImportada, "hash">, origem: string): string 
   ].join("|");
 }
 
-export async function parseArquivoNibo(
-  file: File,
-  dataPadrao: string,
-): Promise<ResultadoParse> {
+export async function parseArquivoNibo(file: File, dataPadrao: string): Promise<ResultadoParse> {
   const buffer = await file.arrayBuffer();
   const wb = XLSX.read(buffer, { cellDates: true });
   const erros: string[] = [];
@@ -283,13 +328,22 @@ export async function parseArquivoNibo(
     const sheet = wb.Sheets[nomeAba];
     if (!sheet) continue;
 
-    const bruto = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+    const bruto = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      defval: "",
+      raw: true,
+    });
+    const formatado = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      defval: "",
+      raw: false,
+    });
     if (!bruto.length) {
       avisos.push(`Aba "${nomeAba}" ignorada: nenhum registro encontrado.`);
       continue;
     }
 
-    const colunas = Object.keys(bruto[0] ?? {});
+    const colunas = Array.from(
+      new Set([...Object.keys(bruto[0] ?? {}), ...Object.keys(formatado[0] ?? {})]),
+    );
     colunas.forEach((coluna) => colunasArquivo.add(coluna));
 
     const colData = acharColuna(colunas, "data");
@@ -319,24 +373,27 @@ export async function parseArquivoNibo(
     let datasInvalidas = 0;
 
     bruto.forEach((row, index) => {
-      const valorAssinado = parseValor(row[colValor]);
+      const rowFormatada = formatado[index] ?? {};
+      const valorAssinado = parseValorCelula(row[colValor], rowFormatada[colValor]);
 
       if (!valorAssinado) return;
-      const codigo_nibo = String(colCodigo ? (row[colCodigo] ?? "") : "").trim();
-      const categoria = String(colCat ? (row[colCat] ?? "") : "").trim();
-      const dataEfetiva = colData ? parseData(row[colData]) : null;
+      const codigo_nibo = colCodigo ? textoCelula(rowFormatada[colCodigo], row[colCodigo]) : "";
+      const categoria = colCat ? textoCelula(rowFormatada[colCat], row[colCat]) : "";
+      const dataEfetiva = colData
+        ? (parseData(row[colData]) ?? parseData(rowFormatada[colData]))
+        : null;
       if (colData && !dataEfetiva) datasInvalidas += 1;
 
       candidatas.push({
         tipoContexto,
         data_efetiva: dataEfetiva ?? dataPadrao,
         competencia: competenciaDaData(dataEfetiva ?? dataPadrao),
-        descricao: String(colDesc ? (row[colDesc] ?? "") : "").trim(),
+        descricao: colDesc ? textoCelula(rowFormatada[colDesc], row[colDesc]) : "",
         categoria_nibo: combinarCodigoCategoria(codigo_nibo, categoria),
         codigo_nibo,
-        pessoa: String(colPessoa ? (row[colPessoa] ?? "") : "").trim(),
-        centro_custo: String(colCentro ? (row[colCentro] ?? "") : "").trim(),
-        conta_bancaria: String(colBanco ? (row[colBanco] ?? "") : "").trim(),
+        pessoa: colPessoa ? textoCelula(rowFormatada[colPessoa], row[colPessoa]) : "",
+        centro_custo: colCentro ? textoCelula(rowFormatada[colCentro], row[colCentro]) : "",
+        conta_bancaria: colBanco ? textoCelula(rowFormatada[colBanco], row[colBanco]) : "",
         valorAssinado,
         origem: `${nomeAba}:${index + 2}`,
       });
@@ -392,7 +449,7 @@ export async function parseArquivoNibo(
       pessoa: linha.pessoa,
       centro_custo: linha.centro_custo,
       conta_bancaria: linha.conta_bancaria,
-      valor: Math.abs(linha.valorAssinado),
+      valor: linha.valorAssinado,
     };
 
     return { ...normalizada, hash: gerarHash(normalizada, linha.origem) };

@@ -1,10 +1,19 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Building2, FolderPlus, Plus } from "lucide-react";
+import { ArrowRight, Building2, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/TopBar";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,7 +40,7 @@ function ProjetosPage() {
   const { empresaId, setEmpresaId } = useApp();
   const { data: empresas = [], isLoading } = useEmpresas();
   const [nome, setNome] = useState("");
-  const [cnpj, setCnpj] = useState("");
+  const [novoProjetoAberto, setNovoProjetoAberto] = useState(false);
 
   function abrirProjeto(id: string) {
     setEmpresaId(id);
@@ -49,7 +58,6 @@ function ProjetosPage() {
         .from("empresas")
         .insert({
           nome: nome.trim().slice(0, 160),
-          cnpj: cnpj.trim().slice(0, 20) || null,
           created_by: usuario.user.id,
         })
         .select("id")
@@ -61,7 +69,7 @@ function ProjetosPage() {
     onSuccess: (id) => {
       toast.success("Projeto criado.");
       setNome("");
-      setCnpj("");
+      setNovoProjetoAberto(false);
       queryClient.invalidateQueries({ queryKey: ["empresas"] });
       abrirProjeto(id);
     },
@@ -74,48 +82,49 @@ function ProjetosPage() {
         titulo="Projetos"
         descricao="Escolha onde quer trabalhar ou crie um novo projeto"
         mostrarContexto={false}
-      />
-      <main className="space-y-5 p-6">
-        <section className="grid gap-5 xl:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
-          <div className="rounded-lg border bg-card p-5 shadow-card">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-info-soft text-info">
-                <FolderPlus className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-sm font-semibold">Novo projeto</h2>
-                <p className="text-xs text-muted-foreground">Cadastre o cliente ou operação.</p>
-              </div>
-            </div>
-
-            <div className="mt-5 space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="projeto-nome">Nome do projeto</Label>
-                <Input
-                  id="projeto-nome"
-                  maxLength={160}
-                  value={nome}
-                  onChange={(e) => setNome(e.target.value)}
-                  placeholder="Ex.: Cliente ABC"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="projeto-cnpj">CNPJ</Label>
-                <Input
-                  id="projeto-cnpj"
-                  maxLength={20}
-                  value={cnpj}
-                  onChange={(e) => setCnpj(e.target.value)}
-                  placeholder="Opcional"
-                />
-              </div>
-              <Button className="w-full" onClick={() => criar.mutate()} disabled={criar.isPending}>
+        acoes={
+          <Dialog open={novoProjetoAberto} onOpenChange={setNovoProjetoAberto}>
+            <DialogTrigger asChild>
+              <Button size="sm">
                 <Plus className="mr-2 h-4 w-4" />
-                {criar.isPending ? "Criando..." : "Criar e acessar"}
+                Novo projeto
               </Button>
-            </div>
-          </div>
-
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Novo projeto</DialogTitle>
+                <DialogDescription>Informe apenas o nome para começar.</DialogDescription>
+              </DialogHeader>
+              <form
+                className="space-y-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  criar.mutate();
+                }}
+              >
+                <div className="space-y-2">
+                  <Label htmlFor="projeto-nome">Nome do projeto</Label>
+                  <Input
+                    id="projeto-nome"
+                    maxLength={160}
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value)}
+                    placeholder="Ex.: Cliente ABC"
+                    autoFocus
+                  />
+                </div>
+                <DialogFooter>
+                  <Button type="submit" disabled={criar.isPending || !nome.trim()}>
+                    {criar.isPending ? "Criando..." : "Criar e acessar"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      />
+      <main className="p-6">
+        <section className="mx-auto max-w-6xl">
           <div className="rounded-lg border bg-card shadow-card">
             <div className="flex items-center justify-between gap-3 border-b px-5 py-3">
               <h2 className="text-sm font-semibold">Projetos cadastrados</h2>
@@ -151,9 +160,6 @@ function ProjetosPage() {
                           <span className="flex items-center gap-2 text-sm font-semibold">
                             <Building2 className="h-4 w-4 text-info" />
                             <span className="truncate">{empresa.nome}</span>
-                          </span>
-                          <span className="mt-1 block text-xs text-muted-foreground">
-                            {empresa.cnpj ?? "sem CNPJ"}
                           </span>
                         </span>
                         <span className="inline-flex items-center gap-1 text-xs font-medium text-info">

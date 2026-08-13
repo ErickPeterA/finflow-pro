@@ -65,9 +65,11 @@ function ImportacaoPage() {
 
   const totalRecebidas = previa
     .filter((l) => l.tipo === "recebida")
-    .reduce((s, l) => s + l.valor, 0);
-  const totalPagas = previa.filter((l) => l.tipo === "paga").reduce((s, l) => s + l.valor, 0);
-  const totalPrevia = totalRecebidas - totalPagas;
+    .reduce((s, l) => s + Math.abs(l.valor), 0);
+  const totalPagas = previa
+    .filter((l) => l.tipo === "paga")
+    .reduce((s, l) => s + Math.abs(l.valor), 0);
+  const totalPrevia = previa.reduce((s, l) => s + l.valor, 0);
   const semCategoria = previa.filter((l) => !l.categoria_nibo).length;
   const competenciasPrevia = useMemo(
     () => Array.from(new Set(previa.map((l) => l.competencia))).sort(),
@@ -177,10 +179,7 @@ function ImportacaoPage() {
 
       for (const [chave, linhasTipo] of grupos) {
         if (!linhasTipo.length) continue;
-        const [tipoImportacao, competencia] = chave.split("::") as [
-          LinhaImportada["tipo"],
-          string,
-        ];
+        const [tipoImportacao, competencia] = chave.split("::") as [LinhaImportada["tipo"], string];
 
         const { data: imp, error: erroImp } = await supabase
           .from("importacoes")
@@ -297,9 +296,9 @@ function ImportacaoPage() {
                       data do NIBO.
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      O tipo é identificado primeiro pelo sinal do valor, e só usa categoria/aba
-                      como referência. Se alguma linha vier sem data válida, ela usa o período
-                      selecionado no topo como fallback.
+                      O sinal do valor manda: com "-" é saída; sem "-" é entrada. Categoria e nome
+                      não transformam um valor positivo em negativo. Se alguma linha vier sem data
+                      válida, ela usa o período selecionado no topo como fallback.
                     </p>
                   </div>
                 </div>
@@ -442,7 +441,7 @@ function ImportacaoPage() {
                                   : "bg-negative-soft text-negative",
                               )}
                             >
-                              {l.tipo === "recebida" ? "Recebida" : "Paga"}
+                              {valorAssinadoPrevia(l) < 0 ? "Saída" : "Entrada"}
                             </span>
                           </td>
                           <td className="max-w-[260px] truncate px-3 py-2">{l.descricao || "—"}</td>
@@ -578,5 +577,5 @@ function Resumo({ rotulo, valor, alerta }: { rotulo: string; valor: string; aler
 }
 
 function valorAssinadoPrevia(linha: LinhaImportada) {
-  return linha.tipo === "paga" ? -linha.valor : linha.valor;
+  return linha.valor;
 }

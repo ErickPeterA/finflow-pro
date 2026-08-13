@@ -14,12 +14,9 @@ import {
 import {
   Activity,
   ArrowRight,
-  BadgeDollarSign,
-  Gauge,
   Minus,
   Plus,
   ShieldCheck,
-  Target,
   TrendingDown,
   TrendingUp,
   type LucideIcon,
@@ -90,15 +87,10 @@ function HomePage() {
 
   const qualidade = qualidadeResultado(atual, margemDesejada);
   const estilo = qualidadeEstilo[qualidade.nivel]!;
-  const pesoCustos = percentualSobreReceita(custosOperacionais, atual.receitaBruta);
-  const pesoDespesas = percentualSobreReceita(atual.despesas, atual.receitaBruta);
-  const pesoResultado = percentualSobreReceita(atual.resultadoOperacional, atual.receitaBruta);
   const scoreQualidade = Math.max(
     0,
     Math.min(100, Math.round((atual.margemOperacional / Math.max(margemDesejada * 1.5, 1)) * 100)),
   );
-  const gapMeta = atual.margemOperacional - margemDesejada;
-
   const grafico = [
     { nome: "Receita", valor: atual.receitaBruta, cor: "var(--info)" },
     { nome: "Custos Op.", valor: custosOperacionais, cor: "var(--warning)" },
@@ -241,105 +233,80 @@ function HomePage() {
                   </span>
                 }
               >
-                <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_240px]">
-                  <div className="h-72 min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={grafico} margin={{ top: 28, right: 8, left: 0, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="grafico-receita" x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0%" stopColor="#2563eb" />
-                            <stop offset="100%" stopColor="#60a5fa" />
-                          </linearGradient>
-                          <linearGradient id="grafico-custos" x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0%" stopColor="#f59e0b" />
-                            <stop offset="100%" stopColor="#fcd34d" />
-                          </linearGradient>
-                          <linearGradient id="grafico-despesas" x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0%" stopColor="#ef4444" />
-                            <stop offset="100%" stopColor="#fca5a5" />
-                          </linearGradient>
-                          <linearGradient id="grafico-resultado" x1="0" x2="0" y1="0" y2="1">
-                            <stop
-                              offset="0%"
-                              stopColor={atual.resultadoOperacional >= 0 ? "#16a34a" : "#ef4444"}
-                            />
-                            <stop
-                              offset="100%"
-                              stopColor={atual.resultadoOperacional >= 0 ? "#86efac" : "#fca5a5"}
-                            />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid
-                          strokeDasharray="3 3"
-                          vertical={false}
-                          stroke="var(--border)"
-                        />
-                        <XAxis dataKey="nome" tickLine={false} axisLine={false} fontSize={12} />
-                        <YAxis
-                          tickFormatter={(v) => brl(Number(v), true)}
-                          tickLine={false}
-                          axisLine={false}
-                          fontSize={12}
-                          width={76}
-                        />
-                        <Tooltip
-                          formatter={(v) => brl(Number(v))}
-                          contentStyle={{
-                            borderRadius: 10,
-                            border: "1px solid var(--border)",
-                            background: "var(--card)",
-                            boxShadow: "var(--shadow-card)",
-                          }}
-                        />
-                        <Bar dataKey="valor" radius={[8, 8, 0, 0]} barSize={42}>
-                          <LabelList
-                            dataKey="valor"
-                            position="top"
-                            formatter={(v: number) => brl(Number(v), true)}
-                            fontSize={11}
-                            fill="var(--foreground)"
+                <div className="h-72 min-w-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={grafico} margin={{ top: 28, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="grafico-receita" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#2563eb" />
+                          <stop offset="100%" stopColor="#60a5fa" />
+                        </linearGradient>
+                        <linearGradient id="grafico-custos" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#f59e0b" />
+                          <stop offset="100%" stopColor="#fcd34d" />
+                        </linearGradient>
+                        <linearGradient id="grafico-despesas" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#ef4444" />
+                          <stop offset="100%" stopColor="#fca5a5" />
+                        </linearGradient>
+                        <linearGradient id="grafico-resultado" x1="0" x2="0" y1="0" y2="1">
+                          <stop
+                            offset="0%"
+                            stopColor={atual.resultadoOperacional >= 0 ? "#16a34a" : "#ef4444"}
                           />
-                          {grafico.map((g) => (
-                            <Cell
-                              key={g.nome}
-                              fill={
-                                g.nome === "Receita"
-                                  ? "url(#grafico-receita)"
-                                  : g.nome === "Custos Op."
-                                    ? "url(#grafico-custos)"
-                                    : g.nome === "Despesas Op."
-                                      ? "url(#grafico-despesas)"
-                                      : "url(#grafico-resultado)"
-                              }
-                            />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="flex flex-col justify-center gap-4 border-t pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
-                    <IndicadorPeso
-                      icone={BadgeDollarSign}
-                      rotulo="Custos sobre receita"
-                      valor={custosOperacionais}
-                      percentual={pesoCustos}
-                      tom="atencao"
-                    />
-                    <IndicadorPeso
-                      icone={TrendingDown}
-                      rotulo="Despesas sobre receita"
-                      valor={atual.despesas}
-                      percentual={pesoDespesas}
-                      tom="negativo"
-                    />
-                    <IndicadorPeso
-                      icone={TrendingUp}
-                      rotulo="Resultado sobre receita"
-                      valor={atual.resultadoOperacional}
-                      percentual={pesoResultado}
-                      tom={tom(atual.resultadoOperacional)}
-                    />
-                  </div>
+                          <stop
+                            offset="100%"
+                            stopColor={atual.resultadoOperacional >= 0 ? "#86efac" : "#fca5a5"}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        stroke="var(--border)"
+                      />
+                      <XAxis dataKey="nome" tickLine={false} axisLine={false} fontSize={12} />
+                      <YAxis
+                        tickFormatter={(v) => brl(Number(v), true)}
+                        tickLine={false}
+                        axisLine={false}
+                        fontSize={12}
+                        width={76}
+                      />
+                      <Tooltip
+                        formatter={(v) => brl(Number(v))}
+                        contentStyle={{
+                          borderRadius: 10,
+                          border: "1px solid var(--border)",
+                          background: "var(--card)",
+                          boxShadow: "var(--shadow-card)",
+                        }}
+                      />
+                      <Bar dataKey="valor" radius={[8, 8, 0, 0]} barSize={42}>
+                        <LabelList
+                          dataKey="valor"
+                          position="top"
+                          formatter={(v: number) => brl(Number(v), true)}
+                          fontSize={11}
+                          fill="var(--foreground)"
+                        />
+                        {grafico.map((g) => (
+                          <Cell
+                            key={g.nome}
+                            fill={
+                              g.nome === "Receita"
+                                ? "url(#grafico-receita)"
+                                : g.nome === "Custos Op."
+                                  ? "url(#grafico-custos)"
+                                  : g.nome === "Despesas Op."
+                                    ? "url(#grafico-despesas)"
+                                    : "url(#grafico-resultado)"
+                            }
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               </Bloco>
 
@@ -375,29 +342,6 @@ function HomePage() {
                     </div>
                   </div>
                   <p className="text-sm text-muted-foreground">{qualidade.texto}</p>
-                </div>
-
-                <div className="mt-5 space-y-4">
-                  <IndicadorMeta
-                    icone={Target}
-                    rotulo="Meta operacional"
-                    valor={pct(margemDesejada)}
-                    detalhe={
-                      gapMeta >= 0
-                        ? `${pct(gapMeta)} acima da meta`
-                        : `${pct(Math.abs(gapMeta))} abaixo da meta`
-                    }
-                    progresso={scoreQualidade}
-                    tom={gapMeta >= 0 ? "positivo" : "atencao"}
-                  />
-                  <IndicadorMeta
-                    icone={Gauge}
-                    rotulo="Resultado gerado"
-                    valor={brl(atual.resultadoOperacional, true)}
-                    detalhe={`sobre ${brl(atual.receitaBruta, true)} de receita`}
-                    progresso={Math.max(0, Math.min(100, Math.abs(pesoResultado)))}
-                    tom={tom(atual.resultadoOperacional)}
-                  />
                 </div>
 
                 <dl className="mt-5 space-y-2 border-t pt-4 text-sm">
@@ -503,10 +447,6 @@ function calcularCaminhoGastos(
   };
 }
 
-function percentualSobreReceita(valor: number, receita: number) {
-  return receita ? (valor / receita) * 100 : 0;
-}
-
 function normalizarTexto(texto: string) {
   return texto
     .normalize("NFD")
@@ -564,84 +504,6 @@ function Operador({ icone }: { icone: "mais" | "menos" | "igual" }) {
       ) : (
         <ArrowRight className="h-4 w-4" />
       )}
-    </div>
-  );
-}
-
-function IndicadorPeso({
-  icone: Icone,
-  rotulo,
-  valor,
-  percentual,
-  tom,
-}: {
-  icone: LucideIcon;
-  rotulo: string;
-  valor: number;
-  percentual: number;
-  tom: Tom;
-}) {
-  const estilo = tomEstilo(tom);
-  const largura = Math.max(0, Math.min(100, Math.abs(percentual)));
-
-  return (
-    <div>
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", estilo.soft)}>
-            <Icone className="h-3.5 w-3.5" />
-          </span>
-          <span className="truncate text-sm font-medium">{rotulo}</span>
-        </div>
-        <div className="text-right">
-          <p className={cn("tabular text-sm font-semibold", estilo.texto)}>{pct(percentual)}</p>
-          <p className="tabular text-[11px] text-muted-foreground">{brl(valor, true)}</p>
-        </div>
-      </div>
-      <div className="h-2 overflow-hidden rounded-full bg-muted">
-        <div className={cn("h-full rounded-full", estilo.barra)} style={{ width: `${largura}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function IndicadorMeta({
-  icone: Icone,
-  rotulo,
-  valor,
-  detalhe,
-  progresso,
-  tom,
-}: {
-  icone: LucideIcon;
-  rotulo: string;
-  valor: string;
-  detalhe: string;
-  progresso: number;
-  tom: Tom;
-}) {
-  const estilo = tomEstilo(tom);
-
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", estilo.soft)}>
-            <Icone className="h-3.5 w-3.5" />
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{rotulo}</p>
-            <p className="truncate text-xs text-muted-foreground">{detalhe}</p>
-          </div>
-        </div>
-        <span className={cn("tabular text-sm font-semibold", estilo.texto)}>{valor}</span>
-      </div>
-      <div className="h-2 overflow-hidden rounded-full bg-muted">
-        <div
-          className={cn("h-full rounded-full", estilo.barra)}
-          style={{ width: `${Math.max(0, Math.min(100, progresso))}%` }}
-        />
-      </div>
     </div>
   );
 }

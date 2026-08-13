@@ -126,10 +126,9 @@ function grupoPorPrefixo(prefixo: string | null): GrupoDre | null {
   return null;
 }
 
-/** Valor com sinal para composição do resultado. */
-export function valorAssinado(grupo: GrupoDre, l: Lancamento): number {
-  const v = Math.abs(Number(l.valor) || 0);
-  return l.tipo === "recebida" ? v : -v;
+/** Valor com sinal para composição do resultado: o sinal vem da planilha/importação. */
+export function valorAssinado(_grupo: GrupoDre, l: Lancamento): number {
+  return Number(l.valor) || 0;
 }
 
 export interface ResultadoMes {

@@ -1,8 +1,8 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Ecossistema Financeiro BPO | VG" },
@@ -19,27 +19,13 @@ export const Route = createFileRoute("/")({
       },
     ],
   }),
+  beforeLoad: async () => {
+    const { data } = await supabase.auth.getSession();
+    throw redirect({ to: data.session ? "/projetos" : "/auth" });
+  },
   component: Index,
 });
 
 function Index() {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      navigate({ to: data.session ? "/projetos" : "/auth", replace: true });
-    });
-  }, [navigate]);
-
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-navy-deep text-navy-foreground">
-      <div className="text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">
-          VG
-        </div>
-        <h1 className="mt-4 text-lg font-semibold">Ecossistema Financeiro BPO</h1>
-        <p className="mt-1 text-sm text-navy-foreground/60">Carregando sua área...</p>
-      </div>
-    </main>
-  );
+  return null;
 }

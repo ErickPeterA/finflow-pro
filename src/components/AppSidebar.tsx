@@ -79,17 +79,7 @@ export function AppSidebar({
         colapsado ? "w-16" : "w-64",
       )}
     >
-      <div className="flex h-16 items-center gap-3 px-4">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">
-          VG
-        </div>
-        {!colapsado && (
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">Ecossistema Financeiro</p>
-            <p className="truncate text-xs text-sidebar-foreground/60">BPO Financeiro</p>
-          </div>
-        )}
-      </div>
+      <img src="logobranca.png" alt="" className="mx-auto my-4 h-17 w-30" />
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
         {itensVisiveis.map((item) => {

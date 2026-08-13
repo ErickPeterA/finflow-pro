@@ -2,7 +2,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { BarChart3, LogIn, Shield, TrendingUp, Wallet } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  AUTH_REMEMBER_EMAIL_KEY,
+  AUTH_REMEMBER_KEY,
+  AUTH_REMEMBER_UNTIL_KEY,
+  supabase,
+} from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,10 +76,23 @@ function criarEmailAutenticacao(valor: string) {
   return `${usuario}@${dominio.includes(".") ? dominio : `${dominio}.local`}`;
 }
 
+const TRES_DIAS_MS = 3 * 24 * 60 * 60 * 1000;
+
+function lembrarSalvo() {
+  if (typeof window === "undefined") return true;
+  return localStorage.getItem(AUTH_REMEMBER_KEY) !== "false";
+}
+
+function emailSalvo() {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(AUTH_REMEMBER_EMAIL_KEY) ?? "";
+}
+
 function AuthPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(emailSalvo);
   const [senha, setSenha] = useState("");
+  const [lembrar, setLembrar] = useState(lembrarSalvo);
   const [carregando, setCarregando] = useState(false);
 
   useEffect(() => {
@@ -94,6 +112,16 @@ function AuthPage() {
 
     setCarregando(true);
     try {
+      if (lembrar) {
+        localStorage.setItem(AUTH_REMEMBER_KEY, "true");
+        localStorage.setItem(AUTH_REMEMBER_UNTIL_KEY, String(Date.now() + TRES_DIAS_MS));
+        localStorage.setItem(AUTH_REMEMBER_EMAIL_KEY, email.trim().toLowerCase());
+      } else {
+        localStorage.setItem(AUTH_REMEMBER_KEY, "false");
+        localStorage.removeItem(AUTH_REMEMBER_UNTIL_KEY);
+        localStorage.removeItem(AUTH_REMEMBER_EMAIL_KEY);
+      }
+
       const { error } = await supabase.auth.signInWithPassword({
         email: emailAutenticacao,
         password: senha,
@@ -118,8 +146,8 @@ function AuthPage() {
           <div>
             <h2 className="text-3xl font-bold leading-tight">Inteligência financeira</h2>
             <p className="mt-4 text-sm leading-relaxed text-white/70">
-              Automatize a gestão de contas a pagar e receber, acompanhe indicadores em tempo real
-              e tome decisões estratégicas com dados confiáveis para decisões mais ágeis.
+              Automatize a gestão de contas a pagar e receber, acompanhe indicadores em tempo real e
+              tome decisões estratégicas com dados confiáveis para decisões mais ágeis.
             </p>
           </div>
 
@@ -192,6 +220,16 @@ function AuthPage() {
                 required
               />
             </div>
+
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={lembrar}
+                onChange={(e) => setLembrar(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-[#042558] focus:ring-[#042558]/20"
+              />
+              Não esqueça de mim por 3 dias
+            </label>
 
             <Button
               type="submit"
