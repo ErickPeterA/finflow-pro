@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn, useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Link2, RefreshCw, ShieldCheck, UserMinus, UserPlus } from "lucide-react";
+import { Building2, Link2, RefreshCw, UserMinus, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/TopBar";
@@ -48,18 +48,6 @@ interface ProjetoGerenciado {
   ativo: boolean;
 }
 
-interface VinculoProjeto {
-  id: string;
-  userId: string;
-  empresaId: string;
-  perfil: PerfilProjeto;
-  cargo: string;
-  ativo: boolean;
-  criadoEm: string;
-}
-
-const cargos: Cargo[] = ["admin", "consultor", "cliente"];
-
 const cargoLabels: Record<Cargo, string> = {
   admin: "Admin",
   consultor: "Consultor",
@@ -79,8 +67,8 @@ const abasGerenciamento: AbaGerenciamento[] = [
 
 export const Route = createFileRoute("/_authenticated/gerenciamento")({
   validateSearch: (search: Record<string, unknown>) => ({
-    aba: abasGerenciamento.includes(search.aba as AbaGerenciamento)
-      ? (search.aba as AbaGerenciamento)
+    aba: abasGerenciamento.includes(search["aba"] as AbaGerenciamento)
+      ? (search["aba"] as AbaGerenciamento)
       : "criar-login",
   }),
   head: () => ({
@@ -203,13 +191,14 @@ async function montarPainel(adminId: string) {
     .map((user) => {
       const profile = profilePorId.get(user.id);
       const bannedUntil = (user as { banned_until?: string | null }).banned_until;
+      const nomeMetadata = user.user_metadata?.["nome"];
 
       return {
         id: user.id,
         email: user.email ?? profile?.email ?? "sem e-mail",
         nome:
           profile?.nome ||
-          (typeof user.user_metadata?.nome === "string" ? user.user_metadata.nome : "") ||
+          (typeof nomeMetadata === "string" ? nomeMetadata : "") ||
           user.email?.split("@")[0] ||
           "Usuário",
         cargo: prioridade(rolesPorId.get(user.id)),
@@ -235,6 +224,12 @@ async function montarPainel(adminId: string) {
     usuarioAtualId: adminId,
   };
 }
+
+type PainelAdmin = Awaited<ReturnType<typeof montarPainel>>;
+
+const usuariosVazios: PainelAdmin["usuarios"] = [];
+const projetosVazios: PainelAdmin["projetos"] = [];
+const vinculosVazios: PainelAdmin["vinculos"] = [];
 
 const listarPainel = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -450,9 +445,9 @@ function GerenciamentoPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao desativar vínculo."),
   });
 
-  const usuarios = painelQuery.data?.usuarios ?? [];
-  const projetos = painelQuery.data?.projetos ?? [];
-  const vinculos = painelQuery.data?.vinculos ?? [];
+  const usuarios = painelQuery.data?.usuarios ?? usuariosVazios;
+  const projetos = painelQuery.data?.projetos ?? projetosVazios;
+  const vinculos = painelQuery.data?.vinculos ?? vinculosVazios;
   const usuarioAtualId = painelQuery.data?.usuarioAtualId;
 
   const usuariosPorId = useMemo(() => new Map(usuarios.map((u) => [u.id, u])), [usuarios]);

@@ -152,9 +152,9 @@ function DrePage() {
       );
     }
     return compararResultados(
-      meses[mesComparativoA],
+      nomeMes(mesComparativoA),
       resultadosAno[mesComparativoA]!,
-      meses[mesComparativoB],
+      nomeMes(mesComparativoB),
       resultadosAno[mesComparativoB]!,
     );
   }, [
@@ -669,6 +669,10 @@ function mesesDoPeriodo(inicio: string, fim: string, ano: number) {
   return mesesNoPeriodo.length ? mesesNoPeriodo : todosMeses;
 }
 
+function nomeMes(index: number) {
+  return meses[index] ?? `Mês ${index + 1}`;
+}
+
 function totalizarResultados(resultados: ResultadoMes[]): ResultadoMes {
   const total = resultados.reduce(
     (acc, m) => ({
@@ -758,15 +762,15 @@ type LinhaComparativoBase = {
 
 type LinhaComparativo = LinhaComparativoBase & {
   forte?: boolean;
-  grupos?: GrupoDre[];
+  grupos?: GrupoDre[] | undefined;
 };
 
 type LinhaDetalheComparativo = LinhaComparativoBase & {
   key: string;
   grupo: GrupoDre;
   nivel: "centro" | "categoria";
-  centroCusto?: string;
-  classificacao?: "fixo" | "variavel";
+  centroCusto?: string | undefined;
+  classificacao?: "fixo" | "variavel" | undefined;
 };
 
 function montarLinhasComparativo(a: ResultadoMes, b: ResultadoMes): LinhaComparativo[] {
@@ -1084,7 +1088,7 @@ function LinhaTabelaComparativa({
   maiorImpacto: number;
   detalhesCount?: number;
   aberto?: boolean;
-  onToggle?: () => void;
+  onToggle?: (() => void) | undefined;
 }) {
   const detalhe = "nivel" in linha;
 

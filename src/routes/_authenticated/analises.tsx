@@ -78,7 +78,7 @@ function AnalisesPage() {
       resultados
         .filter((m) => mesesVisiveis.includes(m.mes))
         .map((m) => ({
-          mes: mesesCurtos[m.mes],
+          mes: nomeMesCurto(m.mes),
           resultadoBruto: m.resultadoBruto,
           resultadoOperacional: m.resultadoOperacional,
           resultadoLiquido: m.resultadoLiquido,
@@ -90,7 +90,7 @@ function AnalisesPage() {
       mesesVisiveis.map((mesIndex) => [
         mesIndex,
         {
-          mes: mesesCurtos[mesIndex],
+          mes: nomeMesCurto(mesIndex),
           grupo4: 0,
           grupo5: 0,
           saldo: 0,
@@ -422,7 +422,7 @@ function GraficoContasResultado({
                         <LabelList
                           dataKey={opcao.key}
                           position="top"
-                          formatter={(value) => brl(Number(value), true)}
+                          formatter={(value: unknown) => brl(Number(value), true)}
                           className="fill-foreground text-[11px] font-semibold"
                         />
                       </Bar>
@@ -447,7 +447,7 @@ function GraficoContasResultado({
                   <dd className="tabular mt-1 text-lg font-semibold">{brl(item.total)}</dd>
                   <p className="mt-1 text-xs">
                     {mesesVisiveis.length === 1
-                      ? meses[mesesVisiveis[0] ?? 0]
+                      ? nomeMes(mesesVisiveis[0] ?? 0)
                       : `${mesesVisiveis.length} meses`}
                   </p>
                 </div>
@@ -529,7 +529,7 @@ function GraficoInvestimentos({
                   <LabelList
                     dataKey="grupo4"
                     position="top"
-                    formatter={(value) => labelMoeda(value)}
+                    formatter={(value: unknown) => labelMoeda(value)}
                     className="fill-foreground text-[11px] font-semibold"
                   />
                 </Bar>
@@ -540,7 +540,7 @@ function GraficoInvestimentos({
                   <LabelList
                     dataKey="grupo5"
                     position="top"
-                    formatter={(value) => labelMoeda(value)}
+                    formatter={(value: unknown) => labelMoeda(value)}
                     className="fill-foreground text-[11px] font-semibold"
                   />
                 </Bar>
@@ -564,7 +564,7 @@ function GraficoInvestimentos({
             rotulo="Saldo"
             descricao={
               mesesVisiveis.length === 1
-                ? meses[mesesVisiveis[0] ?? 0]
+                ? nomeMes(mesesVisiveis[0] ?? 0)
                 : `${mesesVisiveis.length} meses`
             }
             valor={saldo}
@@ -691,6 +691,14 @@ function corPorSinal(valor: number) {
 function labelMoeda(value: unknown) {
   const numero = Number(value);
   return numero === 0 ? "" : brl(numero, true);
+}
+
+function nomeMes(index: number) {
+  return meses[index] ?? `Mês ${index + 1}`;
+}
+
+function nomeMesCurto(index: number) {
+  return mesesCurtos[index] ?? nomeMes(index);
 }
 
 function Item({

@@ -86,26 +86,6 @@ function ImportacaoPage() {
   }, [arquivos]);
   const nomeImportacao = nomesArquivos || "arquivo";
 
-  async function selecionar(file: File | null) {
-    setArquivos(file ? [file] : []);
-    setPrevia([]);
-    setErros([]);
-    setAvisos([]);
-    if (!file) return;
-    setProcessando(true);
-    try {
-      const r = await parseArquivoNibo(file, competenciaDate(ano, mes));
-      setPrevia(r.linhas);
-      setErros(r.erros);
-      setAvisos(r.avisos);
-      if (r.linhas.length) toast.success(`${r.linhas.length} lançamento(s) prontos para importar.`);
-    } catch {
-      setErros(["Não foi possível ler o arquivo. Verifique se é um Excel ou CSV do NIBO."]);
-    } finally {
-      setProcessando(false);
-    }
-  }
-
   function arquivoAceito(file: File) {
     return /\.(xlsx|xls|csv)$/i.test(file.name);
   }

@@ -86,6 +86,7 @@ export interface Lancamento {
   centro_custo: string | null;
   conta_bancaria: string | null;
   valor: number;
+  hash: string;
   tratamento: Tratamento;
   nao_recorrente: boolean;
 }

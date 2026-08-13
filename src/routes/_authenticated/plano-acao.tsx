@@ -257,9 +257,7 @@ function PlanoAcaoPage() {
             <Bloco
               titulo={`Ações registradas (${planos.length})`}
               acoes={
-                <span className="text-xs text-muted-foreground">
-                  {concluidas} concluída(s)
-                </span>
+                <span className="text-xs text-muted-foreground">{concluidas} concluída(s)</span>
               }
             >
               {isLoading ? (
@@ -308,8 +306,7 @@ function PlanoAcaoPage() {
                           <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                             {p.competencia_origem && (
                               <span>
-                                Origem:{" "}
-                                {meses[Number(p.competencia_origem.slice(5, 7)) - 1]}/
+                                Origem: {meses[Number(p.competencia_origem.slice(5, 7)) - 1]}/
                                 {p.competencia_origem.slice(0, 4)}
                               </span>
                             )}

@@ -56,9 +56,7 @@ export function TopBar({
       <div className="flex flex-wrap items-center gap-3 px-6 py-3">
         <div className="mr-auto min-w-0">
           <h1 className="truncate text-lg font-semibold tracking-tight">{titulo}</h1>
-          {descricao && (
-            <p className="truncate text-xs text-muted-foreground">{descricao}</p>
-          )}
+          {descricao && <p className="truncate text-xs text-muted-foreground">{descricao}</p>}
         </div>
 
         {onBusca && (

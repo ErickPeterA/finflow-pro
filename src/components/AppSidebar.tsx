@@ -19,12 +19,6 @@ import {
 import { cn } from "@/lib/utils";
 import { useMeuCargo } from "@/lib/data";
 
-const itemProjetos = {
-  to: "/projetos",
-  label: "Projetos",
-  icon: FolderKanban,
-} as const;
-
 const itensProjeto = [
   { to: "/home", label: "Home", icon: LayoutDashboard },
   { to: "/importacao", label: "Importação NIBO", icon: Upload },
@@ -38,9 +32,7 @@ const itensProjeto = [
   { to: "/relatorios", label: "Relatórios", icon: FileText },
 ] as const;
 
-const itensEntrada = [
-  { to: "/projetos", label: "Projetos", icon: FolderKanban },
-] as const;
+const itensEntrada = [{ to: "/projetos", label: "Projetos", icon: FolderKanban }] as const;
 
 const itemGerenciamento = {
   to: "/gerenciamento",
@@ -54,13 +46,7 @@ const subItensGerenciamento = [
   { label: "Atrelar usuários", aba: "atrelar-usuarios" },
 ] as const;
 
-export function AppSidebar({
-  colapsado,
-  onToggle,
-}: {
-  colapsado: boolean;
-  onToggle: () => void;
-}) {
+export function AppSidebar({ colapsado, onToggle }: { colapsado: boolean; onToggle: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const abaGerenciamento = useRouterState({
     select: (s) => String((s.location.search as { aba?: unknown }).aba ?? "criar-login"),

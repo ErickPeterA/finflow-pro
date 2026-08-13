@@ -41,9 +41,7 @@ export function Kpi({
 
   return (
     <div className="rounded-xl border bg-card p-4 shadow-card">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {titulo}
-      </p>
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{titulo}</p>
       <p className={cn("tabular mt-2 text-2xl font-semibold", tons[tom])}>{brl(valor)}</p>
       <div className="mt-2 flex items-center gap-2 text-xs">
         {variacaoPct == null ? (
