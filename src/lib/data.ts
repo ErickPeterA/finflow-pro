@@ -72,15 +72,34 @@ export function useLancamentos(empresaId: string | null, ano: number) {
     queryKey: ["lancamentos", empresaId, ano],
     enabled: !!empresaId,
     queryFn: async (): Promise<Lancamento[]> => {
-      const { data, error } = await supabase
-        .from("lancamentos")
-        .select("*")
-        .eq("empresa_id", empresaId!)
-        .gte("competencia", `${ano}-01-01`)
-        .lte("competencia", `${ano}-12-01`)
-        .order("data_efetiva");
-      if (error) throw error;
-      return (data ?? []) as unknown as Lancamento[];
+      const pageSize = 1000;
+      const lancamentos: Lancamento[] = [];
+      const idsVistos = new Set<string>();
+
+      for (let from = 0; ; from += pageSize) {
+        const to = from + pageSize - 1;
+        const { data, error } = await supabase
+          .from("lancamentos")
+          .select("*")
+          .eq("empresa_id", empresaId!)
+          .gte("competencia", `${ano}-01-01`)
+          .lte("competencia", `${ano}-12-01`)
+          .order("competencia")
+          .order("data_efetiva")
+          .order("id")
+          .range(from, to);
+        if (error) throw error;
+
+        const pagina = (data ?? []) as unknown as Lancamento[];
+        for (const lancamento of pagina) {
+          if (idsVistos.has(lancamento.id)) continue;
+          idsVistos.add(lancamento.id);
+          lancamentos.push(lancamento);
+        }
+        if (pagina.length < pageSize) break;
+      }
+
+      return lancamentos;
     },
   });
 }

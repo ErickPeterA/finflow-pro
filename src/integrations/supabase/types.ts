@@ -133,6 +133,10 @@ export type Database = {
           duplicados: number;
           empresa_id: string;
           id: string;
+          nibo_sync_run_id: string | null;
+          origem: string;
+          periodo_fim: string | null;
+          periodo_inicio: string | null;
           status: string;
           tipo: Database["public"]["Enums"]["tipo_lancamento"];
           total_registros: number;
@@ -147,6 +151,10 @@ export type Database = {
           duplicados?: number;
           empresa_id: string;
           id?: string;
+          nibo_sync_run_id?: string | null;
+          origem?: string;
+          periodo_fim?: string | null;
+          periodo_inicio?: string | null;
           status?: string;
           tipo: Database["public"]["Enums"]["tipo_lancamento"];
           total_registros?: number;
@@ -161,6 +169,10 @@ export type Database = {
           duplicados?: number;
           empresa_id?: string;
           id?: string;
+          nibo_sync_run_id?: string | null;
+          origem?: string;
+          periodo_fim?: string | null;
+          periodo_inicio?: string | null;
           status?: string;
           tipo?: Database["public"]["Enums"]["tipo_lancamento"];
           total_registros?: number;
@@ -172,6 +184,13 @@ export type Database = {
             columns: ["empresa_id"];
             isOneToOne: false;
             referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "importacoes_nibo_sync_run_id_fkey";
+            columns: ["nibo_sync_run_id"];
+            isOneToOne: false;
+            referencedRelation: "nibo_sync_runs";
             referencedColumns: ["id"];
           },
         ];
@@ -187,13 +206,18 @@ export type Database = {
           data_efetiva: string;
           descricao: string;
           empresa_id: string;
+          external_id: string | null;
+          external_source: string | null;
           hash: string;
           id: string;
           importacao_id: string | null;
           nao_recorrente: boolean;
+          origem: string;
           pessoa: string | null;
+          source_content_hash: string | null;
           tipo: Database["public"]["Enums"]["tipo_lancamento"];
           tratamento: Database["public"]["Enums"]["tratamento_lancamento"];
+          updated_at: string;
           valor: number;
         };
         Insert: {
@@ -206,13 +230,18 @@ export type Database = {
           data_efetiva: string;
           descricao?: string;
           empresa_id: string;
+          external_id?: string | null;
+          external_source?: string | null;
           hash: string;
           id?: string;
           importacao_id?: string | null;
           nao_recorrente?: boolean;
+          origem?: string;
           pessoa?: string | null;
+          source_content_hash?: string | null;
           tipo: Database["public"]["Enums"]["tipo_lancamento"];
           tratamento?: Database["public"]["Enums"]["tratamento_lancamento"];
+          updated_at?: string;
           valor?: number;
         };
         Update: {
@@ -225,13 +254,18 @@ export type Database = {
           data_efetiva?: string;
           descricao?: string;
           empresa_id?: string;
+          external_id?: string | null;
+          external_source?: string | null;
           hash?: string;
           id?: string;
           importacao_id?: string | null;
           nao_recorrente?: boolean;
+          origem?: string;
           pessoa?: string | null;
+          source_content_hash?: string | null;
           tipo?: Database["public"]["Enums"]["tipo_lancamento"];
           tratamento?: Database["public"]["Enums"]["tratamento_lancamento"];
+          updated_at?: string;
           valor?: number;
         };
         Relationships: [
@@ -296,6 +330,268 @@ export type Database = {
             columns: ["empresa_id"];
             isOneToOne: false;
             referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      nibo_project_configs: {
+        Row: {
+          auto_sync_enabled: boolean;
+          created_at: string;
+          created_by: string | null;
+          empresa_id: string;
+          id: string;
+          last_verified_at: string | null;
+          lookback_days: number;
+          nibo_company_id: string;
+          nibo_company_name: string;
+          nibo_enabled: boolean;
+          sync_start_date: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          auto_sync_enabled?: boolean;
+          created_at?: string;
+          created_by?: string | null;
+          empresa_id: string;
+          id?: string;
+          last_verified_at?: string | null;
+          lookback_days?: number;
+          nibo_company_id: string;
+          nibo_company_name?: string;
+          nibo_enabled?: boolean;
+          sync_start_date?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          auto_sync_enabled?: boolean;
+          created_at?: string;
+          created_by?: string | null;
+          empresa_id?: string;
+          id?: string;
+          last_verified_at?: string | null;
+          lookback_days?: number;
+          nibo_company_id?: string;
+          nibo_company_name?: string;
+          nibo_enabled?: boolean;
+          sync_start_date?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "nibo_project_configs_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: true;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      nibo_sync_items: {
+        Row: {
+          created_at: string;
+          empresa_id: string;
+          error_message: string | null;
+          finished_at: string | null;
+          id: string;
+          nibo_company_id: string;
+          nibo_company_name: string;
+          periodo_fim: string;
+          periodo_inicio: string;
+          registros_atualizados: number;
+          registros_encontrados: number;
+          registros_ignorados: number;
+          registros_inseridos: number;
+          run_id: string;
+          started_at: string;
+          status: string;
+          tipo: Database["public"]["Enums"]["tipo_lancamento"];
+        };
+        Insert: {
+          created_at?: string;
+          empresa_id: string;
+          error_message?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          nibo_company_id: string;
+          nibo_company_name?: string;
+          periodo_fim: string;
+          periodo_inicio: string;
+          registros_atualizados?: number;
+          registros_encontrados?: number;
+          registros_ignorados?: number;
+          registros_inseridos?: number;
+          run_id: string;
+          started_at?: string;
+          status?: string;
+          tipo: Database["public"]["Enums"]["tipo_lancamento"];
+        };
+        Update: {
+          created_at?: string;
+          empresa_id?: string;
+          error_message?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          nibo_company_id?: string;
+          nibo_company_name?: string;
+          periodo_fim?: string;
+          periodo_inicio?: string;
+          registros_atualizados?: number;
+          registros_encontrados?: number;
+          registros_ignorados?: number;
+          registros_inseridos?: number;
+          run_id?: string;
+          started_at?: string;
+          status?: string;
+          tipo?: Database["public"]["Enums"]["tipo_lancamento"];
+        };
+        Relationships: [
+          {
+            foreignKeyName: "nibo_sync_items_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "nibo_sync_items_run_id_fkey";
+            columns: ["run_id"];
+            isOneToOne: false;
+            referencedRelation: "nibo_sync_runs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      nibo_sync_runs: {
+        Row: {
+          created_by: string | null;
+          error_message: string | null;
+          finished_at: string | null;
+          id: string;
+          pagas_failed: number;
+          pagas_success: number;
+          projects_failed: number;
+          projects_success: number;
+          projects_total: number;
+          recebidas_failed: number;
+          recebidas_success: number;
+          started_at: string;
+          status: string;
+          summary: Json;
+          trigger_source: string;
+        };
+        Insert: {
+          created_by?: string | null;
+          error_message?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          pagas_failed?: number;
+          pagas_success?: number;
+          projects_failed?: number;
+          projects_success?: number;
+          projects_total?: number;
+          recebidas_failed?: number;
+          recebidas_success?: number;
+          started_at?: string;
+          status?: string;
+          summary?: Json;
+          trigger_source?: string;
+        };
+        Update: {
+          created_by?: string | null;
+          error_message?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          pagas_failed?: number;
+          pagas_success?: number;
+          projects_failed?: number;
+          projects_success?: number;
+          projects_total?: number;
+          recebidas_failed?: number;
+          recebidas_success?: number;
+          started_at?: string;
+          status?: string;
+          summary?: Json;
+          trigger_source?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "nibo_sync_runs_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      nibo_sync_states: {
+        Row: {
+          created_at: string;
+          empresa_id: string;
+          id: string;
+          last_attempt_at: string | null;
+          last_error: string | null;
+          last_period_end: string | null;
+          last_period_start: string | null;
+          last_run_item_id: string | null;
+          last_successful_sync_at: string | null;
+          registros_atualizados: number;
+          registros_encontrados: number;
+          registros_ignorados: number;
+          registros_inseridos: number;
+          status: string;
+          tipo: Database["public"]["Enums"]["tipo_lancamento"];
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          empresa_id: string;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          last_period_end?: string | null;
+          last_period_start?: string | null;
+          last_run_item_id?: string | null;
+          last_successful_sync_at?: string | null;
+          registros_atualizados?: number;
+          registros_encontrados?: number;
+          registros_ignorados?: number;
+          registros_inseridos?: number;
+          status?: string;
+          tipo: Database["public"]["Enums"]["tipo_lancamento"];
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          empresa_id?: string;
+          id?: string;
+          last_attempt_at?: string | null;
+          last_error?: string | null;
+          last_period_end?: string | null;
+          last_period_start?: string | null;
+          last_run_item_id?: string | null;
+          last_successful_sync_at?: string | null;
+          registros_atualizados?: number;
+          registros_encontrados?: number;
+          registros_ignorados?: number;
+          registros_inseridos?: number;
+          status?: string;
+          tipo?: Database["public"]["Enums"]["tipo_lancamento"];
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "nibo_sync_states_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "nibo_sync_states_last_run_item_id_fkey";
+            columns: ["last_run_item_id"];
+            isOneToOne: false;
+            referencedRelation: "nibo_sync_items";
             referencedColumns: ["id"];
           },
         ];
@@ -583,6 +879,13 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      can_access_empresa: {
+        Args: {
+          _empresa_id: string;
+          _user_id: string;
+        };
+        Returns: boolean;
+      };
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"];

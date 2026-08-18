@@ -15,6 +15,7 @@ import { Bloco, Kpi, SemDados, SemEmpresa } from "@/components/ui-blocos";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useApp } from "@/lib/app-context";
+import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
 import { useCategorias, useLancamentos } from "@/lib/data";
 import { agregarPorCategoria, calcularDre } from "@/lib/dre";
 import { brl, meses, pct } from "@/lib/format";
@@ -40,15 +41,22 @@ export const Route = createFileRoute("/_authenticated/ponto-equilibrio")({
 });
 
 function PontoEquilibrioPage() {
-  const { empresaId, ano, mes } = useApp();
+  const { empresaId, ano, mes, centroCusto } = useApp();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
   const [lucroDesejado, setLucroDesejado] = useState(0);
 
-  const resultados = useMemo(() => calcularDre(lancamentos, categorias), [lancamentos, categorias]);
+  const lancamentosFiltrados = useMemo(
+    () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
+    [lancamentos, centroCusto],
+  );
+  const resultados = useMemo(
+    () => calcularDre(lancamentosFiltrados, categorias),
+    [lancamentosFiltrados, categorias],
+  );
   const linhas = useMemo(
-    () => agregarPorCategoria(lancamentos, categorias),
-    [lancamentos, categorias],
+    () => agregarPorCategoria(lancamentosFiltrados, categorias),
+    [lancamentosFiltrados, categorias],
   );
   const atual = resultados[mes]!;
 

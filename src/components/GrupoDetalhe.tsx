@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useApp } from "@/lib/app-context";
+import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
 import { useCategorias, useLancamentos } from "@/lib/data";
 import {
   agregarPorCategoria,
@@ -150,7 +151,7 @@ export function GrupoDetalhe({
   titulo: string;
   descricao: string;
 }) {
-  const { empresaId, ano, mes } = useApp();
+  const { empresaId, ano, mes, centroCusto } = useApp();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
   const [busca, setBusca] = useState("");
@@ -171,17 +172,27 @@ export function GrupoDetalhe({
     () => (grupo === "custos" ? ["deducoes", "custos"] : [grupo]),
     [grupo],
   );
+  const lancamentosFiltrados = useMemo(
+    () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
+    [lancamentos, centroCusto],
+  );
 
-  const resultados = useMemo(() => calcularDre(lancamentos, categorias), [lancamentos, categorias]);
+  const resultados = useMemo(
+    () => calcularDre(lancamentosFiltrados, categorias),
+    [lancamentosFiltrados, categorias],
+  );
   const linhas = useMemo(
     () =>
-      agregarPorCategoria(lancamentos, categorias).filter((l) => gruposDetalhe.includes(l.grupo)),
-    [lancamentos, categorias, gruposDetalhe],
+      agregarPorCategoria(lancamentosFiltrados, categorias).filter((l) =>
+        gruposDetalhe.includes(l.grupo),
+      ),
+    [lancamentosFiltrados, categorias, gruposDetalhe],
   );
 
   const doGrupo = useMemo(
-    () => lancamentos.filter((l) => gruposDetalhe.includes(grupoDoLancamento(l, categorias))),
-    [lancamentos, categorias, gruposDetalhe],
+    () =>
+      lancamentosFiltrados.filter((l) => gruposDetalhe.includes(grupoDoLancamento(l, categorias))),
+    [lancamentosFiltrados, categorias, gruposDetalhe],
   );
 
   const pick = (m: (typeof resultados)[number]) =>
@@ -246,8 +257,8 @@ export function GrupoDetalhe({
   }, [rankingBase]);
   const totalPizzaCategorias = pizzaCategorias.reduce((s, item) => s + item.valor, 0);
   const serieCustoSelecionado = useMemo(
-    () => serieFiltroCusto(filtroCusto, resultados, lancamentos, categorias),
-    [filtroCusto, resultados, lancamentos, categorias],
+    () => serieFiltroCusto(filtroCusto, resultados, lancamentosFiltrados, categorias),
+    [filtroCusto, resultados, lancamentosFiltrados, categorias],
   );
   const filtroCustoSelecionado = filtrosCusto.find((opcao) => opcao.id === filtroCusto)!;
   const totalCustoSelecionado = serieCustoSelecionado.reduce((s, item) => s + item.valor, 0);
@@ -257,9 +268,11 @@ export function GrupoDetalhe({
   const detalhesBase = useMemo(
     () =>
       grupo === "custos"
-        ? lancamentos.filter((l) => lancamentoPertenceAoFiltroCusto(filtroCusto, l, categorias))
+        ? lancamentosFiltrados.filter((l) =>
+            lancamentoPertenceAoFiltroCusto(filtroCusto, l, categorias),
+          )
         : doGrupo,
-    [grupo, filtroCusto, lancamentos, categorias, doGrupo],
+    [grupo, filtroCusto, lancamentosFiltrados, categorias, doGrupo],
   );
 
   const detalhes = detalhesBase

@@ -1,10 +1,11 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { LogOut, Search } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "@/lib/app-context";
-import { useEmpresas } from "@/lib/data";
+import { CENTRO_CUSTO_TODOS, opcoesCentroCusto, type CentroCustoFiltro } from "@/lib/centro-custo";
+import { useEmpresas, useLancamentos } from "@/lib/data";
 import { meses } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,13 +32,25 @@ export function TopBar({
   acoes?: ReactNode;
   mostrarContexto?: boolean;
 }) {
-  const { empresaId, setEmpresaId, ano, setAno, mes, setMes } = useApp();
+  const { empresaId, setEmpresaId, ano, setAno, mes, setMes, centroCusto, setCentroCusto } =
+    useApp();
   const { data: empresas = [] } = useEmpresas();
+  const { data: lancamentos = [] } = useLancamentos(empresaId, ano);
+  const centrosCusto = opcoesCentroCusto(lancamentos);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const queryClient = useQueryClient();
   const anoAtual = new Date().getFullYear();
   const estaNoProjeto = pathname !== "/projetos" && pathname !== "/gerenciamento";
+
+  useEffect(() => {
+    if (
+      centroCusto !== CENTRO_CUSTO_TODOS &&
+      !centrosCusto.some((centro) => centro.value === centroCusto)
+    ) {
+      setCentroCusto(CENTRO_CUSTO_TODOS);
+    }
+  }, [centroCusto, centrosCusto, setCentroCusto]);
 
   async function sair() {
     await queryClient.cancelQueries();
@@ -49,6 +62,10 @@ export function TopBar({
   function voltarParaProjetos() {
     setEmpresaId(null);
     navigate({ to: "/projetos" });
+  }
+
+  function selecionarCentroCusto(value: string) {
+    setCentroCusto(value as CentroCustoFiltro);
   }
 
   return (
@@ -94,6 +111,20 @@ export function TopBar({
                 {meses.map((m, i) => (
                   <SelectItem key={m} value={String(i)}>
                     {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={centroCusto} onValueChange={selecionarCentroCusto}>
+              <SelectTrigger className="h-9 w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={CENTRO_CUSTO_TODOS}>Todos os centros</SelectItem>
+                {centrosCusto.map((centro) => (
+                  <SelectItem key={centro.value} value={centro.value}>
+                    {centro.label}
                   </SelectItem>
                 ))}
               </SelectContent>

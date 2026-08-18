@@ -16,6 +16,7 @@ import {
 import { TopBar } from "@/components/TopBar";
 import { Bloco, SemDados, SemEmpresa } from "@/components/ui-blocos";
 import { useApp } from "@/lib/app-context";
+import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
 import { useCategorias, useConfiguracao, useLancamentos } from "@/lib/data";
 import {
   agregarPorCategoria,
@@ -50,7 +51,7 @@ export const Route = createFileRoute("/_authenticated/analises")({
 });
 
 function AnalisesPage() {
-  const { empresaId, ano, mes } = useApp();
+  const { empresaId, ano, mes, centroCusto } = useApp();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
   const { data: config } = useConfiguracao(empresaId);
@@ -62,10 +63,17 @@ function AnalisesPage() {
   ]);
   const [mesesVisiveis, setMesesVisiveis] = useState<number[]>([mes]);
 
-  const resultados = useMemo(() => calcularDre(lancamentos, categorias), [lancamentos, categorias]);
+  const lancamentosFiltrados = useMemo(
+    () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
+    [lancamentos, centroCusto],
+  );
+  const resultados = useMemo(
+    () => calcularDre(lancamentosFiltrados, categorias),
+    [lancamentosFiltrados, categorias],
+  );
   const linhas = useMemo(
-    () => agregarPorCategoria(lancamentos, categorias),
-    [lancamentos, categorias],
+    () => agregarPorCategoria(lancamentosFiltrados, categorias),
+    [lancamentosFiltrados, categorias],
   );
 
   const comMovimento = resultados.filter((m) => m.temMovimento);
@@ -98,7 +106,7 @@ function AnalisesPage() {
       ]),
     );
 
-    for (const lancamento of lancamentos) {
+    for (const lancamento of lancamentosFiltrados) {
       const mesIndex = mesDaCompetencia(lancamento.competencia);
       const item = mapa.get(mesIndex);
       if (!item) continue;
@@ -112,7 +120,7 @@ function AnalisesPage() {
     }
 
     return mesesVisiveis.map((mesIndex) => mapa.get(mesIndex)!);
-  }, [lancamentos, categorias, mesesVisiveis]);
+  }, [lancamentosFiltrados, categorias, mesesVisiveis]);
   const categoriasInvestimento = useMemo(
     () => categoriasPorGrupo(linhas, "financeiro", mesesVisiveis),
     [linhas, mesesVisiveis],

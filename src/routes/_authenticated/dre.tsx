@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { Bloco, SemDados, SemEmpresa } from "@/components/ui-blocos";
 import { Input } from "@/components/ui/input";
+import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
 import {
   Select,
   SelectContent,
@@ -50,7 +51,7 @@ type ModoComparativo = "meses" | "anos";
 const todosMeses = Array.from({ length: 12 }, (_, i) => i);
 
 function DrePage() {
-  const { empresaId, ano, setAno, mes, setMes } = useApp();
+  const { empresaId, ano, setAno, mes, setMes, centroCusto } = useApp();
   const anoAtual = new Date().getFullYear();
   const anosFiltro = [anoAtual + 1, anoAtual, anoAtual - 1, anoAtual - 2, anoAtual - 3];
   const [modoFiltro, setModoFiltro] = useState<ModoFiltro>("ano");
@@ -83,9 +84,22 @@ function DrePage() {
     setAnoComparativoB(ano - 1);
   }, [ano]);
 
+  const lancamentosCentro = useMemo(
+    () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
+    [lancamentos, centroCusto],
+  );
+  const lancamentosAnoACentro = useMemo(
+    () => filtrarLancamentosPorCentroCusto(lancamentosAnoA, centroCusto),
+    [lancamentosAnoA, centroCusto],
+  );
+  const lancamentosAnoBCentro = useMemo(
+    () => filtrarLancamentosPorCentroCusto(lancamentosAnoB, centroCusto),
+    [lancamentosAnoB, centroCusto],
+  );
+
   const lancamentosFiltrados = useMemo(
     () =>
-      lancamentos.filter((l) => {
+      lancamentosCentro.filter((l) => {
         if (modoFiltro === "mes") {
           return Number(l.competencia.slice(5, 7)) - 1 === mesFiltro;
         }
@@ -97,12 +111,12 @@ function DrePage() {
         }
         return true;
       }),
-    [lancamentos, modoFiltro, mesFiltro, periodoInicio, periodoFim, ano],
+    [lancamentosCentro, modoFiltro, mesFiltro, periodoInicio, periodoFim, ano],
   );
 
   const resultadosAno = useMemo(
-    () => calcularDre(lancamentos, categorias),
-    [lancamentos, categorias],
+    () => calcularDre(lancamentosCentro, categorias),
+    [lancamentosCentro, categorias],
   );
   const resultados = useMemo(
     () => calcularDre(lancamentosFiltrados, categorias),
@@ -135,12 +149,12 @@ function DrePage() {
   );
   const atual = totalizarResultados(resultadosVisiveis);
   const resultadosAnoA = useMemo(
-    () => calcularDre(lancamentosAnoA, categorias),
-    [lancamentosAnoA, categorias],
+    () => calcularDre(lancamentosAnoACentro, categorias),
+    [lancamentosAnoACentro, categorias],
   );
   const resultadosAnoB = useMemo(
-    () => calcularDre(lancamentosAnoB, categorias),
-    [lancamentosAnoB, categorias],
+    () => calcularDre(lancamentosAnoBCentro, categorias),
+    [lancamentosAnoBCentro, categorias],
   );
   const comparativo = useMemo(() => {
     if (modoComparativo === "anos") {
@@ -174,8 +188,8 @@ function DrePage() {
   const detalhesComparativo = useMemo(() => {
     if (modoComparativo === "anos") {
       return montarDetalhesComparativo(
-        agregarPorCentroCategoria(lancamentosAnoA, categorias),
-        agregarPorCentroCategoria(lancamentosAnoB, categorias),
+        agregarPorCentroCategoria(lancamentosAnoACentro, categorias),
+        agregarPorCentroCategoria(lancamentosAnoBCentro, categorias),
         todosMeses,
         todosMeses,
         comparativo.a,
@@ -183,7 +197,7 @@ function DrePage() {
       );
     }
 
-    const linhasAno = agregarPorCentroCategoria(lancamentos, categorias);
+    const linhasAno = agregarPorCentroCategoria(lancamentosCentro, categorias);
     return montarDetalhesComparativo(
       linhasAno,
       linhasAno,
@@ -194,9 +208,9 @@ function DrePage() {
     );
   }, [
     modoComparativo,
-    lancamentosAnoA,
-    lancamentosAnoB,
-    lancamentos,
+    lancamentosAnoACentro,
+    lancamentosAnoBCentro,
+    lancamentosCentro,
     categorias,
     mesComparativoA,
     mesComparativoB,
@@ -262,7 +276,7 @@ function DrePage() {
         ) : (
           <>
             <Bloco titulo="Filtros do DRE">
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground">Ano</p>
                   <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>

@@ -15,6 +15,12 @@ dist-ssr
 .tanstack/**
 .nitro
 *.local
+.env
+.env.*
+!.env.example
+.nibo-downloads/
+.nibo-auth/
+storageState*.json
 
 # Wrangler / Cloudflare
 .wrangler/

@@ -13,6 +13,10 @@ export interface LinhaImportada {
   conta_bancaria: string;
   valor: number;
   hash: string;
+  nibo_id?: string;
+  external_id?: string;
+  external_source?: string;
+  source_content_hash?: string;
 }
 
 export interface ResultadoParse {
@@ -249,6 +253,9 @@ function parseData(v: unknown): string | null {
   const br = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
   if (br) return formatarData(Number(br[3]), Number(br[2]), Number(br[1]));
 
+  const mesAno = s.match(/^(\d{1,2})[/-](\d{4})$/);
+  if (mesAno) return formatarData(Number(mesAno[2]), Number(mesAno[1]), 1);
+
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return s.slice(0, 10);
 
@@ -283,7 +290,7 @@ function inferirTipoPorCodigo(...valores: string[]): TipoLancamento | null {
     const codigo = texto.match(/^\s*(\d+)(?:[.\-\s]|$)/)?.[1];
     if (!codigo) continue;
     if (codigo.startsWith("1")) return "recebida";
-    if (codigo.startsWith("2")) return "paga";
+    if (["2", "3", "4", "5"].some((prefixo) => codigo.startsWith(prefixo))) return "paga";
   }
   return null;
 }
@@ -298,10 +305,11 @@ function combinarCodigoCategoria(codigo: string, categoria: string): string {
 }
 
 function gerarHash(linha: Omit<LinhaImportada, "hash">, origem: string): string {
+  const origemEstavel = linha.nibo_id ? `nibo:${normalizar(linha.nibo_id)}` : origem;
   return [
     linha.tipo,
     linha.data_efetiva,
-    origem,
+    origemEstavel,
     linha.valor.toFixed(2),
     normalizar(linha.descricao),
     normalizar(linha.pessoa),
@@ -310,8 +318,7 @@ function gerarHash(linha: Omit<LinhaImportada, "hash">, origem: string): string 
   ].join("|");
 }
 
-export async function parseArquivoNibo(file: File, dataPadrao: string): Promise<ResultadoParse> {
-  const buffer = await file.arrayBuffer();
+export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): ResultadoParse {
   const wb = XLSX.read(buffer, { cellDates: true });
   const erros: string[] = [];
   const avisos: string[] = [];
@@ -354,6 +361,10 @@ export async function parseArquivoNibo(file: File, dataPadrao: string): Promise<
     const colPessoa = acharColuna(colunas, "pessoa");
     const colCentro = acharColuna(colunas, "centro");
     const colBanco = acharColuna(colunas, "banco");
+    const colNiboId =
+      colunas.find((coluna) => normalizar(coluna) === "id") ??
+      colunas.find((coluna) => normalizar(coluna) === "codigo nibo") ??
+      null;
 
     if (!colValor) {
       avisos.push(`Aba "${nomeAba}" ignorada: coluna de valor não encontrada.`);
@@ -378,6 +389,7 @@ export async function parseArquivoNibo(file: File, dataPadrao: string): Promise<
 
       if (!valorAssinado) return;
       const codigo_nibo = colCodigo ? textoCelula(rowFormatada[colCodigo], row[colCodigo]) : "";
+      const nibo_id = colNiboId ? textoCelula(rowFormatada[colNiboId], row[colNiboId]) : "";
       const categoria = colCat ? textoCelula(rowFormatada[colCat], row[colCat]) : "";
       const dataEfetiva = colData
         ? (parseData(row[colData]) ?? parseData(rowFormatada[colData]))
@@ -394,6 +406,7 @@ export async function parseArquivoNibo(file: File, dataPadrao: string): Promise<
         pessoa: colPessoa ? textoCelula(rowFormatada[colPessoa], row[colPessoa]) : "",
         centro_custo: colCentro ? textoCelula(rowFormatada[colCentro], row[colCentro]) : "",
         conta_bancaria: colBanco ? textoCelula(rowFormatada[colBanco], row[colBanco]) : "",
+        nibo_id,
         valorAssinado,
         origem: `${nomeAba}:${index + 2}`,
       });
@@ -431,7 +444,15 @@ export async function parseArquivoNibo(file: File, dataPadrao: string): Promise<
   const linhas = candidatas.map((linha) => {
     const tipoPorCodigo = inferirTipoPorCodigo(linha.codigo_nibo, linha.categoria_nibo);
     const tipoPorSinal: TipoLancamento = linha.valorAssinado < 0 ? "paga" : "recebida";
-    const tipoLinha: TipoLancamento = tipoPorSinal;
+    const tipoLinha: TipoLancamento = arquivoMisto
+      ? tipoPorSinal
+      : (tipoPorCodigo ?? linha.tipoContexto ?? tipoPorSinal);
+    const valorLinha =
+      arquivoMisto || tipoLinha === tipoPorSinal
+        ? linha.valorAssinado
+        : tipoLinha === "paga"
+          ? -Math.abs(linha.valorAssinado)
+          : Math.abs(linha.valorAssinado);
 
     if (
       (tipoPorCodigo && tipoPorCodigo !== tipoPorSinal) ||
@@ -449,8 +470,9 @@ export async function parseArquivoNibo(file: File, dataPadrao: string): Promise<
       pessoa: linha.pessoa,
       centro_custo: linha.centro_custo,
       conta_bancaria: linha.conta_bancaria,
-      valor: linha.valorAssinado,
+      valor: valorLinha,
     };
+    if (linha.nibo_id) normalizada.nibo_id = linha.nibo_id;
 
     return { ...normalizada, hash: gerarHash(normalizada, linha.origem) };
   });
@@ -462,4 +484,9 @@ export async function parseArquivoNibo(file: File, dataPadrao: string): Promise<
   }
 
   return { linhas, colunas: Array.from(colunasArquivo), erros, avisos };
+}
+
+export async function parseArquivoNibo(file: File, dataPadrao: string): Promise<ResultadoParse> {
+  const buffer = await file.arrayBuffer();
+  return parseBufferNibo(buffer, dataPadrao);
 }

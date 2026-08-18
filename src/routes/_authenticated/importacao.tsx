@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "@/lib/app-context";
 import { useImportacoes, useLancamentos, useMapeamentos } from "@/lib/data";
+import { importarLinhasFinanceiras } from "@/lib/importacao/importer";
 import { parseArquivoNibo, type LinhaImportada } from "@/lib/nibo";
 import { brl, competenciaDate, dataBR, meses } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -141,85 +142,15 @@ function ImportacaoPage() {
   const importar = useMutation({
     mutationFn: async () => {
       if (!empresaId) throw new Error("Selecione uma empresa.");
-      const mapaCat = new Map(
-        mapeamentos.map((m) => [
-          String(m.categoria_nibo).toLowerCase(),
-          m.categoria_id as string | null,
-        ]),
-      );
-
-      let inseridos = 0;
-      let ignorados = 0;
-      const grupos = new Map<string, LinhaImportada[]>();
-
-      for (const linha of previa) {
-        const chave = `${linha.tipo}::${linha.competencia}`;
-        grupos.set(chave, [...(grupos.get(chave) ?? []), linha]);
-      }
-
-      for (const [chave, linhasTipo] of grupos) {
-        if (!linhasTipo.length) continue;
-        const [tipoImportacao, competencia] = chave.split("::") as [LinhaImportada["tipo"], string];
-
-        const { data: imp, error: erroImp } = await supabase
-          .from("importacoes")
-          .insert({
-            empresa_id: empresaId,
-            tipo: tipoImportacao,
-            competencia,
-            arquivo_nome: nomeImportacao,
-            total_registros: linhasTipo.length,
-            valor_total: linhasTipo.reduce((s, l) => s + l.valor, 0),
-            duplicados: 0,
-            status: "processando",
-          })
-          .select("id")
-          .single();
-        if (erroImp) throw erroImp;
-
-        const registros = linhasTipo.map((l) => ({
-          empresa_id: empresaId,
-          importacao_id: imp.id,
-          tipo: l.tipo,
-          data_efetiva: l.data_efetiva,
-          competencia: l.competencia,
-          descricao: l.descricao,
-          categoria_nibo: l.categoria_nibo || null,
-          categoria_id: mapaCat.get(l.categoria_nibo.toLowerCase()) ?? null,
-          pessoa: l.pessoa || null,
-          centro_custo: l.centro_custo || null,
-          conta_bancaria: l.conta_bancaria || null,
-          valor: l.valor,
-          hash: l.hash,
-        }));
-
-        let inseridosTipo = 0;
-        let ignoradosTipo = 0;
-        for (let i = 0; i < registros.length; i += 400) {
-          const lote = registros.slice(i, i + 400);
-          const { data, error } = await supabase
-            .from("lancamentos")
-            .upsert(lote, { onConflict: "empresa_id,hash", ignoreDuplicates: true })
-            .select("id");
-          if (error) throw error;
-          inseridosTipo += data?.length ?? 0;
-          ignoradosTipo += lote.length - (data?.length ?? 0);
-        }
-
-        inseridos += inseridosTipo;
-        ignorados += ignoradosTipo;
-
-        await supabase
-          .from("importacoes")
-          .update({
-            status: "concluida",
-            total_registros: inseridosTipo,
-            duplicados: ignoradosTipo,
-          })
-          .eq("id", imp.id);
-      }
-
-      return { inseridos, ignorados };
+      return importarLinhasFinanceiras({
+        supabase,
+        empresaId,
+        linhas: previa,
+        mapeamentos,
+        arquivoNome: nomeImportacao,
+        origem: "manual",
+        ignorarDuplicados: true,
+      });
     },
     onSuccess: ({ inseridos, ignorados }) => {
       toast.success(
@@ -274,11 +205,6 @@ function ImportacaoPage() {
                     <p className="text-xs text-muted-foreground">
                       Se a planilha tiver um ano inteiro, cada linha entra no mês e ano da própria
                       data do NIBO.
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      O sinal do valor manda: com "-" é saída; sem "-" é entrada. Categoria e nome
-                      não transformam um valor positivo em negativo. Se alguma linha vier sem data
-                      válida, ela usa o período selecionado no topo como fallback.
                     </p>
                   </div>
                 </div>

@@ -24,6 +24,7 @@ import {
 import { TopBar } from "@/components/TopBar";
 import { Bloco, Kpi, SemDados, SemEmpresa, type Tom } from "@/components/ui-blocos";
 import { useApp } from "@/lib/app-context";
+import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
 import { useCategorias, useConfiguracao, useEmpresas, useLancamentos } from "@/lib/data";
 import {
   calcularDre,
@@ -62,7 +63,7 @@ const qualidadeEstilo: Record<string, { classe: string; rotulo: string }> = {
 };
 
 function HomePage() {
-  const { empresaId, ano, mes } = useApp();
+  const { empresaId, ano, mes, centroCusto } = useApp();
   const { data: empresas = [] } = useEmpresas();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
@@ -71,18 +72,32 @@ function HomePage() {
   const empresa = empresas.find((e) => e.id === empresaId);
   const margemDesejada = Number(config?.margem_desejada ?? 15);
 
-  const resultados = useMemo(() => calcularDre(lancamentos, categorias), [lancamentos, categorias]);
+  const lancamentosFiltrados = useMemo(
+    () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
+    [lancamentos, centroCusto],
+  );
+  const resultados = useMemo(
+    () => calcularDre(lancamentosFiltrados, categorias),
+    [lancamentosFiltrados, categorias],
+  );
   const atual = resultados[mes]!;
   const anterior = mes > 0 ? resultados[mes - 1] : undefined;
   const custosOperacionais = atual.deducoes + atual.custos;
 
   const impactos = useMemo(
-    () => calcularImpactos(lancamentos, categorias, mes),
-    [lancamentos, categorias, mes],
+    () => calcularImpactos(lancamentosFiltrados, categorias, mes),
+    [lancamentosFiltrados, categorias, mes],
   );
   const caminhoGastos = useMemo(
-    () => calcularCaminhoGastos(lancamentos, categorias, mes, custosOperacionais, atual.despesas),
-    [lancamentos, categorias, mes, custosOperacionais, atual.despesas],
+    () =>
+      calcularCaminhoGastos(
+        lancamentosFiltrados,
+        categorias,
+        mes,
+        custosOperacionais,
+        atual.despesas,
+      ),
+    [lancamentosFiltrados, categorias, mes, custosOperacionais, atual.despesas],
   );
 
   const qualidade = qualidadeResultado(atual, margemDesejada);
