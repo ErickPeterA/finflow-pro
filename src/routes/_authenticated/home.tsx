@@ -34,7 +34,12 @@ import {
   type Lancamento,
 } from "@/lib/dre";
 import { calcularImpactos } from "@/lib/insights";
-import { brl, meses, pct, variacao } from "@/lib/format";
+import {
+  mesesDoPeriodoFiltro,
+  periodoFiltroLabel,
+  totalizarResultadosPeriodo,
+} from "@/lib/periodo";
+import { brl, pct, variacao } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/home")({
@@ -62,8 +67,16 @@ const qualidadeEstilo: Record<string, { classe: string; rotulo: string }> = {
   extraordinario: { classe: "bg-extra-soft text-extra", rotulo: "Extraordinário" },
 };
 
+const coresGraficoHome = {
+  receita: { inicio: "#2563eb", fim: "#2563eb" },
+  custos: { inicio: "#2563eb", fim: "#2563eb" },
+  despesas: { inicio: "#2563eb", fim: "#2563eb" },
+  resultadoPositivo: { inicio: "#2563eb", fim: "#2563eb" },
+  resultadoNegativo: { inicio: "#2563eb", fim: "#2563eb" },
+};
+
 function HomePage() {
-  const { empresaId, ano, mes, centroCusto } = useApp();
+  const { empresaId, ano, mes, periodo, centroCusto } = useApp();
   const { data: empresas = [] } = useEmpresas();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
@@ -80,25 +93,31 @@ function HomePage() {
     () => calcularDre(lancamentosFiltrados, categorias),
     [lancamentosFiltrados, categorias],
   );
-  const atual = resultados[mes]!;
-  const anterior = mes > 0 ? resultados[mes - 1] : undefined;
+  const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
+  const mesReferencia = mesesPeriodo.at(-1) ?? mes;
+  const atual = useMemo(
+    () => totalizarResultadosPeriodo(resultados, mesesPeriodo),
+    [resultados, mesesPeriodo],
+  );
+  const anterior = periodo === "mes_atual" && mes > 0 ? resultados[mes - 1] : undefined;
   const custosOperacionais = atual.deducoes + atual.custos;
 
   const impactos = useMemo(
-    () => calcularImpactos(lancamentosFiltrados, categorias, mes),
-    [lancamentosFiltrados, categorias, mes],
+    () => calcularImpactos(lancamentosFiltrados, categorias, mesReferencia),
+    [lancamentosFiltrados, categorias, mesReferencia],
   );
   const caminhoGastos = useMemo(
     () =>
       calcularCaminhoGastos(
         lancamentosFiltrados,
         categorias,
-        mes,
+        mesesPeriodo,
         custosOperacionais,
         atual.despesas,
       ),
-    [lancamentosFiltrados, categorias, mes, custosOperacionais, atual.despesas],
+    [lancamentosFiltrados, categorias, mesesPeriodo, custosOperacionais, atual.despesas],
   );
+  const periodoLabel = periodoFiltroLabel(periodo, mes);
 
   const qualidade = qualidadeResultado(atual, margemDesejada);
   const estilo = qualidadeEstilo[qualidade.nivel]!;
@@ -107,13 +126,12 @@ function HomePage() {
     Math.min(100, Math.round((atual.margemOperacional / Math.max(margemDesejada * 1.5, 1)) * 100)),
   );
   const grafico = [
-    { nome: "Receita", valor: atual.receitaBruta, cor: "var(--info)" },
-    { nome: "Custos Op.", valor: custosOperacionais, cor: "var(--warning)" },
-    { nome: "Despesas Op.", valor: atual.despesas, cor: "var(--negative)" },
+    { nome: "Receita", valor: atual.receitaBruta },
+    { nome: "Custos Op.", valor: custosOperacionais },
+    { nome: "Despesas Op.", valor: atual.despesas },
     {
       nome: "Resultado Op.",
       valor: atual.resultadoOperacional,
-      cor: atual.resultadoOperacional >= 0 ? "var(--positive)" : "var(--negative)",
     },
   ];
 
@@ -123,7 +141,7 @@ function HomePage() {
     <>
       <TopBar
         titulo="Home"
-        descricao={`${empresa?.nome ?? "Selecione uma empresa"} · ${meses[mes]} de ${ano}`}
+        descricao={`${empresa?.nome ?? "Selecione uma empresa"} · ${periodoLabel} de ${ano}`}
       />
       <main className="space-y-5 p-6 ">
         {!empresaId ? (
@@ -253,25 +271,33 @@ function HomePage() {
                     <BarChart data={grafico} margin={{ top: 28, right: 8, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="grafico-receita" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#2563eb" />
-                          <stop offset="100%" stopColor="#60a5fa" />
+                          <stop offset="0%" stopColor={coresGraficoHome.receita.inicio} />
+                          <stop offset="100%" stopColor={coresGraficoHome.receita.fim} />
                         </linearGradient>
                         <linearGradient id="grafico-custos" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#f59e0b" />
-                          <stop offset="100%" stopColor="#fcd34d" />
+                          <stop offset="0%" stopColor={coresGraficoHome.custos.inicio} />
+                          <stop offset="100%" stopColor={coresGraficoHome.custos.fim} />
                         </linearGradient>
                         <linearGradient id="grafico-despesas" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#ef4444" />
-                          <stop offset="100%" stopColor="#fca5a5" />
+                          <stop offset="0%" stopColor={coresGraficoHome.despesas.inicio} />
+                          <stop offset="100%" stopColor={coresGraficoHome.despesas.fim} />
                         </linearGradient>
                         <linearGradient id="grafico-resultado" x1="0" x2="0" y1="0" y2="1">
                           <stop
                             offset="0%"
-                            stopColor={atual.resultadoOperacional >= 0 ? "#16a34a" : "#ef4444"}
+                            stopColor={
+                              atual.resultadoOperacional >= 0
+                                ? coresGraficoHome.resultadoPositivo.inicio
+                                : coresGraficoHome.resultadoNegativo.inicio
+                            }
                           />
                           <stop
                             offset="100%"
-                            stopColor={atual.resultadoOperacional >= 0 ? "#86efac" : "#fca5a5"}
+                            stopColor={
+                              atual.resultadoOperacional >= 0
+                                ? coresGraficoHome.resultadoPositivo.fim
+                                : coresGraficoHome.resultadoNegativo.fim
+                            }
                           />
                         </linearGradient>
                       </defs>
@@ -420,13 +446,14 @@ function HomePage() {
 function calcularCaminhoGastos(
   lancamentos: Lancamento[],
   categorias: Categoria[],
-  mes: number,
+  mesesVisiveis: number[],
   custosOperacionais: number,
   despesasOperacionais: number,
 ) {
+  const mesesPermitidos = new Set(mesesVisiveis);
   const valorPorPrefixo = (prefixo: string, nomeContem?: string) =>
     lancamentos.reduce((total, lancamento) => {
-      if (mesDaCompetencia(lancamento.competencia) !== mes) return total;
+      if (!mesesPermitidos.has(mesDaCompetencia(lancamento.competencia))) return total;
       const categoria = categorias.find((c) => c.id === lancamento.categoria_id);
       const textos = [lancamento.categoria_nibo, categoria?.nome]
         .filter(Boolean)

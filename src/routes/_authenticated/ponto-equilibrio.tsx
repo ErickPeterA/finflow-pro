@@ -18,7 +18,13 @@ import { useApp } from "@/lib/app-context";
 import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
 import { useCategorias, useLancamentos } from "@/lib/data";
 import { agregarPorCategoria, calcularDre } from "@/lib/dre";
-import { brl, meses, pct } from "@/lib/format";
+import {
+  filtrarLancamentosPorMeses,
+  mesesDoPeriodoFiltro,
+  periodoFiltroLabel,
+  totalizarResultadosPeriodo,
+} from "@/lib/periodo";
+import { brl, pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/ponto-equilibrio")({
@@ -28,7 +34,7 @@ export const Route = createFileRoute("/_authenticated/ponto-equilibrio")({
       {
         name: "description",
         content:
-          "Cálculo do ponto de equilíbrio com margem de contribuição, custos fixos e simulação de faturamento necessário.",
+          "Cálculo do ponto de equilíbrio com margem de contribuição e simulação de faturamento necessário.",
       },
       { property: "og:title", content: "Ponto de Equilíbrio | Ecossistema Financeiro BPO" },
       {
@@ -41,7 +47,7 @@ export const Route = createFileRoute("/_authenticated/ponto-equilibrio")({
 });
 
 function PontoEquilibrioPage() {
-  const { empresaId, ano, mes, centroCusto } = useApp();
+  const { empresaId, ano, mes, periodo, centroCusto } = useApp();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
   const [lucroDesejado, setLucroDesejado] = useState(0);
@@ -50,23 +56,40 @@ function PontoEquilibrioPage() {
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
     [lancamentos, centroCusto],
   );
+  const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
+  const periodoLabel = periodoFiltroLabel(periodo, mes);
+  const lancamentosPeriodo = useMemo(
+    () => filtrarLancamentosPorMeses(lancamentosFiltrados, mesesPeriodo),
+    [lancamentosFiltrados, mesesPeriodo],
+  );
   const resultados = useMemo(
-    () => calcularDre(lancamentosFiltrados, categorias),
-    [lancamentosFiltrados, categorias],
+    () => calcularDre(lancamentosPeriodo, categorias),
+    [lancamentosPeriodo, categorias],
   );
   const linhas = useMemo(
-    () => agregarPorCategoria(lancamentosFiltrados, categorias),
-    [lancamentosFiltrados, categorias],
+    () => agregarPorCategoria(lancamentosPeriodo, categorias),
+    [lancamentosPeriodo, categorias],
   );
-  const atual = resultados[mes]!;
+  const atual = useMemo(
+    () => totalizarResultadosPeriodo(resultados, mesesPeriodo),
+    [resultados, mesesPeriodo],
+  );
 
   const saidas = linhas.filter((l) => l.grupo === "custos" || l.grupo === "despesas");
   const fixos = saidas.reduce(
-    (s, l) => s + (l.classificacao === "fixo" ? Math.abs(l.valores[mes] ?? 0) : 0),
+    (s, l) =>
+      s +
+      (l.classificacao === "fixo"
+        ? mesesPeriodo.reduce((total, mesIndex) => total + Math.abs(l.valores[mesIndex] ?? 0), 0)
+        : 0),
     0,
   );
   const variaveis = saidas.reduce(
-    (s, l) => s + (l.classificacao === "variavel" ? Math.abs(l.valores[mes] ?? 0) : 0),
+    (s, l) =>
+      s +
+      (l.classificacao === "variavel"
+        ? mesesPeriodo.reduce((total, mesIndex) => total + Math.abs(l.valores[mesIndex] ?? 0), 0)
+        : 0),
     0,
   );
 
@@ -77,7 +100,7 @@ function PontoEquilibrioPage() {
   const pontoComLucro = indiceMC > 0 ? (fixos + lucroDesejado) / indiceMC : 0;
   const margemSeguranca =
     receita && pontoEquilibrio ? ((receita - pontoEquilibrio) / receita) * 100 : 0;
-  const faturamentoDiario = pontoEquilibrio / 30;
+  const faturamentoDiario = pontoEquilibrio / Math.max(mesesPeriodo.length * 30, 30);
 
   const serie = useMemo(() => {
     const pontos: { receita: number; resultado: number }[] = [];
@@ -95,7 +118,7 @@ function PontoEquilibrioPage() {
     <>
       <TopBar
         titulo="Ponto de Equilíbrio"
-        descricao={`${meses[mes]} de ${ano} · regime de caixa`}
+        descricao={`${periodoLabel} de ${ano} · regime de caixa`}
       />
       <main className="space-y-5 p-6">
         {!empresaId ? (
@@ -103,7 +126,7 @@ function PontoEquilibrioPage() {
         ) : isLoading ? (
           <SemDados mensagem="Carregando dados..." />
         ) : !atual.temMovimento ? (
-          <SemDados mensagem="Sem lançamentos no mês selecionado." />
+          <SemDados mensagem="Sem lançamentos no período selecionado." />
         ) : (
           <>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -114,7 +137,7 @@ function PontoEquilibrioPage() {
                 tom={atingiu ? "positivo" : "negativo"}
               />
               <Kpi
-                titulo="Receita do mês"
+                titulo="Receita do período"
                 valor={receita}
                 legenda={atingiu ? "acima do ponto de equilíbrio" : "abaixo do ponto de equilíbrio"}
                 tom={atingiu ? "positivo" : "negativo"}
@@ -126,9 +149,9 @@ function PontoEquilibrioPage() {
                 tom="neutro"
               />
               <Kpi
-                titulo="Custos e despesas fixas"
+                titulo="Estrutura do período"
                 valor={fixos}
-                legenda={`variáveis: ${brl(variaveis, true)}`}
+                legenda="base do ponto de equilíbrio"
                 tom="atencao"
               />
             </div>
@@ -141,7 +164,7 @@ function PontoEquilibrioPage() {
             >
               {atingiu
                 ? `A empresa superou o ponto de equilíbrio em ${brl(receita - pontoEquilibrio)}, com margem de segurança de ${pct(margemSeguranca)}.`
-                : `Faltaram ${brl(pontoEquilibrio - receita)} de receita para cobrir a estrutura do mês.`}
+                : `Faltaram ${brl(pontoEquilibrio - receita)} de receita para cobrir a estrutura do período.`}
             </div>
 
             <div className="grid gap-5 xl:grid-cols-3">
@@ -195,7 +218,7 @@ function PontoEquilibrioPage() {
 
               <Bloco titulo="Simulador de meta">
                 <div className="space-y-2">
-                  <Label htmlFor="lucro">Lucro desejado no mês (R$)</Label>
+                  <Label htmlFor="lucro">Lucro desejado no período (R$)</Label>
                   <Input
                     id="lucro"
                     type="number"
@@ -216,28 +239,37 @@ function PontoEquilibrioPage() {
                   <Linha rotulo="Índice de margem de contribuição" valor={pct(indiceMC * 100)} />
                 </dl>
                 <p className="mt-4 text-xs text-muted-foreground">
-                  Cálculo: (custos fixos + lucro desejado) ÷ índice de margem de contribuição.
+                  Cálculo: (estrutura do período + lucro desejado) ÷ índice de margem de
+                  contribuição.
                 </p>
               </Bloco>
             </div>
 
-            <Bloco titulo="Estrutura fixa detalhada">
+            <Bloco titulo="Estrutura detalhada">
               <div className="-mx-5 -mb-5 overflow-x-auto">
                 <table className="w-full min-w-[600px] text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                       <th className="px-5 py-2 text-left font-medium">Categoria</th>
                       <th className="px-3 py-2 text-left font-medium">Grupo</th>
-                      <th className="px-3 py-2 text-right font-medium">Valor no mês</th>
-                      <th className="px-5 py-2 text-right font-medium">% da estrutura fixa</th>
+                      <th className="px-3 py-2 text-right font-medium">Valor no período</th>
+                      <th className="px-5 py-2 text-right font-medium">% da estrutura</th>
                     </tr>
                   </thead>
                   <tbody>
                     {saidas
-                      .filter((l) => l.classificacao === "fixo" && (l.valores[mes] ?? 0) !== 0)
-                      .sort((a, b) => Math.abs(b.valores[mes] ?? 0) - Math.abs(a.valores[mes] ?? 0))
+                      .filter(
+                        (l) =>
+                          l.classificacao === "fixo" &&
+                          mesesPeriodo.some((mesIndex) => (l.valores[mesIndex] ?? 0) !== 0),
+                      )
+                      .sort(
+                        (a, b) =>
+                          somaValoresLinhaPeriodo(b.valores, mesesPeriodo) -
+                          somaValoresLinhaPeriodo(a.valores, mesesPeriodo),
+                      )
                       .map((l) => {
-                        const v = Math.abs(l.valores[mes] ?? 0);
+                        const v = somaValoresLinhaPeriodo(l.valores, mesesPeriodo);
                         return (
                           <tr key={l.nome} className="border-b">
                             <td className="px-5 py-2 font-medium">{l.nome}</td>
@@ -271,4 +303,8 @@ function Linha({ rotulo, valor, forte }: { rotulo: string; valor: string; forte?
       <dd className={cn("tabular font-medium", forte && "text-base text-info")}>{valor}</dd>
     </div>
   );
+}
+
+function somaValoresLinhaPeriodo(valores: number[], mesesPeriodo: number[]) {
+  return mesesPeriodo.reduce((total, mesIndex) => total + Math.abs(valores[mesIndex] ?? 0), 0);
 }

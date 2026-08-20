@@ -7,8 +7,7 @@ export const Route = createFileRoute("/_authenticated/custos")({
       { title: "Custos Operacionais | Ecossistema Financeiro BPO" },
       {
         name: "description",
-        content:
-          "Custos diretos da operação: evolução, composição fixo x variável e ranking por categoria.",
+        content: "Custos diretos da operação: evolução mensal e ranking por categoria.",
       },
       { property: "og:title", content: "Custos Operacionais | Ecossistema Financeiro BPO" },
       {

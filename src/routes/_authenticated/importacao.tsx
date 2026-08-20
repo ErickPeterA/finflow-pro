@@ -316,12 +316,11 @@ function ImportacaoPage() {
                 </p>
 
                 <div className="-mx-5 mt-4 max-h-96 overflow-auto border-t">
-                  <table className="w-full min-w-[840px] text-sm">
+                  <table className="w-full min-w-[760px] text-sm">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                       <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
                         <th className="px-5 py-2 text-left font-medium">Data</th>
                         <th className="px-3 py-2 text-left font-medium">Competência</th>
-                        <th className="px-3 py-2 text-left font-medium">Tipo</th>
                         <th className="px-3 py-2 text-left font-medium">Descrição</th>
                         <th className="px-3 py-2 text-left font-medium">Pessoa</th>
                         <th className="px-3 py-2 text-left font-medium">Categoria NIBO</th>
@@ -337,18 +336,6 @@ function ImportacaoPage() {
                           <td className="px-3 py-2 text-muted-foreground">
                             {meses[Number(l.competencia.slice(5, 7)) - 1]}/
                             {l.competencia.slice(0, 4)}
-                          </td>
-                          <td className="px-3 py-2">
-                            <span
-                              className={cn(
-                                "rounded px-2 py-0.5 text-xs font-medium",
-                                l.tipo === "recebida"
-                                  ? "bg-positive-soft text-positive"
-                                  : "bg-negative-soft text-negative",
-                              )}
-                            >
-                              {valorAssinadoPrevia(l) < 0 ? "Saída" : "Entrada"}
-                            </span>
                           </td>
                           <td className="max-w-[260px] truncate px-3 py-2">{l.descricao || "—"}</td>
                           <td className="max-w-[180px] truncate px-3 py-2 text-muted-foreground">
@@ -384,7 +371,6 @@ function ImportacaoPage() {
                     <thead>
                       <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                         <th className="px-5 py-2 text-left font-medium">Arquivo</th>
-                        <th className="px-3 py-2 text-left font-medium">Tipo</th>
                         <th className="px-3 py-2 text-left font-medium">Competência</th>
                         <th className="px-3 py-2 text-right font-medium">Importados</th>
                         <th className="px-3 py-2 text-right font-medium">Duplicados</th>
@@ -397,9 +383,6 @@ function ImportacaoPage() {
                         <tr key={i.id as string} className="border-b">
                           <td className="max-w-[240px] truncate px-5 py-2">
                             {i.arquivo_nome as string}
-                          </td>
-                          <td className="px-3 py-2 text-muted-foreground">
-                            {i.tipo === "recebida" ? "Recebidas" : "Pagas"}
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">
                             {meses[Number(String(i.competencia).slice(5, 7)) - 1]}/
@@ -441,9 +424,8 @@ function ImportacaoPage() {
                                   <AlertDialogTitle>Excluir esta importação?</AlertDialogTitle>
                                   <AlertDialogDescription>
                                     Isso vai apagar os lançamentos importados de "
-                                    {String(i.arquivo_nome)}" (
-                                    {i.tipo === "recebida" ? "recebidas" : "pagas"}) e remover essa
-                                    linha do histórico. As outras importações permanecem intactas.
+                                    {String(i.arquivo_nome)}" e remover essa linha do histórico. As
+                                    outras importações permanecem intactas.
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>

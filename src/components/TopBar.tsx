@@ -1,5 +1,5 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { LogOut, Search } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,8 +7,8 @@ import { useApp } from "@/lib/app-context";
 import { CENTRO_CUSTO_TODOS, opcoesCentroCusto, type CentroCustoFiltro } from "@/lib/centro-custo";
 import { useEmpresas, useLancamentos } from "@/lib/data";
 import { meses } from "@/lib/format";
+import { periodosFiltro, type PeriodoFiltro } from "@/lib/periodo";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -20,8 +20,6 @@ import {
 export function TopBar({
   titulo,
   descricao,
-  busca,
-  onBusca,
   acoes,
   mostrarContexto = true,
 }: {
@@ -32,8 +30,18 @@ export function TopBar({
   acoes?: ReactNode;
   mostrarContexto?: boolean;
 }) {
-  const { empresaId, setEmpresaId, ano, setAno, mes, setMes, centroCusto, setCentroCusto } =
-    useApp();
+  const {
+    empresaId,
+    setEmpresaId,
+    ano,
+    setAno,
+    mes,
+    setMes,
+    periodo,
+    setPeriodo,
+    centroCusto,
+    setCentroCusto,
+  } = useApp();
   const { data: empresas = [] } = useEmpresas();
   const { data: lancamentos = [] } = useLancamentos(empresaId, ano);
   const centrosCusto = opcoesCentroCusto(lancamentos);
@@ -68,6 +76,10 @@ export function TopBar({
     setCentroCusto(value as CentroCustoFiltro);
   }
 
+  function selecionarPeriodo(value: string) {
+    setPeriodo(value as PeriodoFiltro);
+  }
+
   return (
     <header className="sticky top-0 z-20 border-b bg-card/95 backdrop-blur">
       <div className="flex flex-wrap items-center gap-3 px-6 py-3">
@@ -75,18 +87,6 @@ export function TopBar({
           <h1 className="truncate text-lg font-semibold tracking-tight">{titulo}</h1>
           {descricao && <p className="truncate text-xs text-muted-foreground">{descricao}</p>}
         </div>
-
-        {onBusca && (
-          <div className="relative w-full max-w-56 md:w-56">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={busca ?? ""}
-              onChange={(e) => onBusca(e.target.value)}
-              placeholder="Buscar..."
-              className="h-9 pl-8"
-            />
-          </div>
-        )}
 
         {mostrarContexto && (
           <>
@@ -98,6 +98,19 @@ export function TopBar({
                 {empresas.map((e) => (
                   <SelectItem key={e.id} value={e.id}>
                     {e.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={periodo} onValueChange={selecionarPeriodo}>
+              <SelectTrigger className="h-9 w-44">
+                <SelectValue placeholder="Período" />
+              </SelectTrigger>
+              <SelectContent>
+                {periodosFiltro.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
                   </SelectItem>
                 ))}
               </SelectContent>

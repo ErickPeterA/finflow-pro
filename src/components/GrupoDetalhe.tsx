@@ -41,18 +41,30 @@ import {
   type Lancamento,
   type ResultadoMes,
 } from "@/lib/dre";
+import {
+  filtrarLancamentosPorMeses,
+  mesesDoPeriodoFiltro,
+  periodoFiltroLabel,
+  totalizarResultadosPeriodo,
+} from "@/lib/periodo";
 import { brl, dataBR, mesesCurtos, pct, variacao } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const coresPizza = [
-  "var(--positive)",
-  "var(--info)",
-  "var(--warning)",
-  "var(--negative)",
-  "var(--primary)",
-  "var(--muted-foreground)",
-  "var(--border)",
-];
+const coresGraficosGrupo = {
+  receitaLinha: "#1D9912",
+  custosBarras: "#CF3E23",
+  despesasBarras: "#CF3E23",
+  custoIndividual: "#CF3E23",
+  pizza: [
+    "var(--positive)",
+    "var(--info)",
+    "var(--warning)",
+    "var(--negative)",
+    "var(--primary)",
+    "var(--muted-foreground)",
+    "var(--border)",
+  ],
+};
 
 type DirecaoOrdenacao = "asc" | "desc";
 type OrdenacaoRanking = {
@@ -151,7 +163,7 @@ export function GrupoDetalhe({
   titulo: string;
   descricao: string;
 }) {
-  const { empresaId, ano, mes, centroCusto } = useApp();
+  const { empresaId, ano, mes, periodo, centroCusto } = useApp();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
   const [busca, setBusca] = useState("");
@@ -176,23 +188,32 @@ export function GrupoDetalhe({
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
     [lancamentos, centroCusto],
   );
+  const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
+  const lancamentosPeriodo = useMemo(
+    () => filtrarLancamentosPorMeses(lancamentosFiltrados, mesesPeriodo),
+    [lancamentosFiltrados, mesesPeriodo],
+  );
 
-  const resultados = useMemo(
+  const resultadosAno = useMemo(
     () => calcularDre(lancamentosFiltrados, categorias),
     [lancamentosFiltrados, categorias],
   );
+  const resultados = useMemo(
+    () => calcularDre(lancamentosPeriodo, categorias),
+    [lancamentosPeriodo, categorias],
+  );
   const linhas = useMemo(
     () =>
-      agregarPorCategoria(lancamentosFiltrados, categorias).filter((l) =>
+      agregarPorCategoria(lancamentosPeriodo, categorias).filter((l) =>
         gruposDetalhe.includes(l.grupo),
       ),
-    [lancamentosFiltrados, categorias, gruposDetalhe],
+    [lancamentosPeriodo, categorias, gruposDetalhe],
   );
 
   const doGrupo = useMemo(
     () =>
-      lancamentosFiltrados.filter((l) => gruposDetalhe.includes(grupoDoLancamento(l, categorias))),
-    [lancamentosFiltrados, categorias, gruposDetalhe],
+      lancamentosPeriodo.filter((l) => gruposDetalhe.includes(grupoDoLancamento(l, categorias))),
+    [lancamentosPeriodo, categorias, gruposDetalhe],
   );
 
   const pick = (m: (typeof resultados)[number]) =>
@@ -204,13 +225,17 @@ export function GrupoDetalhe({
           ? m.despesas
           : 0;
 
-  const atual = resultados[mes]!;
-  const anterior = mes > 0 ? resultados[mes - 1] : undefined;
+  const atual = useMemo(
+    () => totalizarResultadosPeriodo(resultados, mesesPeriodo),
+    [resultados, mesesPeriodo],
+  );
+  const anterior = mes > 0 ? resultadosAno[mes - 1] : undefined;
   const totalMes = pick(atual);
-  const totalAnterior = anterior ? pick(anterior) : 0;
+  const totalAnterior = periodo === "mes_atual" && anterior ? pick(anterior) : 0;
   const media = mediaFechados(resultados, pick);
-  const acumuladoAno = resultados.reduce((s, m) => s + pick(m), 0);
+  const acumuladoAno = resultadosAno.reduce((s, m) => s + pick(m), 0);
   const receitaMes = atual.receitaBruta;
+  const periodoLabel = periodoFiltroLabel(periodo, mes);
 
   const serie = resultados
     .filter((m) => m.temMovimento)
@@ -229,8 +254,8 @@ export function GrupoDetalhe({
     .map((l) => ({
       nome: l.nome,
       classificacao: l.classificacao,
-      valorMes: Math.abs(l.valores[mes] ?? 0),
-      valorAnterior: mes > 0 ? Math.abs(l.valores[mes - 1] ?? 0) : 0,
+      valorMes: mesesPeriodo.reduce((s, i) => s + Math.abs(l.valores[i] ?? 0), 0),
+      valorAnterior: periodo === "mes_atual" && mes > 0 ? Math.abs(l.valores[mes - 1] ?? 0) : 0,
       ano: l.valores.reduce((s, v) => s + Math.abs(v), 0),
     }))
     .filter((l) => l.valorMes > 0 || l.ano > 0)
@@ -257,26 +282,28 @@ export function GrupoDetalhe({
   }, [rankingBase]);
   const totalPizzaCategorias = pizzaCategorias.reduce((s, item) => s + item.valor, 0);
   const serieCustoSelecionado = useMemo(
-    () => serieFiltroCusto(filtroCusto, resultados, lancamentosFiltrados, categorias),
-    [filtroCusto, resultados, lancamentosFiltrados, categorias],
+    () => serieFiltroCusto(filtroCusto, resultados, lancamentosPeriodo, categorias),
+    [filtroCusto, resultados, lancamentosPeriodo, categorias],
   );
   const filtroCustoSelecionado = filtrosCusto.find((opcao) => opcao.id === filtroCusto)!;
   const totalCustoSelecionado = serieCustoSelecionado.reduce((s, item) => s + item.valor, 0);
-  const mesCustoSelecionado =
-    serieCustoSelecionado.find((item) => item.mesIndex === mes)?.valor ?? 0;
+  const mediaCustoSelecionado =
+    totalCustoSelecionado /
+    Math.max(serieCustoSelecionado.filter((item) => item.valor > 0).length, 1);
+  const periodoCustoSelecionado = totalCustoSelecionado;
 
   const detalhesBase = useMemo(
     () =>
       grupo === "custos"
-        ? lancamentosFiltrados.filter((l) =>
+        ? lancamentosPeriodo.filter((l) =>
             lancamentoPertenceAoFiltroCusto(filtroCusto, l, categorias),
           )
         : doGrupo,
-    [grupo, filtroCusto, lancamentosFiltrados, categorias, doGrupo],
+    [grupo, filtroCusto, lancamentosPeriodo, categorias, doGrupo],
   );
 
   const detalhes = detalhesBase
-    .filter((l) => Number(l.competencia.slice(5, 7)) - 1 === mes)
+    .filter((l) => mesesPeriodo.includes(Number(l.competencia.slice(5, 7)) - 1))
     .filter((l) => {
       if (!busca.trim()) return true;
       const t = busca.toLowerCase();
@@ -305,8 +332,8 @@ export function GrupoDetalhe({
     grupo === "receita_operacional" || grupo === "custos" || grupo === "despesas";
   const tituloLancamentos =
     grupo === "custos"
-      ? `Lançamentos do mês - ${filtroCustoSelecionado.rotulo} (${detalhes.length})`
-      : `Lançamentos do mês (${detalhes.length})`;
+      ? `Lançamentos do período - ${filtroCustoSelecionado.rotulo} (${detalhes.length})`
+      : `Lançamentos do período (${detalhes.length})`;
 
   function alternarOrdenacaoRanking(campo: OrdenacaoRanking["campo"]) {
     setOrdenacaoRanking((atual) => ({
@@ -400,10 +427,10 @@ export function GrupoDetalhe({
           <>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <Kpi
-                titulo={`${titulo} do mês`}
+                titulo={`${titulo} do período`}
                 valor={totalMes}
                 variacaoPct={variacao(totalMes, totalAnterior)}
-                anterior={totalAnterior}
+                anterior={periodo === "mes_atual" ? totalAnterior : undefined}
                 tom={grupo === "receita_operacional" ? "neutro" : "atencao"}
               />
               <Kpi titulo="Média mensal" valor={media} legenda="meses com movimento" />
@@ -454,7 +481,7 @@ export function GrupoDetalhe({
                           <Line
                             type="monotone"
                             dataKey="valor"
-                            stroke="var(--positive)"
+                            stroke={coresGraficosGrupo.receitaLinha}
                             strokeWidth={2.5}
                             dot={{ r: 3 }}
                           >
@@ -479,7 +506,11 @@ export function GrupoDetalhe({
                           <Tooltip content={renderTooltipMensal} />
                           <Bar
                             dataKey="valor"
-                            fill={grupo === "custos" ? "var(--warning)" : "var(--negative)"}
+                            fill={
+                              grupo === "custos"
+                                ? coresGraficosGrupo.custosBarras
+                                : coresGraficosGrupo.despesasBarras
+                            }
                             radius={[6, 6, 0, 0]}
                           >
                             <LabelList dataKey="valor" content={renderRotuloMensal} />
@@ -517,7 +548,11 @@ export function GrupoDetalhe({
                               {pizzaCategorias.map((item, index) => (
                                 <Cell
                                   key={item.nome}
-                                  fill={coresPizza[index % coresPizza.length]}
+                                  fill={
+                                    coresGraficosGrupo.pizza[
+                                      index % coresGraficosGrupo.pizza.length
+                                    ]
+                                  }
                                 />
                               ))}
                             </Pie>
@@ -531,7 +566,12 @@ export function GrupoDetalhe({
                             <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
                               <span
                                 className="h-2.5 w-2.5 shrink-0 rounded-full"
-                                style={{ backgroundColor: coresPizza[index % coresPizza.length] }}
+                                style={{
+                                  backgroundColor:
+                                    coresGraficosGrupo.pizza[
+                                      index % coresGraficosGrupo.pizza.length
+                                    ],
+                                }}
                               />
                               <span className="truncate">{item.nome}</span>
                             </span>
@@ -571,8 +611,8 @@ export function GrupoDetalhe({
                 }
               >
                 <div className="mb-4 grid gap-3 sm:grid-cols-2">
-                  <ResumoCusto rotulo="Selecionado" valor={mesCustoSelecionado} />
-                  <ResumoCusto rotulo="Acumulado no ano" valor={totalCustoSelecionado} />
+                  <ResumoCusto rotulo={periodoLabel} valor={periodoCustoSelecionado} />
+                  <ResumoCusto rotulo="Média mensal" valor={mediaCustoSelecionado} />
                 </div>
 
                 {totalCustoSelecionado <= 0 ? (
@@ -598,7 +638,11 @@ export function GrupoDetalhe({
                           width={80}
                         />
                         <Tooltip content={renderTooltipMensal} />
-                        <Bar dataKey="valor" fill="var(--warning)" radius={[6, 6, 0, 0]}>
+                        <Bar
+                          dataKey="valor"
+                          fill={coresGraficosGrupo.custoIndividual}
+                          radius={[6, 6, 0, 0]}
+                        >
                           <LabelList dataKey="valor" content={renderRotuloMensal} />
                         </Bar>
                       </BarChart>
@@ -627,9 +671,8 @@ export function GrupoDetalhe({
                               "Categoria"
                             )}
                           </th>
-                          <th className="px-3 py-2 text-left font-medium">Tipo</th>
-                          <th className="px-3 py-2 text-right font-medium">Mês</th>
-                          <th className="px-3 py-2 text-right font-medium">Mês anterior</th>
+                          <th className="px-3 py-2 text-right font-medium">Período</th>
+                          <th className="px-3 py-2 text-right font-medium">Base anterior</th>
                           <th className="px-3 py-2 text-right font-medium">Variação</th>
                           <th className="px-5 py-2 text-right font-medium">
                             {permiteFiltrosTabela ? (
@@ -652,18 +695,6 @@ export function GrupoDetalhe({
                           return (
                             <tr key={r.nome} className="border-b hover:bg-muted/30">
                               <td className="px-5 py-2 font-medium">{r.nome}</td>
-                              <td className="px-3 py-2">
-                                <span
-                                  className={cn(
-                                    "rounded px-1.5 py-0.5 text-[10px] font-medium",
-                                    r.classificacao === "fixo"
-                                      ? "bg-info-soft text-info"
-                                      : "bg-warning-soft text-warning",
-                                  )}
-                                >
-                                  {r.classificacao === "fixo" ? "Fixo" : "Variável"}
-                                </span>
-                              </td>
                               <td className="tabular px-3 py-2 text-right">{brl(r.valorMes)}</td>
                               <td className="tabular px-3 py-2 text-right text-muted-foreground">
                                 {brl(r.valorAnterior)}

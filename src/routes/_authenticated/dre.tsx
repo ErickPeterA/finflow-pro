@@ -96,28 +96,21 @@ function DrePage() {
     () => filtrarLancamentosPorCentroCusto(lancamentosAnoB, centroCusto),
     [lancamentosAnoB, centroCusto],
   );
+  const lancamentosFiltrados = useMemo(() => {
+    return lancamentosCentro.filter((l) => {
+      if (modoFiltro === "mes") {
+        return Number(l.competencia.slice(5, 7)) - 1 === mesFiltro;
+      }
+      if (modoFiltro === "periodo") {
+        const data = l.data_efetiva?.slice(0, 10);
+        const inicio = periodoInicio || `${ano}-01-01`;
+        const fim = periodoFim || `${ano}-12-31`;
+        return data >= inicio && data <= fim;
+      }
+      return true;
+    });
+  }, [lancamentosCentro, modoFiltro, mesFiltro, periodoInicio, periodoFim, ano]);
 
-  const lancamentosFiltrados = useMemo(
-    () =>
-      lancamentosCentro.filter((l) => {
-        if (modoFiltro === "mes") {
-          return Number(l.competencia.slice(5, 7)) - 1 === mesFiltro;
-        }
-        if (modoFiltro === "periodo") {
-          const data = l.data_efetiva?.slice(0, 10);
-          const inicio = periodoInicio || `${ano}-01-01`;
-          const fim = periodoFim || `${ano}-12-31`;
-          return data >= inicio && data <= fim;
-        }
-        return true;
-      }),
-    [lancamentosCentro, modoFiltro, mesFiltro, periodoInicio, periodoFim, ano],
-  );
-
-  const resultadosAno = useMemo(
-    () => calcularDre(lancamentosCentro, categorias),
-    [lancamentosCentro, categorias],
-  );
   const resultados = useMemo(
     () => calcularDre(lancamentosFiltrados, categorias),
     [lancamentosFiltrados, categorias],
@@ -166,10 +159,10 @@ function DrePage() {
       );
     }
     return compararResultados(
-      nomeMes(mesComparativoA),
-      resultadosAno[mesComparativoA]!,
-      nomeMes(mesComparativoB),
-      resultadosAno[mesComparativoB]!,
+      `${nomeMes(mesComparativoA)} ${anoComparativoA}`,
+      resultadosAnoA[mesComparativoA]!,
+      `${nomeMes(mesComparativoB)} ${anoComparativoB}`,
+      resultadosAnoB[mesComparativoB]!,
     );
   }, [
     modoComparativo,
@@ -179,7 +172,6 @@ function DrePage() {
     resultadosAnoB,
     mesComparativoA,
     mesComparativoB,
-    resultadosAno,
   ]);
   const linhasComparativo = useMemo(
     () => montarLinhasComparativo(comparativo.a, comparativo.b),
@@ -197,10 +189,11 @@ function DrePage() {
       );
     }
 
-    const linhasAno = agregarPorCentroCategoria(lancamentosCentro, categorias);
+    const linhasAnoA = agregarPorCentroCategoria(lancamentosAnoACentro, categorias);
+    const linhasAnoB = agregarPorCentroCategoria(lancamentosAnoBCentro, categorias);
     return montarDetalhesComparativo(
-      linhasAno,
-      linhasAno,
+      linhasAnoA,
+      linhasAnoB,
       [mesComparativoA],
       [mesComparativoB],
       comparativo.a,
@@ -210,7 +203,6 @@ function DrePage() {
     modoComparativo,
     lancamentosAnoACentro,
     lancamentosAnoBCentro,
-    lancamentosCentro,
     categorias,
     mesComparativoA,
     mesComparativoB,
@@ -277,21 +269,23 @@ function DrePage() {
           <>
             <Bloco titulo="Filtros do DRE">
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">Ano</p>
-                  <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {anosOpcoes.map((a) => (
-                        <SelectItem key={a} value={String(a)}>
-                          {a}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {modoFiltro !== "comparativo" && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Ano</p>
+                    <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {anosOpcoes.map((a) => (
+                          <SelectItem key={a} value={String(a)}>
+                            {a}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground">Visualização</p>
@@ -348,6 +342,27 @@ function DrePage() {
                     </Select>
                   )}
                 </div>
+
+                {modoFiltro === "comparativo" && modoComparativo === "meses" && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Ano A</p>
+                    <Select
+                      value={String(anoComparativoA)}
+                      onValueChange={(v) => setAnoComparativoA(Number(v))}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {anosOpcoes.map((a) => (
+                          <SelectItem key={a} value={String(a)}>
+                            {a}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground">
@@ -454,6 +469,27 @@ function DrePage() {
                     />
                   )}
                 </div>
+
+                {modoFiltro === "comparativo" && modoComparativo === "meses" && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Ano B</p>
+                    <Select
+                      value={String(anoComparativoB)}
+                      onValueChange={(v) => setAnoComparativoB(Number(v))}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {anosOpcoes.map((a) => (
+                          <SelectItem key={a} value={String(a)}>
+                            {a}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
             </Bloco>
 
@@ -474,9 +510,9 @@ function DrePage() {
               ) : (
                 <Bloco titulo={`Demonstrativo ${ano}`} className="overflow-hidden">
                   <div className="-mx-5 -mb-5 overflow-x-auto">
-                    <table className="w-full min-w-[1100px] text-sm">
+                    <table className="w-full min-w-[1100px] text-[13px]">
                       <thead>
-                        <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                        <tr className="border-b bg-muted/50 text-[11px] uppercase tracking-wide text-muted-foreground">
                           <th className="sticky left-0 z-10 bg-muted/50 px-4 py-2 text-left font-medium">
                             Linha
                           </th>
@@ -484,15 +520,15 @@ function DrePage() {
                             <th
                               key={i}
                               className={cn(
-                                "px-3 py-2 text-right font-medium",
+                                "px-3 py-2 text-center font-medium",
                                 i === mes && "text-foreground",
                               )}
                             >
                               {mesesCurtos[i]}
                             </th>
                           ))}
-                          <th className="px-3 py-2 text-right font-medium">Total</th>
-                          <th className="px-4 py-2 text-right font-medium">Média</th>
+                          <th className="px-3 py-2 text-center font-medium">Total</th>
+                          <th className="px-4 py-2 text-center font-medium">Média</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1040,18 +1076,18 @@ function TabelaComparativa({
 
   return (
     <div className="-mx-5 -mb-5 overflow-x-auto">
-      <table className="w-full min-w-[1160px] text-sm">
+      <table className="w-full min-w-[1160px] text-[13px]">
         <thead>
-          <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b bg-muted/50 text-[11px] uppercase tracking-wide text-muted-foreground">
             <th className="sticky left-0 z-10 bg-muted/50 px-4 py-2 text-left font-medium">
               Linha
             </th>
-            <th className="px-3 py-2 text-right font-medium">{comparativo.nomeA}</th>
-            <th className="px-3 py-2 text-right font-medium">{comparativo.nomeB}</th>
-            <th className="px-3 py-2 text-right font-medium">Variação</th>
-            <th className="px-3 py-2 text-right font-medium">Var. %</th>
-            <th className="px-3 py-2 text-right font-medium">% receita A</th>
-            <th className="px-3 py-2 text-right font-medium">% receita B</th>
+            <th className="px-3 py-2 text-center font-medium">{comparativo.nomeA}</th>
+            <th className="px-3 py-2 text-center font-medium">{comparativo.nomeB}</th>
+            <th className="px-3 py-2 text-center font-medium">Variação</th>
+            <th className="px-3 py-2 text-center font-medium">Var. %</th>
+            <th className="px-3 py-2 text-center font-medium">% receita A</th>
+            <th className="px-3 py-2 text-center font-medium">% receita B</th>
             <th className="px-4 py-2 text-left font-medium">Impacto</th>
           </tr>
         </thead>
@@ -1135,7 +1171,9 @@ function LinhaTabelaComparativa({
               <ChevronRight className="h-4 w-4 shrink-0" />
             )}
             <span className="truncate">{linha.nome}</span>
-            <span className="ml-1 text-xs text-muted-foreground">({detalhesCount})</span>
+            <span className="ml-0.5 text-[9px] leading-none text-muted-foreground">
+              ({detalhesCount})
+            </span>
           </button>
         ) : (
           <span className="flex items-center gap-2">
@@ -1143,18 +1181,6 @@ function LinhaTabelaComparativa({
             {detalhe && linha.nivel === "centro" && (
               <span className="shrink-0 rounded bg-info-soft px-1.5 py-0.5 text-[10px] font-medium text-info">
                 Centro
-              </span>
-            )}
-            {detalhe && linha.nivel === "categoria" && linha.classificacao && (
-              <span
-                className={cn(
-                  "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                  linha.classificacao === "fixo"
-                    ? "bg-info-soft text-info"
-                    : "bg-warning-soft text-warning",
-                )}
-              >
-                {linha.classificacao === "fixo" ? "Fixo" : "Variável"}
               </span>
             )}
           </span>
@@ -1475,7 +1501,9 @@ function LinhaTotal({
               <ChevronRight className="h-4 w-4 shrink-0" />
             )}
             {nome}
-            <span className="ml-1 text-xs text-muted-foreground">({filhos.length})</span>
+            <span className="ml-0.5 text-[9px] leading-none text-muted-foreground">
+              ({filhos.length})
+            </span>
           </button>
         </td>
         {vals.map((v, index) => {
@@ -1549,16 +1577,6 @@ function LinhaTotal({
                     <td className="sticky left-0 z-10 bg-muted/10 py-1.5 pl-14 pr-4">
                       <span className="flex items-center gap-2">
                         <span className="truncate">{f.nome}</span>
-                        <span
-                          className={cn(
-                            "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                            f.classificacao === "fixo"
-                              ? "bg-info-soft text-info"
-                              : "bg-warning-soft text-warning",
-                          )}
-                        >
-                          {f.classificacao === "fixo" ? "Fixo" : "Variável"}
-                        </span>
                       </span>
                     </td>
                     {mesesVisiveis.map((i) => {

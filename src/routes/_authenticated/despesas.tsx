@@ -8,7 +8,7 @@ export const Route = createFileRoute("/_authenticated/despesas")({
       {
         name: "description",
         content:
-          "Despesas da estrutura: evolução mensal, peso dos fixos e ranking das categorias que mais consomem resultado.",
+          "Despesas da estrutura: evolução mensal e ranking das categorias que mais consomem resultado.",
       },
       { property: "og:title", content: "Despesas Operacionais | Ecossistema Financeiro BPO" },
       {

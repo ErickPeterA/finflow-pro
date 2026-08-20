@@ -43,7 +43,12 @@ import {
   type ResultadoMes,
 } from "@/lib/dre";
 import { calcularImpactos, gerarAlertas, type NivelAlerta } from "@/lib/insights";
-import { brl, dataBR, meses, mesesCurtos, pct, variacao } from "@/lib/format";
+import {
+  filtrarLancamentosPorMeses,
+  mesesDoPeriodoFiltro,
+  periodoFiltroLabel,
+} from "@/lib/periodo";
+import { brl, dataBR, mesesCurtos, pct, variacao } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/relatorios")({
@@ -90,7 +95,7 @@ const prioridadeLabels: Record<string, string> = {
 };
 
 function RelatoriosPage() {
-  const { empresaId, ano, mes, centroCusto } = useApp();
+  const { empresaId, ano, mes, periodo, centroCusto } = useApp();
   const { data: empresas = [] } = useEmpresas();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
@@ -103,24 +108,38 @@ function RelatoriosPage() {
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
     [lancamentos, centroCusto],
   );
-  const resultados = useMemo(
-    () => calcularDre(lancamentosFiltrados, categorias),
-    [lancamentosFiltrados, categorias],
+  const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
+  const mesReferencia = mesesPeriodo.at(-1) ?? mes;
+  const periodoLabel = periodoFiltroLabel(periodo, mes);
+  const lancamentosPeriodo = useMemo(
+    () => filtrarLancamentosPorMeses(lancamentosFiltrados, mesesPeriodo),
+    [lancamentosFiltrados, mesesPeriodo],
   );
-  const atual = resultados[mes]!;
-  const anterior = mes > 0 ? resultados[mes - 1] : undefined;
+  const resultados = useMemo(
+    () => calcularDre(lancamentosPeriodo, categorias),
+    [lancamentosPeriodo, categorias],
+  );
+  const atual = totalizarResultados(resultados.filter((r) => mesesPeriodo.includes(r.mes)));
+  const anterior = periodo === "mes_atual" && mes > 0 ? resultados[mes - 1] : undefined;
   const linhas = useMemo(
-    () => agregarPorCategoria(lancamentosFiltrados, categorias),
-    [lancamentosFiltrados, categorias],
+    () => agregarPorCategoria(lancamentosPeriodo, categorias),
+    [lancamentosPeriodo, categorias],
   );
   const impactos = useMemo(
-    () => calcularImpactos(lancamentosFiltrados, categorias, mes),
-    [lancamentosFiltrados, categorias, mes],
+    () => calcularImpactos(lancamentosFiltrados, categorias, mesReferencia),
+    [lancamentosFiltrados, categorias, mesReferencia],
   );
   const alertas = useMemo(
     () =>
-      gerarAlertas(resultados, lancamentosFiltrados, categorias, mes, undefined, margemDesejada),
-    [resultados, lancamentosFiltrados, categorias, mes, margemDesejada],
+      gerarAlertas(
+        resultados,
+        lancamentosPeriodo,
+        categorias,
+        mesReferencia,
+        undefined,
+        margemDesejada,
+      ),
+    [resultados, lancamentosPeriodo, categorias, mesReferencia, margemDesejada],
   );
   const qualidade = qualidadeResultado(atual, margemDesejada);
   const acoesAbertas = planos
@@ -133,20 +152,16 @@ function RelatoriosPage() {
     })
     .slice(0, 8);
 
-  const fechadoAteMes = resultados.filter((r) => r.temMovimento && r.mes <= mes);
-  const acumuladoAno = totalizarResultados(resultados.filter((r) => r.mes <= mes));
-  const mediaReceita = mediaFechados(resultados, (r) => r.receitaBruta, mes);
-  const mediaResultado = mediaFechados(resultados, (r) => r.resultadoOperacional, mes);
+  const fechadoAteMes = resultados.filter((r) => r.temMovimento && mesesPeriodo.includes(r.mes));
+  const acumuladoAno = totalizarResultados(resultados.filter((r) => mesesPeriodo.includes(r.mes)));
+  const mediaReceita = mediaFechados(resultados, (r) => r.receitaBruta, mesReferencia);
+  const mediaResultado = mediaFechados(resultados, (r) => r.resultadoOperacional, mesReferencia);
   const mesesComMovimento = fechadoAteMes.length;
-  const totalLancamentosMes = lancamentosFiltrados.filter(
-    (l) => Number(l.competencia.slice(5, 7)) - 1 === mes,
-  ).length;
-  const naoRecorrentesMes = lancamentosFiltrados.filter(
-    (l) => Number(l.competencia.slice(5, 7)) - 1 === mes && l.nao_recorrente,
-  ).length;
+  const totalLancamentosMes = lancamentosPeriodo.length;
+  const naoRecorrentesMes = lancamentosPeriodo.filter((l) => l.nao_recorrente).length;
 
   const evolucao = resultados
-    .filter((r) => r.mes <= mes && r.temMovimento)
+    .filter((r) => mesesPeriodo.includes(r.mes) && r.temMovimento)
     .map((r) => ({
       mes: mesesCurtos[r.mes],
       receita: r.receitaBruta,
@@ -154,12 +169,15 @@ function RelatoriosPage() {
       margem: Number(r.margemOperacional.toFixed(1)),
     }));
 
-  const categoriasOperacionais = topCategorias(linhas, mes, [
+  const categoriasOperacionais = topCategorias(linhas, mesesPeriodo, [
     "deducoes",
     "custos",
     "despesas",
   ]).slice(0, 7);
-  const receitasPorCategoria = topCategorias(linhas, mes, ["receita_operacional"]).slice(0, 5);
+  const receitasPorCategoria = topCategorias(linhas, mesesPeriodo, ["receita_operacional"]).slice(
+    0,
+    5,
+  );
 
   return (
     <>
@@ -184,7 +202,7 @@ function RelatoriosPage() {
             <CapaRelatorio
               empresa={empresa?.nome ?? "Empresa"}
               cnpj={empresa?.cnpj}
-              periodo={`${meses[mes]} de ${ano}`}
+              periodo={`${periodoLabel} de ${ano}`}
               qualidade={qualidade}
               resultado={atual.resultadoOperacional}
               margem={atual.margemOperacional}
@@ -468,7 +486,7 @@ function RelatoriosPage() {
 
             <RodapeRelatorio
               empresa={empresa?.nome ?? "Empresa"}
-              periodo={`${meses[mes]} de ${ano}`}
+              periodo={`${periodoLabel} de ${ano}`}
               acumulado={acumuladoAno}
             />
           </article>
@@ -930,7 +948,7 @@ type CategoriaResumo = {
 
 function topCategorias(
   linhas: ReturnType<typeof agregarPorCategoria>,
-  mes: number,
+  mesesVisiveis: number[],
   grupos: GrupoDre[],
 ): CategoriaResumo[] {
   return linhas
@@ -938,7 +956,7 @@ function topCategorias(
     .map((linha) => ({
       nome: linha.nome,
       grupo: linha.grupo,
-      valor: Math.abs(linha.valores[mes] ?? 0),
+      valor: mesesVisiveis.reduce((s, mes) => s + Math.abs(linha.valores[mes] ?? 0), 0),
     }))
     .filter((linha) => linha.valor > 0)
     .sort((a, b) => b.valor - a.valor);

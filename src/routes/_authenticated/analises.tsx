@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -29,6 +29,7 @@ import {
   valorAssinado,
 } from "@/lib/dre";
 import { brl, meses, mesesCurtos, pct, variacao } from "@/lib/format";
+import { mesesDoPeriodoFiltro } from "@/lib/periodo";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/analises")({
@@ -51,7 +52,7 @@ export const Route = createFileRoute("/_authenticated/analises")({
 });
 
 function AnalisesPage() {
-  const { empresaId, ano, mes, centroCusto } = useApp();
+  const { empresaId, ano, mes, periodo, centroCusto } = useApp();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
   const { data: config } = useConfiguracao(empresaId);
@@ -61,7 +62,12 @@ function AnalisesPage() {
     "resultadoOperacional",
     "resultadoLiquido",
   ]);
-  const [mesesVisiveis, setMesesVisiveis] = useState<number[]>([mes]);
+  const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
+  const [mesesVisiveis, setMesesVisiveis] = useState<number[]>(mesesPeriodo);
+
+  useEffect(() => {
+    setMesesVisiveis(mesesPeriodo);
+  }, [mesesPeriodo]);
 
   const lancamentosFiltrados = useMemo(
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
@@ -76,10 +82,12 @@ function AnalisesPage() {
     [lancamentosFiltrados, categorias],
   );
 
-  const comMovimento = resultados.filter((m) => m.temMovimento);
-  const receitaMedia = mediaFechados(resultados, (m) => m.receitaBruta);
-  const resultadoMedio = mediaFechados(resultados, (m) => m.resultadoOperacional);
-  const margemMedia = mediaFechados(resultados, (m) => m.margemOperacional);
+  const resultadosPeriodo = resultados.filter((m) => mesesVisiveis.includes(m.mes));
+  const mesReferencia = mesesVisiveis.at(-1) ?? mes;
+  const comMovimento = resultadosPeriodo.filter((m) => m.temMovimento);
+  const receitaMedia = mediaFechados(resultadosPeriodo, (m) => m.receitaBruta);
+  const resultadoMedio = mediaFechados(resultadosPeriodo, (m) => m.resultadoOperacional);
+  const margemMedia = mediaFechados(resultadosPeriodo, (m) => m.margemOperacional);
 
   const dadosContasResultado = useMemo(
     () =>
@@ -142,7 +150,7 @@ function AnalisesPage() {
     () =>
       linhas
         .map((l) => {
-          const atual = Math.abs(l.valores[mes] ?? 0);
+          const atual = Math.abs(l.valores[mesReferencia] ?? 0);
           const media =
             l.valores.filter((v) => v !== 0).reduce((s, v) => s + Math.abs(v), 0) /
             Math.max(l.valores.filter((v) => v !== 0).length, 1);
@@ -151,7 +159,7 @@ function AnalisesPage() {
         .filter((l) => l.atual > 0 && l.desvio != null && Math.abs(l.desvio) > 20)
         .sort((a, b) => Math.abs(b.desvio ?? 0) - Math.abs(a.desvio ?? 0))
         .slice(0, 12),
-    [linhas, mes],
+    [linhas, mesReferencia],
   );
 
   return (

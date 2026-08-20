@@ -687,6 +687,7 @@ export type Database = {
           prazo: string | null;
           prioridade: string;
           problema: string;
+          relatorio_gerado_em: string | null;
           responsavel: string | null;
           resultado_esperado: string | null;
           status: Database["public"]["Enums"]["status_acao"];
@@ -706,6 +707,7 @@ export type Database = {
           prazo?: string | null;
           prioridade?: string;
           problema: string;
+          relatorio_gerado_em?: string | null;
           responsavel?: string | null;
           resultado_esperado?: string | null;
           status?: Database["public"]["Enums"]["status_acao"];
@@ -725,6 +727,7 @@ export type Database = {
           prazo?: string | null;
           prioridade?: string;
           problema?: string;
+          relatorio_gerado_em?: string | null;
           responsavel?: string | null;
           resultado_esperado?: string | null;
           status?: Database["public"]["Enums"]["status_acao"];
