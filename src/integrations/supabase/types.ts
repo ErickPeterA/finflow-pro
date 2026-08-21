@@ -123,6 +123,331 @@ export type Database = {
         };
         Relationships: [];
       };
+      fluxo_ajustes_lancamentos: {
+        Row: {
+          created_at: string;
+          data_projetada: string;
+          empresa_id: string;
+          id: string;
+          lancamento_id: string;
+          motivo: string | null;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          data_projetada: string;
+          empresa_id: string;
+          id?: string;
+          lancamento_id: string;
+          motivo?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          data_projetada?: string;
+          empresa_id?: string;
+          id?: string;
+          lancamento_id?: string;
+          motivo?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "fluxo_ajustes_lancamentos_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "fluxo_ajustes_lancamentos_lancamento_id_fkey";
+            columns: ["lancamento_id"];
+            isOneToOne: false;
+            referencedRelation: "lancamentos";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      fluxo_checklist_pagamentos: {
+        Row: {
+          created_at: string;
+          empresa_id: string;
+          id: string;
+          lancamento_id: string;
+          observacao: string | null;
+          status: Database["public"]["Enums"]["status_checklist_fluxo"];
+          titulo_id: string | null;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          empresa_id: string;
+          id?: string;
+          lancamento_id?: string | null;
+          observacao?: string | null;
+          status?: Database["public"]["Enums"]["status_checklist_fluxo"];
+          titulo_id?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          empresa_id?: string;
+          id?: string;
+          lancamento_id?: string | null;
+          observacao?: string | null;
+          status?: Database["public"]["Enums"]["status_checklist_fluxo"];
+          titulo_id?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "fluxo_checklist_pagamentos_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "fluxo_checklist_pagamentos_lancamento_id_fkey";
+            columns: ["lancamento_id"];
+            isOneToOne: false;
+            referencedRelation: "lancamentos";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      fluxo_contas_bancarias: {
+        Row: {
+          ativo: boolean;
+          created_at: string;
+          empresa_id: string;
+          id: string;
+          imagem_url: string | null;
+          nome: string;
+          updated_at: string;
+        };
+        Insert: {
+          ativo?: boolean;
+          created_at?: string;
+          empresa_id: string;
+          id?: string;
+          imagem_url?: string | null;
+          nome: string;
+          updated_at?: string;
+        };
+        Update: {
+          ativo?: boolean;
+          created_at?: string;
+          empresa_id?: string;
+          id?: string;
+          imagem_url?: string | null;
+          nome?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "fluxo_contas_bancarias_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      fluxo_historicos: {
+        Row: {
+          contas_consideradas: Json;
+          created_at: string;
+          created_by: string | null;
+          elaborado_em: string;
+          empresa_id: string;
+          id: string;
+          pagamentos_previstos: number;
+          pagamentos_selecionados: Json;
+          payload: Json;
+          periodo_fim: string;
+          periodo_inicio: string;
+          recebimentos_previstos: number;
+          saldo_final_previsto: number;
+          saldo_inicial: number;
+        };
+        Insert: {
+          contas_consideradas?: Json;
+          created_at?: string;
+          created_by?: string | null;
+          elaborado_em?: string;
+          empresa_id: string;
+          id?: string;
+          pagamentos_previstos?: number;
+          pagamentos_selecionados?: Json;
+          payload?: Json;
+          periodo_fim: string;
+          periodo_inicio: string;
+          recebimentos_previstos?: number;
+          saldo_final_previsto?: number;
+          saldo_inicial?: number;
+        };
+        Update: {
+          contas_consideradas?: Json;
+          created_at?: string;
+          created_by?: string | null;
+          elaborado_em?: string;
+          empresa_id?: string;
+          id?: string;
+          pagamentos_previstos?: number;
+          pagamentos_selecionados?: Json;
+          payload?: Json;
+          periodo_fim?: string;
+          periodo_inicio?: string;
+          recebimentos_previstos?: number;
+          saldo_final_previsto?: number;
+          saldo_inicial?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "fluxo_historicos_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      fluxo_saldos_bancarios: {
+        Row: {
+          conta_id: string;
+          created_at: string;
+          empresa_id: string;
+          id: string;
+          informado_em: string;
+          informado_por: string | null;
+          saldo: number;
+        };
+        Insert: {
+          conta_id: string;
+          created_at?: string;
+          empresa_id: string;
+          id?: string;
+          informado_em?: string;
+          informado_por?: string | null;
+          saldo?: number;
+        };
+        Update: {
+          conta_id?: string;
+          created_at?: string;
+          empresa_id?: string;
+          id?: string;
+          informado_em?: string;
+          informado_por?: string | null;
+          saldo?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "fluxo_saldos_bancarios_conta_id_fkey";
+            columns: ["conta_id"];
+            isOneToOne: false;
+            referencedRelation: "fluxo_contas_bancarias";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "fluxo_saldos_bancarios_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      fluxo_titulos_nibo: {
+        Row: {
+          categoria_nibo: string | null;
+          centro_custo: string | null;
+          competencia: string;
+          created_at: string;
+          data_projetada: string;
+          descricao: string;
+          empresa_id: string;
+          external_id: string | null;
+          external_source: string | null;
+          hash: string;
+          id: string;
+          importacao_id: string | null;
+          payload: Json;
+          pessoa: string | null;
+          source_content_hash: string | null;
+          status: string;
+          tipo: Database["public"]["Enums"]["tipo_lancamento"];
+          updated_at: string;
+          valor: number;
+          vencimento: string;
+        };
+        Insert: {
+          categoria_nibo?: string | null;
+          centro_custo?: string | null;
+          competencia: string;
+          created_at?: string;
+          data_projetada: string;
+          descricao?: string;
+          empresa_id: string;
+          external_id?: string | null;
+          external_source?: string | null;
+          hash: string;
+          id?: string;
+          importacao_id?: string | null;
+          payload?: Json;
+          pessoa?: string | null;
+          source_content_hash?: string | null;
+          status?: string;
+          tipo: Database["public"]["Enums"]["tipo_lancamento"];
+          updated_at?: string;
+          valor?: number;
+          vencimento: string;
+        };
+        Update: {
+          categoria_nibo?: string | null;
+          centro_custo?: string | null;
+          competencia?: string;
+          created_at?: string;
+          data_projetada?: string;
+          descricao?: string;
+          empresa_id?: string;
+          external_id?: string | null;
+          external_source?: string | null;
+          hash?: string;
+          id?: string;
+          importacao_id?: string | null;
+          payload?: Json;
+          pessoa?: string | null;
+          source_content_hash?: string | null;
+          status?: string;
+          tipo?: Database["public"]["Enums"]["tipo_lancamento"];
+          updated_at?: string;
+          valor?: number;
+          vencimento?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "fluxo_titulos_nibo_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "fluxo_titulos_nibo_importacao_id_fkey";
+            columns: ["importacao_id"];
+            isOneToOne: false;
+            referencedRelation: "importacoes";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       importacoes: {
         Row: {
           arquivo_nome: string;
@@ -909,6 +1234,7 @@ export type Database = {
         | "nao_operacional";
       status_acao:
         "pendente" | "em_andamento" | "aguardando_cliente" | "atrasado" | "concluido" | "cancelado";
+      status_checklist_fluxo: "nao_selecionado" | "selecionado_pagamento" | "identificado_pago";
       tipo_lancamento: "recebida" | "paga";
       tratamento_lancamento:
         | "operacional"

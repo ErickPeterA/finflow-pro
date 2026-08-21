@@ -14,6 +14,15 @@ export interface Empresa {
   ativo: boolean;
 }
 
+export type FluxoContaBancaria = Database["public"]["Tables"]["fluxo_contas_bancarias"]["Row"];
+export type FluxoSaldoBancario = Database["public"]["Tables"]["fluxo_saldos_bancarios"]["Row"];
+export type FluxoAjusteLancamento =
+  Database["public"]["Tables"]["fluxo_ajustes_lancamentos"]["Row"];
+export type FluxoChecklistPagamento =
+  Database["public"]["Tables"]["fluxo_checklist_pagamentos"]["Row"];
+export type FluxoTituloNibo = Database["public"]["Tables"]["fluxo_titulos_nibo"]["Row"];
+export type StatusChecklistFluxo = Database["public"]["Enums"]["status_checklist_fluxo"];
+
 export function useEmpresas() {
   return useQuery({
     queryKey: ["empresas"],
@@ -100,6 +109,192 @@ export function useLancamentos(empresaId: string | null, ano: number) {
       }
 
       return lancamentos;
+    },
+  });
+}
+
+export function useLancamentosFluxo(empresaId: string | null, inicio: string, fim: string) {
+  return useQuery({
+    queryKey: ["lancamentos-fluxo", empresaId, inicio, fim],
+    enabled: !!empresaId,
+    queryFn: async (): Promise<Lancamento[]> => {
+      const pageSize = 1000;
+      const lancamentos: Lancamento[] = [];
+      const idsVistos = new Set<string>();
+
+      for (let from = 0; ; from += pageSize) {
+        const to = from + pageSize - 1;
+        const { data, error } = await supabase
+          .from("lancamentos")
+          .select("*")
+          .eq("empresa_id", empresaId!)
+          .gte("data_efetiva", inicio)
+          .lte("data_efetiva", fim)
+          .order("data_efetiva")
+          .order("id")
+          .range(from, to);
+        if (error) throw error;
+
+        const pagina = (data ?? []) as unknown as Lancamento[];
+        for (const lancamento of pagina) {
+          if (idsVistos.has(lancamento.id)) continue;
+          idsVistos.add(lancamento.id);
+          lancamentos.push(lancamento);
+        }
+        if (pagina.length < pageSize) break;
+      }
+
+      return lancamentos;
+    },
+  });
+}
+
+export function useLancamentosReceberVencidos(empresaId: string | null, hoje: string) {
+  return useQuery({
+    queryKey: ["lancamentos-receber-vencidos", empresaId, hoje],
+    enabled: !!empresaId,
+    queryFn: async (): Promise<Lancamento[]> => {
+      const { data, error } = await supabase
+        .from("lancamentos")
+        .select("*")
+        .eq("empresa_id", empresaId!)
+        .eq("tipo", "recebida")
+        .lt("data_efetiva", hoje)
+        .order("data_efetiva")
+        .limit(50);
+      if (error) throw error;
+      return (data ?? []) as unknown as Lancamento[];
+    },
+  });
+}
+
+export function useFluxoContasBancarias(empresaId: string | null) {
+  return useQuery({
+    queryKey: ["fluxo-contas-bancarias", empresaId],
+    enabled: !!empresaId,
+    queryFn: async (): Promise<FluxoContaBancaria[]> => {
+      const { data, error } = await supabase
+        .from("fluxo_contas_bancarias")
+        .select("*")
+        .eq("empresa_id", empresaId!)
+        .eq("ativo", true)
+        .order("nome");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useFluxoSaldosBancarios(empresaId: string | null) {
+  return useQuery({
+    queryKey: ["fluxo-saldos-bancarios", empresaId],
+    enabled: !!empresaId,
+    queryFn: async (): Promise<FluxoSaldoBancario[]> => {
+      const { data, error } = await supabase
+        .from("fluxo_saldos_bancarios")
+        .select("*")
+        .eq("empresa_id", empresaId!)
+        .order("informado_em", { ascending: false });
+      if (error) throw error;
+
+      const vistos = new Set<string>();
+      return (data ?? []).filter((saldo) => {
+        if (vistos.has(saldo.conta_id)) return false;
+        vistos.add(saldo.conta_id);
+        return true;
+      });
+    },
+  });
+}
+
+export function useFluxoAjustesLancamentos(empresaId: string | null) {
+  return useQuery({
+    queryKey: ["fluxo-ajustes-lancamentos", empresaId],
+    enabled: !!empresaId,
+    queryFn: async (): Promise<FluxoAjusteLancamento[]> => {
+      const { data, error } = await supabase
+        .from("fluxo_ajustes_lancamentos")
+        .select("*")
+        .eq("empresa_id", empresaId!);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useFluxoChecklistPagamentos(empresaId: string | null) {
+  return useQuery({
+    queryKey: ["fluxo-checklist-pagamentos", empresaId],
+    enabled: !!empresaId,
+    queryFn: async (): Promise<FluxoChecklistPagamento[]> => {
+      const { data, error } = await supabase
+        .from("fluxo_checklist_pagamentos")
+        .select("*")
+        .eq("empresa_id", empresaId!);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useFluxoTitulosNibo(empresaId: string | null, inicio: string, fim: string) {
+  return useQuery({
+    queryKey: ["fluxo-titulos-nibo", empresaId, inicio, fim],
+    enabled: !!empresaId,
+    queryFn: async (): Promise<FluxoTituloNibo[]> => {
+      const { data, error } = await supabase
+        .from("fluxo_titulos_nibo")
+        .select("*")
+        .eq("empresa_id", empresaId!)
+        .gte("data_projetada", inicio)
+        .lte("data_projetada", fim)
+        .neq("status", "cancelado")
+        .order("data_projetada")
+        .order("id");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useFluxoTitulosReceberVencidos(empresaId: string | null, hoje: string) {
+  return useQuery({
+    queryKey: ["fluxo-titulos-receber-vencidos", empresaId, hoje],
+    enabled: !!empresaId,
+    queryFn: async (): Promise<FluxoTituloNibo[]> => {
+      const { data, error } = await supabase
+        .from("fluxo_titulos_nibo")
+        .select("*")
+        .eq("empresa_id", empresaId!)
+        .eq("tipo", "recebida")
+        .lt("vencimento", hoje)
+        .neq("status", "cancelado")
+        .order("vencimento")
+        .limit(50);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+export function useFluxoTitulosPagarVencidos(empresaId: string | null, hoje: string) {
+  return useQuery({
+    queryKey: ["fluxo-titulos-pagar-vencidos", empresaId, hoje],
+    enabled: !!empresaId,
+    queryFn: async (): Promise<FluxoTituloNibo[]> => {
+      const { data, error } = await supabase
+        .from("fluxo_titulos_nibo")
+        .select("*")
+        .eq("empresa_id", empresaId!)
+        .eq("tipo", "paga")
+        .lt("vencimento", hoje)
+        .neq("status", "cancelado")
+        .neq("status", "pago")
+        .neq("status", "recebido")
+        .order("vencimento")
+        .limit(50);
+      if (error) throw error;
+      return data ?? [];
     },
   });
 }

@@ -16,6 +16,7 @@ import { Route as AuthenticatedAnalisesRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedCustosRouteImport } from './routes/_authenticated/custos'
 import { Route as AuthenticatedDespesasRouteImport } from './routes/_authenticated/despesas'
 import { Route as AuthenticatedDreRouteImport } from './routes/_authenticated/dre'
+import { Route as AuthenticatedFluxoCaixaRouteImport } from './routes/_authenticated/fluxo-caixa'
 import { Route as AuthenticatedGerenciamentoRouteImport } from './routes/_authenticated/gerenciamento'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedImportacaoRouteImport } from './routes/_authenticated/importacao'
@@ -57,6 +58,11 @@ const AuthenticatedDespesasRoute = AuthenticatedDespesasRouteImport.update({
 const AuthenticatedDreRoute = AuthenticatedDreRouteImport.update({
   id: '/dre',
   path: '/dre',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedFluxoCaixaRoute = AuthenticatedFluxoCaixaRouteImport.update({
+  id: '/fluxo-caixa',
+  path: '/fluxo-caixa',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedGerenciamentoRoute =
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/custos': typeof AuthenticatedCustosRoute
   '/despesas': typeof AuthenticatedDespesasRoute
   '/dre': typeof AuthenticatedDreRoute
+  '/fluxo-caixa': typeof AuthenticatedFluxoCaixaRoute
   '/gerenciamento': typeof AuthenticatedGerenciamentoRoute
   '/home': typeof AuthenticatedHomeRoute
   '/importacao': typeof AuthenticatedImportacaoRoute
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
   '/custos': typeof AuthenticatedCustosRoute
   '/despesas': typeof AuthenticatedDespesasRoute
   '/dre': typeof AuthenticatedDreRoute
+  '/fluxo-caixa': typeof AuthenticatedFluxoCaixaRoute
   '/gerenciamento': typeof AuthenticatedGerenciamentoRoute
   '/home': typeof AuthenticatedHomeRoute
   '/importacao': typeof AuthenticatedImportacaoRoute
@@ -143,6 +151,7 @@ export interface FileRoutesById {
   '/_authenticated/custos': typeof AuthenticatedCustosRoute
   '/_authenticated/despesas': typeof AuthenticatedDespesasRoute
   '/_authenticated/dre': typeof AuthenticatedDreRoute
+  '/_authenticated/fluxo-caixa': typeof AuthenticatedFluxoCaixaRoute
   '/_authenticated/gerenciamento': typeof AuthenticatedGerenciamentoRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/importacao': typeof AuthenticatedImportacaoRoute
@@ -161,6 +170,7 @@ export interface FileRouteTypes {
     | '/custos'
     | '/despesas'
     | '/dre'
+    | '/fluxo-caixa'
     | '/gerenciamento'
     | '/home'
     | '/importacao'
@@ -177,6 +187,7 @@ export interface FileRouteTypes {
     | '/custos'
     | '/despesas'
     | '/dre'
+    | '/fluxo-caixa'
     | '/gerenciamento'
     | '/home'
     | '/importacao'
@@ -194,6 +205,7 @@ export interface FileRouteTypes {
     | '/_authenticated/custos'
     | '/_authenticated/despesas'
     | '/_authenticated/dre'
+    | '/_authenticated/fluxo-caixa'
     | '/_authenticated/gerenciamento'
     | '/_authenticated/home'
     | '/_authenticated/importacao'
@@ -261,6 +273,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDreRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/fluxo-caixa': {
+      id: '/_authenticated/fluxo-caixa'
+      path: '/fluxo-caixa'
+      fullPath: '/fluxo-caixa'
+      preLoaderRoute: typeof AuthenticatedFluxoCaixaRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/gerenciamento': {
       id: '/_authenticated/gerenciamento'
       path: '/gerenciamento'
@@ -325,6 +344,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedCustosRoute: typeof AuthenticatedCustosRoute
   AuthenticatedDespesasRoute: typeof AuthenticatedDespesasRoute
   AuthenticatedDreRoute: typeof AuthenticatedDreRoute
+  AuthenticatedFluxoCaixaRoute: typeof AuthenticatedFluxoCaixaRoute
   AuthenticatedGerenciamentoRoute: typeof AuthenticatedGerenciamentoRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedImportacaoRoute: typeof AuthenticatedImportacaoRoute
@@ -340,6 +360,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCustosRoute: AuthenticatedCustosRoute,
   AuthenticatedDespesasRoute: AuthenticatedDespesasRoute,
   AuthenticatedDreRoute: AuthenticatedDreRoute,
+  AuthenticatedFluxoCaixaRoute: AuthenticatedFluxoCaixaRoute,
   AuthenticatedGerenciamentoRoute: AuthenticatedGerenciamentoRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedImportacaoRoute: AuthenticatedImportacaoRoute,

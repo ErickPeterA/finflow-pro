@@ -19,20 +19,62 @@ export interface LinhaImportada {
   source_content_hash?: string;
 }
 
+export type TipoDocumentoImportacao =
+  "realizado" | "titulos_pagar" | "titulos_receber" | "titulos_misto";
+
+export interface TituloImportado {
+  tipo: TipoLancamento;
+  vencimento: string;
+  data_projetada: string;
+  competencia: string;
+  descricao: string;
+  categoria_nibo: string;
+  pessoa: string;
+  centro_custo: string;
+  valor: number;
+  status: string;
+  hash: string;
+  nibo_id?: string;
+  external_id?: string;
+  external_source?: string;
+  source_content_hash?: string;
+}
+
+export interface DeteccaoImportacao {
+  tipo: TipoDocumentoImportacao;
+  confianca: number;
+  natureza: "pagar" | "receber" | "misto" | "indefinido";
+  modo: "realizado" | "titulos";
+  motivos: string[];
+}
+
 export interface ResultadoParse {
   linhas: LinhaImportada[];
+  titulos: TituloImportado[];
+  deteccao: DeteccaoImportacao;
   colunas: string[];
   erros: string[];
   avisos: string[];
 }
 
 type ChaveColuna =
-  "data" | "valor" | "descricao" | "categoria" | "codigo" | "pessoa" | "centro" | "banco";
+  | "data"
+  | "vencimento"
+  | "valor"
+  | "descricao"
+  | "categoria"
+  | "codigo"
+  | "pessoa"
+  | "centro"
+  | "banco"
+  | "status";
 
 type LinhaCandidata = Omit<LinhaImportada, "tipo" | "valor" | "hash"> & {
   valorAssinado: number;
   tipoContexto: TipoLancamento;
   codigo_nibo: string;
+  vencimento: string;
+  status: string;
   origem: string;
 };
 
@@ -48,7 +90,17 @@ const ALIASES: Record<ChaveColuna, string[]> = {
     "data recebimento",
     "data efetiva",
     "data",
+  ],
+  vencimento: [
+    "data de vencimento",
+    "data do vencimento",
     "vencimento",
+    "vence em",
+    "dt vencimento",
+    "dt. vencimento",
+    "data prevista",
+    "previsao",
+    "previsão",
   ],
   valor: [
     "valor pago",
@@ -113,6 +165,7 @@ const ALIASES: Record<ChaveColuna, string[]> = {
   ],
   centro: ["centro de custo", "centro custo", "centro de resultado", "departamento"],
   banco: ["conta bancaria", "conta bancária", "banco", "conta corrente", "conta financeira"],
+  status: ["status", "situacao", "situação", "estado", "baixa", "quitado"],
 };
 
 const TERMOS_PAGA = [
@@ -149,6 +202,32 @@ const TERMOS_RECEBIDA = [
   "entrada",
   "entradas",
   "credito",
+];
+
+const TERMOS_TITULO = [
+  "em aberto",
+  "aberto",
+  "a vencer",
+  "vencido",
+  "pendente",
+  "previsto",
+  "previsao",
+  "previsão",
+  "vencimento",
+];
+
+const TERMOS_REALIZADO = [
+  "pago",
+  "paga",
+  "pagas",
+  "recebido",
+  "recebida",
+  "recebidas",
+  "liquidado",
+  "baixado",
+  "conciliado",
+  "data de pagamento",
+  "data de recebimento",
 ];
 
 function normalizar(s: unknown): string {
@@ -325,7 +404,14 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
   const colunasArquivo = new Set<string>();
 
   if (!wb.SheetNames.length) {
-    return { linhas: [], colunas: [], erros: ["Arquivo sem planilhas."], avisos };
+    return {
+      linhas: [],
+      titulos: [],
+      deteccao: deteccaoPadrao(),
+      colunas: [],
+      erros: ["Arquivo sem planilhas."],
+      avisos,
+    };
   }
 
   const candidatas: LinhaCandidata[] = [];
@@ -354,6 +440,7 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
     colunas.forEach((coluna) => colunasArquivo.add(coluna));
 
     const colData = acharColuna(colunas, "data");
+    const colVencimento = acharColuna(colunas, "vencimento");
     const colValor = acharColuna(colunas, "valor");
     const colDesc = acharColuna(colunas, "descricao");
     const colCat = acharColuna(colunas, "categoria");
@@ -361,6 +448,7 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
     const colPessoa = acharColuna(colunas, "pessoa");
     const colCentro = acharColuna(colunas, "centro");
     const colBanco = acharColuna(colunas, "banco");
+    const colStatus = acharColuna(colunas, "status");
     const colNiboId =
       colunas.find((coluna) => normalizar(coluna) === "id") ??
       colunas.find((coluna) => normalizar(coluna) === "codigo nibo") ??
@@ -373,7 +461,7 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
     if (!colCat) {
       avisos.push(`Aba "${nomeAba}": coluna de categoria não encontrada.`);
     }
-    if (!colData) {
+    if (!colData && !colVencimento) {
       avisos.push(
         `Aba "${nomeAba}": coluna de data não encontrada; usando a competência selecionada.`,
       );
@@ -391,15 +479,19 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
       const codigo_nibo = colCodigo ? textoCelula(rowFormatada[colCodigo], row[colCodigo]) : "";
       const nibo_id = colNiboId ? textoCelula(rowFormatada[colNiboId], row[colNiboId]) : "";
       const categoria = colCat ? textoCelula(rowFormatada[colCat], row[colCat]) : "";
+      const status = colStatus ? textoCelula(rowFormatada[colStatus], row[colStatus]) : "";
       const dataEfetiva = colData
         ? (parseData(row[colData]) ?? parseData(rowFormatada[colData]))
         : null;
-      if (colData && !dataEfetiva) datasInvalidas += 1;
+      const vencimento = colVencimento
+        ? (parseData(row[colVencimento]) ?? parseData(rowFormatada[colVencimento]))
+        : dataEfetiva;
+      if ((colData || colVencimento) && !dataEfetiva && !vencimento) datasInvalidas += 1;
 
       candidatas.push({
         tipoContexto,
-        data_efetiva: dataEfetiva ?? dataPadrao,
-        competencia: competenciaDaData(dataEfetiva ?? dataPadrao),
+        data_efetiva: dataEfetiva ?? vencimento ?? dataPadrao,
+        competencia: competenciaDaData(dataEfetiva ?? vencimento ?? dataPadrao),
         descricao: colDesc ? textoCelula(rowFormatada[colDesc], row[colDesc]) : "",
         categoria_nibo: combinarCodigoCategoria(codigo_nibo, categoria),
         codigo_nibo,
@@ -407,6 +499,8 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
         centro_custo: colCentro ? textoCelula(rowFormatada[colCentro], row[colCentro]) : "",
         conta_bancaria: colBanco ? textoCelula(rowFormatada[colBanco], row[colBanco]) : "",
         nibo_id,
+        vencimento: vencimento ?? dataEfetiva ?? dataPadrao,
+        status,
         valorAssinado,
         origem: `${nomeAba}:${index + 2}`,
       });
@@ -426,7 +520,14 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
       ? "Nenhum lançamento válido encontrado no arquivo."
       : "Nenhuma aba válida encontrada no arquivo.";
     erros.push(mensagem);
-    return { linhas: [], colunas: Array.from(colunasArquivo), erros, avisos };
+    return {
+      linhas: [],
+      titulos: [],
+      deteccao: deteccaoPadrao(),
+      colunas: Array.from(colunasArquivo),
+      erros,
+      avisos,
+    };
   }
 
   const temPositivo = candidatas.some((linha) => linha.valorAssinado > 0);
@@ -483,10 +584,95 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
     );
   }
 
-  return { linhas, colunas: Array.from(colunasArquivo), erros, avisos };
+  const titulos = candidatas.map((linha, index) => {
+    const tipoPorCodigo = inferirTipoPorCodigo(linha.codigo_nibo, linha.categoria_nibo);
+    const tipoPorSinal: TipoLancamento = linha.valorAssinado < 0 ? "paga" : "recebida";
+    const tipoTitulo = tipoPorCodigo ?? linha.tipoContexto ?? tipoPorSinal;
+    const normalizada: Omit<TituloImportado, "hash"> = {
+      tipo: tipoTitulo,
+      vencimento: linha.vencimento,
+      data_projetada: linha.vencimento,
+      competencia: competenciaDaData(linha.vencimento),
+      descricao: linha.descricao,
+      categoria_nibo: linha.categoria_nibo,
+      pessoa: linha.pessoa,
+      centro_custo: linha.centro_custo,
+      valor: Math.abs(linha.valorAssinado),
+      status: normalizarStatusTitulo(linha.status, linha.vencimento, tipoTitulo),
+    };
+    if (linha.nibo_id) normalizada.nibo_id = linha.nibo_id;
+    return {
+      ...normalizada,
+      hash: gerarHashTitulo(normalizada, `${linha.origem}:${index}`),
+    };
+  });
+
+  return {
+    linhas,
+    titulos,
+    deteccao: deteccaoPadrao(),
+    colunas: Array.from(colunasArquivo),
+    erros,
+    avisos,
+  };
 }
 
 export async function parseArquivoNibo(file: File, dataPadrao: string): Promise<ResultadoParse> {
   const buffer = await file.arrayBuffer();
   return parseBufferNibo(buffer, dataPadrao);
+}
+
+function deteccaoPadrao(): DeteccaoImportacao {
+  return {
+    tipo: "realizado",
+    confianca: 0,
+    natureza: "indefinido",
+    modo: "realizado",
+    motivos: [],
+  };
+}
+
+function linhaParaTitulo(linha: LinhaImportada): TituloImportado {
+  return {
+    tipo: linha.tipo,
+    vencimento: linha.data_efetiva,
+    data_projetada: linha.data_efetiva,
+    competencia: competenciaDaData(linha.data_efetiva),
+    descricao: linha.descricao,
+    categoria_nibo: linha.categoria_nibo,
+    pessoa: linha.pessoa,
+    centro_custo: linha.centro_custo,
+    valor: Math.abs(linha.valor),
+    status: linha.data_efetiva < new Date().toISOString().slice(0, 10) ? "vencido" : "aberto",
+    hash: ["titulo", linha.hash].join("|"),
+    nibo_id: linha.nibo_id,
+    external_id: linha.external_id,
+    external_source: linha.external_source,
+    source_content_hash: linha.source_content_hash,
+  };
+}
+
+function normalizarStatusTitulo(status: string, vencimento: string, tipo?: TipoLancamento) {
+  const texto = normalizar(status);
+  if (/(recebido|recebida)/.test(texto)) return tipo === "recebida" ? "recebido" : "pago";
+  if (/(pago|paga|liquidado|baixado|quitado|conciliado)/.test(texto)) return "pago";
+  if (/(cancelado|cancelada|excluido|excluida)/.test(texto)) return "cancelado";
+  if (/(vencido|atrasado)/.test(texto)) return "vencido";
+  if (/(aberto|pendente|a vencer|previsto)/.test(texto)) return "aberto";
+  return vencimento < new Date().toISOString().slice(0, 10) ? "vencido" : "aberto";
+}
+
+function gerarHashTitulo(linha: Omit<TituloImportado, "hash">, origem: string): string {
+  const origemEstavel = linha.nibo_id ? `nibo:${normalizar(linha.nibo_id)}` : origem;
+  return [
+    "titulo",
+    linha.tipo,
+    linha.vencimento,
+    origemEstavel,
+    linha.valor.toFixed(2),
+    normalizar(linha.descricao),
+    normalizar(linha.pessoa),
+    normalizar(linha.categoria_nibo),
+    normalizar(linha.centro_custo),
+  ].join("|");
 }

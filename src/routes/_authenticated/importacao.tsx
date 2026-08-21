@@ -21,8 +21,14 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "@/lib/app-context";
 import { useImportacoes, useLancamentos, useMapeamentos } from "@/lib/data";
-import { importarLinhasFinanceiras } from "@/lib/importacao/importer";
-import { parseArquivoNibo, type LinhaImportada } from "@/lib/nibo";
+import { importarLinhasFinanceiras, importarTitulosFinanceiros } from "@/lib/importacao/importer";
+import {
+  parseArquivoNibo,
+  type DeteccaoImportacao,
+  type LinhaImportada,
+  type ResultadoParse,
+  type TituloImportado,
+} from "@/lib/nibo";
 import { brl, competenciaDate, dataBR, meses } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +60,8 @@ function ImportacaoPage() {
 
   const [arquivos, setArquivos] = useState<File[]>([]);
   const [previa, setPrevia] = useState<LinhaImportada[]>([]);
+  const [previaTitulos, setPreviaTitulos] = useState<TituloImportado[]>([]);
+  const [deteccao, setDeteccao] = useState<DeteccaoImportacao | null>(null);
   const [erros, setErros] = useState<string[]>([]);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [processando, setProcessando] = useState(false);
@@ -62,19 +70,24 @@ function ImportacaoPage() {
 
   const hashesExistentes = useMemo(() => new Set(lancamentos.map((l) => l.hash)), [lancamentos]);
 
-  const duplicadas = previa.filter((l) => hashesExistentes.has(l.hash)).length;
+  const modoTitulos = deteccao?.modo === "titulos";
+  const previaAtiva = modoTitulos ? previaTitulos : previa;
+  const duplicadas = previaAtiva.filter((l) => hashesExistentes.has(l.hash)).length;
 
-  const totalRecebidas = previa
+  const totalRecebidas = previaAtiva
     .filter((l) => l.tipo === "recebida")
     .reduce((s, l) => s + Math.abs(l.valor), 0);
-  const totalPagas = previa
+  const totalPagas = previaAtiva
     .filter((l) => l.tipo === "paga")
     .reduce((s, l) => s + Math.abs(l.valor), 0);
-  const totalPrevia = previa.reduce((s, l) => s + l.valor, 0);
-  const semCategoria = previa.filter((l) => !l.categoria_nibo).length;
+  const totalPrevia = previaAtiva.reduce(
+    (s, l) => s + (modoTitulos ? Math.abs(l.valor) : l.valor),
+    0,
+  );
+  const semCategoria = previaAtiva.filter((l) => !l.categoria_nibo).length;
   const competenciasPrevia = useMemo(
-    () => Array.from(new Set(previa.map((l) => l.competencia))).sort(),
-    [previa],
+    () => Array.from(new Set(previaAtiva.map((l) => l.competencia))).sort(),
+    [previaAtiva],
   );
   const anosPrevia = useMemo(
     () => Array.from(new Set(competenciasPrevia.map((c) => c.slice(0, 4)))).sort(),
@@ -97,6 +110,8 @@ function ImportacaoPage() {
 
     setArquivos(arquivosValidos);
     setPrevia([]);
+    setPreviaTitulos([]);
+    setDeteccao(null);
     setErros([]);
     setAvisos([]);
 
@@ -113,18 +128,36 @@ function ImportacaoPage() {
           resultado: await parseArquivoNibo(file, competenciaDate(ano, mes)),
         })),
       );
-      const linhas = resultados.flatMap((item) => item.resultado.linhas);
+      const analisados = resultados.map((item) => ({
+        ...item,
+        inteligente: detectarImportacaoInteligente(item.file.name, item.resultado),
+      }));
+      const deteccaoConsolidada = consolidarDeteccoes(
+        analisados.map((item) => item.inteligente.deteccao),
+      );
+      const linhas = analisados.flatMap((item) => item.resultado.linhas);
+      const titulos = analisados.flatMap((item) => item.inteligente.titulos);
       const errosArquivos = resultados.flatMap((item) =>
         item.resultado.erros.map((erro) => `${item.file.name}: ${erro}`),
       );
-      const avisosArquivos = resultados.flatMap((item) =>
-        item.resultado.avisos.map((aviso) => `${item.file.name}: ${aviso}`),
-      );
+      const avisosArquivos = analisados.flatMap((item) => [
+        ...item.resultado.avisos.map((aviso) => `${item.file.name}: ${aviso}`),
+        `${item.file.name}: identificado como ${rotuloDeteccao(
+          item.inteligente.deteccao,
+        )} (${item.inteligente.deteccao.confianca}% de confianca).`,
+      ]);
 
       setPrevia(linhas);
+      setPreviaTitulos(titulos);
+      setDeteccao(deteccaoConsolidada);
       setErros(errosArquivos);
       setAvisos(avisosArquivos);
-      if (linhas.length) toast.success(`${linhas.length} lançamento(s) prontos para importar.`);
+      const total = deteccaoConsolidada.modo === "titulos" ? titulos.length : linhas.length;
+      if (total) {
+        toast.success(
+          `${total} ${deteccaoConsolidada.modo === "titulos" ? "título(s)" : "lançamento(s)"} pronto(s) para importar.`,
+        );
+      }
     } catch {
       setErros(["Não foi possível ler o arquivo. Verifique se é um Excel ou CSV do NIBO."]);
     } finally {
@@ -142,6 +175,16 @@ function ImportacaoPage() {
   const importar = useMutation({
     mutationFn: async () => {
       if (!empresaId) throw new Error("Selecione uma empresa.");
+      if (modoTitulos) {
+        return importarTitulosFinanceiros({
+          supabase,
+          empresaId,
+          titulos: previaTitulos,
+          arquivoNome: nomeImportacao,
+          origem: "manual",
+          ignorarDuplicados: true,
+        });
+      }
       return importarLinhasFinanceiras({
         supabase,
         empresaId,
@@ -154,11 +197,14 @@ function ImportacaoPage() {
     },
     onSuccess: ({ inseridos, ignorados }) => {
       toast.success(
-        `${inseridos} lançamento(s) importado(s).${ignorados ? ` ${ignorados} duplicado(s) ignorado(s).` : ""}`,
+        `${inseridos} ${modoTitulos ? "título(s)" : "lançamento(s)"} importado(s).${ignorados ? ` ${ignorados} duplicado(s) ignorado(s).` : ""}`,
       );
       setPrevia([]);
+      setPreviaTitulos([]);
+      setDeteccao(null);
       setArquivos([]);
       queryClient.invalidateQueries({ queryKey: ["lancamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-nibo"] });
       queryClient.invalidateQueries({ queryKey: ["importacoes"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao importar."),
@@ -272,18 +318,18 @@ function ImportacaoPage() {
               </div>
             </Bloco>
 
-            {previa.length > 0 && (
+            {previaAtiva.length > 0 && (
               <Bloco
                 titulo="Conferência antes de importar"
                 acoes={
                   <Button size="sm" onClick={() => importar.mutate()} disabled={importar.isPending}>
                     <Upload className="mr-2 h-4 w-4" />
-                    {importar.isPending ? "Importando..." : `Importar ${previa.length}`}
+                    {importar.isPending ? "Importando..." : `Importar ${previaAtiva.length}`}
                   </Button>
                 }
               >
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-                  <Resumo rotulo="Linhas válidas" valor={String(previa.length)} />
+                  <Resumo rotulo="Linhas válidas" valor={String(previaAtiva.length)} />
                   <Resumo rotulo="Recebidas" valor={brl(totalRecebidas)} />
                   <Resumo rotulo="Pagas" valor={brl(totalPagas)} />
                   <Resumo rotulo="Saldo" valor={brl(totalPrevia)} />
@@ -294,6 +340,18 @@ function ImportacaoPage() {
                     alerta={semCategoria > 0}
                   />
                 </div>
+                {deteccao && (
+                  <div className="mt-3 rounded-lg border bg-info-soft px-4 py-3 text-sm text-info">
+                    <p className="font-semibold">
+                      Detectado como {rotuloDeteccao(deteccao)} - {deteccao.confianca}% de confianca
+                    </p>
+                    <p className="mt-1 text-xs">
+                      {modoTitulos
+                        ? "Esses registros serao salvos como titulos futuros e usados no Fluxo de Caixa, sem entrar no DRE."
+                        : "Esses registros serao salvos como lancamentos realizados e usados no DRE."}
+                    </p>
+                  </div>
+                )}
                 {competenciasPrevia.length > 0 && (
                   <p className="mt-3 text-xs text-muted-foreground">
                     Período detectado: {meses[Number(competenciasPrevia[0]?.slice(5, 7)) - 1]}/
@@ -328,10 +386,10 @@ function ImportacaoPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {previa.slice(0, 200).map((l) => (
+                      {previaAtiva.slice(0, 200).map((l) => (
                         <tr key={l.hash} className="border-b">
                           <td className="px-5 py-2 text-muted-foreground">
-                            {dataBR(l.data_efetiva)}
+                            {dataBR(dataPrevia(l))}
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">
                             {meses[Number(l.competencia.slice(5, 7)) - 1]}/
@@ -349,10 +407,12 @@ function ImportacaoPage() {
                           <td
                             className={cn(
                               "tabular px-5 py-2 text-right font-medium",
-                              valorAssinadoPrevia(l) < 0 ? "text-negative" : "text-positive",
+                              valorAssinadoPrevia(l, modoTitulos) < 0
+                                ? "text-negative"
+                                : "text-positive",
                             )}
                           >
-                            {brl(valorAssinadoPrevia(l))}
+                            {brl(valorAssinadoPrevia(l, modoTitulos))}
                           </td>
                         </tr>
                       ))}
@@ -464,6 +524,179 @@ function Resumo({ rotulo, valor, alerta }: { rotulo: string; valor: string; aler
   );
 }
 
-function valorAssinadoPrevia(linha: LinhaImportada) {
-  return linha.valor;
+function valorAssinadoPrevia(linha: LinhaImportada | TituloImportado, modoTitulos: boolean) {
+  if (!modoTitulos) return linha.valor;
+  return linha.tipo === "paga" ? -Math.abs(linha.valor) : Math.abs(linha.valor);
+}
+
+function dataPrevia(linha: LinhaImportada | TituloImportado) {
+  return "vencimento" in linha ? linha.vencimento : linha.data_efetiva;
+}
+
+function detectarImportacaoInteligente(nomeArquivo: string, resultado: ResultadoParse) {
+  const contexto = normalizarTexto(`${nomeArquivo} ${resultado.colunas.join(" ")}`);
+  const pagarScore = pontuar(contexto, [
+    "contas a pagar",
+    "pagar",
+    "pagamento",
+    "pagamentos",
+    "fornecedor",
+    "fornecedores",
+    "despesa",
+    "saidas",
+  ]);
+  const receberScore = pontuar(contexto, [
+    "contas a receber",
+    "receber",
+    "recebimento",
+    "recebimentos",
+    "cliente",
+    "clientes",
+    "receita",
+    "entradas",
+  ]);
+  const futuroScore = pontuar(contexto, [
+    "vencimento",
+    "data de vencimento",
+    "em aberto",
+    "a vencer",
+    "vencido",
+    "pendente",
+    "previsto",
+  ]);
+  const realizadoScore = pontuar(contexto, [
+    "data de pagamento",
+    "data de recebimento",
+    "pago",
+    "recebido",
+    "liquidado",
+    "baixado",
+  ]);
+  const hoje = new Date().toISOString().slice(0, 10);
+  const futuras = resultado.titulos.filter((titulo) => titulo.vencimento > hoje).length;
+  const proporcaoFutura = resultado.titulos.length ? futuras / resultado.titulos.length : 0;
+  const natureza =
+    pagarScore > receberScore + 1
+      ? "pagar"
+      : receberScore > pagarScore + 1
+        ? "receber"
+        : pagarScore > 0 && receberScore > 0
+          ? "misto"
+          : "indefinido";
+  const modoTitulos =
+    futuroScore >= 2 ||
+    proporcaoFutura >= 0.35 ||
+    (contexto.includes("vencimento") && realizadoScore < 2);
+  const tipo: DeteccaoImportacao["tipo"] = !modoTitulos
+    ? "realizado"
+    : natureza === "pagar"
+      ? "titulos_pagar"
+      : natureza === "receber"
+        ? "titulos_receber"
+        : "titulos_misto";
+  const confianca = Math.min(
+    98,
+    55 +
+      futuroScore * 6 +
+      Math.round(proporcaoFutura * 20) +
+      Math.abs(pagarScore - receberScore) * 4,
+  );
+  const deteccao: DeteccaoImportacao = {
+    tipo,
+    confianca: modoTitulos ? Math.max(70, confianca) : Math.max(55, 70 + realizadoScore * 5),
+    natureza,
+    modo: modoTitulos ? "titulos" : "realizado",
+    motivos: [],
+  };
+
+  return {
+    deteccao,
+    titulos: resultado.titulos.map((titulo) => tituloComTipoDetectado(titulo, deteccao.tipo)),
+  };
+}
+
+function tituloComTipoDetectado(
+  titulo: TituloImportado,
+  tipoDetectado: DeteccaoImportacao["tipo"],
+): TituloImportado {
+  const tipo =
+    tipoDetectado === "titulos_pagar"
+      ? "paga"
+      : tipoDetectado === "titulos_receber"
+        ? "recebida"
+        : titulo.tipo;
+
+  return {
+    ...titulo,
+    tipo,
+    valor: Math.abs(titulo.valor),
+    status: statusDoTituloDetectado(titulo.status, tipo),
+    hash: titulo.tipo === tipo ? titulo.hash : `${tipo}|${titulo.hash}`,
+  };
+}
+
+function statusDoTituloDetectado(status: string, tipo: TituloImportado["tipo"]) {
+  if (tipo === "recebida" && status === "pago") return "recebido";
+  if (tipo === "paga" && status === "recebido") return "pago";
+  return status;
+}
+
+function consolidarDeteccoes(deteccoes: DeteccaoImportacao[]): DeteccaoImportacao {
+  if (!deteccoes.length) {
+    return {
+      tipo: "realizado",
+      confianca: 0,
+      natureza: "indefinido",
+      modo: "realizado",
+      motivos: [],
+    };
+  }
+
+  const algumaTitulo = deteccoes.some((item) => item.modo === "titulos");
+  const naturezas = new Set(
+    deteccoes.map((item) => item.natureza).filter((item) => item !== "indefinido"),
+  );
+  const natureza =
+    naturezas.size > 1
+      ? "misto"
+      : (([...naturezas][0] as DeteccaoImportacao["natureza"] | undefined) ?? "indefinido");
+  const tipo: DeteccaoImportacao["tipo"] = !algumaTitulo
+    ? "realizado"
+    : natureza === "pagar"
+      ? "titulos_pagar"
+      : natureza === "receber"
+        ? "titulos_receber"
+        : "titulos_misto";
+
+  return {
+    tipo,
+    confianca: Math.round(
+      deteccoes.reduce((total, item) => total + item.confianca, 0) / deteccoes.length,
+    ),
+    natureza,
+    modo: algumaTitulo ? "titulos" : "realizado",
+    motivos: [],
+  };
+}
+
+function rotuloDeteccao(deteccao: DeteccaoImportacao) {
+  if (deteccao.tipo === "titulos_pagar") return "Contas a Pagar futuras";
+  if (deteccao.tipo === "titulos_receber") return "Contas a Receber futuras";
+  if (deteccao.tipo === "titulos_misto") return "Contas a Pagar/Receber futuras";
+  return "Lancamentos realizados";
+}
+
+function pontuar(contexto: string, termos: string[]) {
+  return termos.reduce(
+    (total, termo) => total + (contexto.includes(normalizarTexto(termo)) ? 1 : 0),
+    0,
+  );
+}
+
+function normalizarTexto(texto: string) {
+  return texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }

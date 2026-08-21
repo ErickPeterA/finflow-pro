@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import type { LinhaImportada } from "@/lib/nibo";
+import type { LinhaImportada, TituloImportado } from "@/lib/nibo";
 
 export type ClienteSupabaseFinanceiro = SupabaseClient<Database>;
 
@@ -28,4 +28,15 @@ export interface ResultadoImportacaoFinanceira {
   inseridos: number;
   atualizados: number;
   ignorados: number;
+}
+
+export interface ImportarTitulosOptions {
+  supabase: ClienteSupabaseFinanceiro;
+  empresaId: string;
+  titulos: TituloImportado[];
+  arquivoNome: string;
+  origem?: OrigemImportacao;
+  ignorarDuplicados?: boolean;
+  periodoInicio?: string;
+  periodoFim?: string;
 }

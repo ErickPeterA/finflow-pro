@@ -1,4 +1,8 @@
-import type { ImportarLinhasOptions, ResultadoImportacaoFinanceira } from "./types";
+import type {
+  ImportarLinhasOptions,
+  ImportarTitulosOptions,
+  ResultadoImportacaoFinanceira,
+} from "./types";
 
 export async function importarLinhasFinanceiras({
   supabase,
@@ -150,4 +154,116 @@ export async function importarLinhasFinanceiras({
   }
 
   return { inseridos, atualizados, ignorados };
+}
+
+export async function importarTitulosFinanceiros({
+  supabase,
+  empresaId,
+  titulos,
+  arquivoNome,
+  origem = "manual",
+  ignorarDuplicados = true,
+  periodoInicio,
+  periodoFim,
+}: ImportarTitulosOptions): Promise<ResultadoImportacaoFinanceira> {
+  if (!empresaId) throw new Error("Selecione uma empresa.");
+  if (!titulos.length) return { inseridos: 0, atualizados: 0, ignorados: 0 };
+
+  let inseridos = 0;
+  let ignorados = 0;
+  const hashesNoArquivo = new Set<string>();
+  const grupos = new Map<string, { titulos: typeof titulos; duplicadosInternos: number }>();
+
+  for (const titulo of titulos) {
+    const chave = `${titulo.tipo}::${titulo.competencia}`;
+    const grupo = grupos.get(chave) ?? { titulos: [], duplicadosInternos: 0 };
+    if (hashesNoArquivo.has(titulo.hash)) {
+      grupo.duplicadosInternos += 1;
+      grupos.set(chave, grupo);
+      continue;
+    }
+    hashesNoArquivo.add(titulo.hash);
+    grupo.titulos.push(titulo);
+    grupos.set(chave, grupo);
+  }
+
+  for (const [chave, grupo] of grupos) {
+    const titulosTipo = grupo.titulos;
+    if (!titulosTipo.length) continue;
+    const [tipoImportacao, competencia] = chave.split("::") as [
+      (typeof titulos)[number]["tipo"],
+      string,
+    ];
+
+    const { data: imp, error: erroImp } = await supabase
+      .from("importacoes")
+      .insert({
+        empresa_id: empresaId,
+        tipo: tipoImportacao,
+        competencia,
+        arquivo_nome: arquivoNome,
+        origem,
+        periodo_inicio: periodoInicio ?? null,
+        periodo_fim: periodoFim ?? null,
+        total_registros: titulosTipo.length,
+        valor_total: titulosTipo.reduce((s, titulo) => s + titulo.valor, 0),
+        duplicados: grupo.duplicadosInternos,
+        status: "processando_titulos",
+      })
+      .select("id")
+      .single();
+    if (erroImp) throw erroImp;
+
+    const registros = titulosTipo.map((titulo) => ({
+      empresa_id: empresaId,
+      importacao_id: imp.id,
+      tipo: titulo.tipo,
+      vencimento: titulo.vencimento,
+      data_projetada: titulo.data_projetada,
+      competencia: titulo.competencia,
+      descricao: titulo.descricao,
+      categoria_nibo: titulo.categoria_nibo || null,
+      pessoa: titulo.pessoa || null,
+      centro_custo: titulo.centro_custo || null,
+      valor: titulo.valor,
+      status: titulo.status,
+      hash: titulo.hash,
+      external_source: titulo.external_source ?? (titulo.external_id ? "nibo" : null),
+      external_id: titulo.external_id ?? null,
+      source_content_hash: titulo.source_content_hash ?? null,
+      payload: {},
+    }));
+
+    let inseridosTipo = 0;
+    let ignoradosTipo = grupo.duplicadosInternos;
+
+    for (let i = 0; i < registros.length; i += 400) {
+      const lote = registros.slice(i, i + 400);
+      const { data, error } = await supabase
+        .from("fluxo_titulos_nibo")
+        .upsert(lote, {
+          onConflict: "empresa_id,hash",
+          ignoreDuplicates: ignorarDuplicados,
+        })
+        .select("id");
+      if (error) throw error;
+
+      inseridosTipo += data?.length ?? 0;
+      ignoradosTipo += lote.length - (data?.length ?? 0);
+    }
+
+    inseridos += inseridosTipo;
+    ignorados += ignoradosTipo;
+
+    await supabase
+      .from("importacoes")
+      .update({
+        status: "concluida_titulos",
+        total_registros: inseridosTipo,
+        duplicados: ignoradosTipo,
+      })
+      .eq("id", imp.id);
+  }
+
+  return { inseridos, atualizados: 0, ignorados };
 }

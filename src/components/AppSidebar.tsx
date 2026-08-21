@@ -13,6 +13,7 @@ import {
   ListChecks,
   FileText,
   Menu,
+  Wallet,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -28,6 +29,7 @@ const itensProjeto = [
   { to: "/despesas", label: "Despesas", icon: Receipt },
   { to: "/analises", label: "Análises", icon: LineChart },
   { to: "/ponto-equilibrio", label: "Ponto de Equilíbrio", icon: Scale },
+  { to: "/fluxo-caixa", label: "Fluxo de Caixa", icon: Wallet },
   { to: "/plano-acao", label: "Plano de Ação", icon: ListChecks },
   { to: "/relatorios", label: "Relatórios", icon: FileText },
 ] as const;
