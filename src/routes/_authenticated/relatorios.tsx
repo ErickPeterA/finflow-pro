@@ -179,18 +179,26 @@ function RelatoriosPage() {
     5,
   );
 
+  function imprimirRelatorio() {
+    document.body.classList.add("print-relatorio");
+    const limparImpressao = () => document.body.classList.remove("print-relatorio");
+    window.addEventListener("afterprint", limparImpressao, { once: true });
+    window.print();
+    window.setTimeout(limparImpressao, 1000);
+  }
+
   return (
     <>
       <TopBar
         titulo="Relatórios"
         descricao="Relatório mensal para apresentação ao cliente"
         acoes={
-          <Button size="sm" variant="outline" onClick={() => window.print()} disabled={!empresaId}>
+          <Button size="sm" variant="outline" onClick={imprimirRelatorio} disabled={!empresaId}>
             <Printer className="mr-2 h-4 w-4" /> Imprimir / PDF
           </Button>
         }
       />
-      <main className="space-y-5 p-6 print:bg-white print:p-0">
+      <main className="relatorio-page space-y-5 p-6 print:bg-white print:p-0">
         {!empresaId ? (
           <SemEmpresa />
         ) : isLoading ? (
@@ -198,7 +206,7 @@ function RelatoriosPage() {
         ) : !atual.temMovimento ? (
           <SemDados mensagem="Sem lançamentos no período selecionado." />
         ) : (
-          <article className="mx-auto max-w-6xl space-y-5 print:max-w-none print:space-y-3">
+          <article className="relatorio-print-root mx-auto max-w-6xl space-y-5 print:max-w-none print:space-y-3">
             <CapaRelatorio
               empresa={empresa?.nome ?? "Empresa"}
               cnpj={empresa?.cnpj}

@@ -135,7 +135,7 @@ function ImportacaoPage() {
       const deteccaoConsolidada = consolidarDeteccoes(
         analisados.map((item) => item.inteligente.deteccao),
       );
-      const linhas = analisados.flatMap((item) => item.resultado.linhas);
+      const linhas = analisados.flatMap((item) => item.inteligente.linhas);
       const titulos = analisados.flatMap((item) => item.inteligente.titulos);
       const errosArquivos = resultados.flatMap((item) =>
         item.resultado.erros.map((erro) => `${item.file.name}: ${erro}`),
@@ -565,12 +565,42 @@ function detectarImportacaoInteligente(nomeArquivo: string, resultado: Resultado
     "previsto",
   ]);
   const realizadoScore = pontuar(contexto, [
+    "contas pagas",
+    "contas recebidas",
+    "pagas",
+    "recebidas",
+    "data de pagamento",
+    "data de recebimento",
+    "pago",
+    "paga",
+    "recebido",
+    "recebida",
+    "liquidado",
+    "baixado",
+    "conciliado",
+  ]);
+  const temRealizadoForte = pontuar(contexto, [
+    "contas pagas",
+    "contas recebidas",
+    "pagas",
+    "recebidas",
     "data de pagamento",
     "data de recebimento",
     "pago",
     "recebido",
     "liquidado",
     "baixado",
+    "conciliado",
+  ]);
+  const temTituloForte = pontuar(contexto, [
+    "contas a pagar",
+    "contas a receber",
+    "em aberto",
+    "a vencer",
+    "pendente",
+    "previsto",
+    "previsao",
+    "previsão",
   ]);
   const hoje = new Date().toISOString().slice(0, 10);
   const futuras = resultado.titulos.filter((titulo) => titulo.vencimento > hoje).length;
@@ -584,9 +614,10 @@ function detectarImportacaoInteligente(nomeArquivo: string, resultado: Resultado
           ? "misto"
           : "indefinido";
   const modoTitulos =
-    futuroScore >= 2 ||
-    proporcaoFutura >= 0.35 ||
-    (contexto.includes("vencimento") && realizadoScore < 2);
+    temRealizadoForte === 0 &&
+    (temTituloForte > 0 ||
+      (proporcaoFutura >= 0.35 && futuroScore > realizadoScore) ||
+      (contexto.includes("vencimento") && realizadoScore < 2 && futuroScore > realizadoScore));
   const tipo: DeteccaoImportacao["tipo"] = !modoTitulos
     ? "realizado"
     : natureza === "pagar"
@@ -611,7 +642,45 @@ function detectarImportacaoInteligente(nomeArquivo: string, resultado: Resultado
 
   return {
     deteccao,
+    linhas: resultado.linhas.map((linha) =>
+      linhaComTipoRealizadoDetectado(linha, deteccao.modo, detectarTipoRealizado(contexto)),
+    ),
     titulos: resultado.titulos.map((titulo) => tituloComTipoDetectado(titulo, deteccao.tipo)),
+  };
+}
+
+function detectarTipoRealizado(contexto: string): LinhaImportada["tipo"] | null {
+  const pagas = pontuar(contexto, [
+    "contas pagas",
+    "pagas",
+    "contas pagas nibo",
+    "data de pagamento",
+  ]);
+  const recebidas = pontuar(contexto, [
+    "contas recebidas",
+    "recebidas",
+    "contas recebidas nibo",
+    "data de recebimento",
+  ]);
+
+  if (pagas > recebidas) return "paga";
+  if (recebidas > pagas) return "recebida";
+  return null;
+}
+
+function linhaComTipoRealizadoDetectado(
+  linha: LinhaImportada,
+  modo: DeteccaoImportacao["modo"],
+  tipoDetectado: LinhaImportada["tipo"] | null,
+): LinhaImportada {
+  if (modo !== "realizado" || !tipoDetectado || linha.tipo === tipoDetectado) return linha;
+
+  const valor = tipoDetectado === "paga" ? -Math.abs(linha.valor) : Math.abs(linha.valor);
+  return {
+    ...linha,
+    tipo: tipoDetectado,
+    valor,
+    hash: `${tipoDetectado}|${linha.hash}`,
   };
 }
 

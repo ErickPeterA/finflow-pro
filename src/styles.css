@@ -160,3 +160,40 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  body.print-relatorio {
+    background: white !important;
+  }
+
+  body.print-relatorio * {
+    visibility: hidden !important;
+  }
+
+  body.print-relatorio .relatorio-print-root,
+  body.print-relatorio .relatorio-print-root * {
+    visibility: visible !important;
+  }
+
+  body.print-relatorio .relatorio-print-root {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: var(--foreground) !important;
+    background: white !important;
+  }
+
+  body.print-relatorio .relatorio-page {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+}
