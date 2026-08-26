@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Area,
   AreaChart,
@@ -54,7 +54,6 @@ import type { Json } from "@/integrations/supabase/types";
 import { useApp } from "@/lib/app-context";
 import {
   useEmpresas,
-  useFluxoAjustesLancamentos,
   useFluxoChecklistPagamentos,
   useFluxoContasBancarias,
   useFluxoSaldosBancarios,
@@ -118,32 +117,77 @@ const bancosPreConfigurados: BancoPreConfigurado[] = [
   {
     id: "conta-simples",
     nome: "Conta Simples",
-    imagemUrl: "https://logo.clearbit.com/contasimples.com",
+    imagemUrl: "/contasimples.png",
   },
   {
     id: "sicredi",
     nome: "Sicredi",
-    imagemUrl: "https://logo.clearbit.com/sicredi.com.br",
+    imagemUrl: "/sicredi.jpg",
   },
   {
     id: "pagbank",
     nome: "PagBank",
-    imagemUrl: "https://logo.clearbit.com/pagbank.com.br",
+    imagemUrl: "/pagbank.png",
   },
   {
     id: "bradesco",
     nome: "Bradesco",
-    imagemUrl: "https://logo.clearbit.com/bradesco.com.br",
+    imagemUrl: "/bradesco.jpg",
   },
   {
     id: "itau",
     nome: "Itau",
-    imagemUrl: "https://logo.clearbit.com/itau.com.br",
+    imagemUrl: "/itau.png",
   },
   {
     id: "banco-do-brasil",
     nome: "Banco do Brasil",
-    imagemUrl: "https://logo.clearbit.com/bb.com.br",
+    imagemUrl: "/bancobrasil.jpg",
+  },
+  {
+    id: "nubank",
+    nome: "Nubank",
+    imagemUrl: "/nubank.png",
+  },
+  {
+    id: "banrisul",
+    nome: "Banrisul",
+    imagemUrl: "/banrisul.jpg",
+  },
+  {
+    id: "inter",
+    nome: "Inter Empresas",
+    imagemUrl: "/inter.png",
+  },
+  {
+    id: "santander",
+    nome: "Santander",
+    imagemUrl: "/santander.png",
+  },
+  {
+    id: "caixa-eletronica",
+    nome: "Caixa Eletrônica",
+    imagemUrl: "/caixa.jpg",
+  },
+  {
+    id: "ton",
+    nome: "Ton",
+    imagemUrl: "/ton.png",
+  },
+  {
+    id: "c6bank",
+    nome: "C6 Bank",
+    imagemUrl: "/c6bank.jpg",
+  },
+  {
+    id: "inifity-pay",
+    nome: "Infinity Pay",
+    imagemUrl: "/infiniti.png",
+  },
+  {
+    id: "picpay",
+    nome: "PicPay",
+    imagemUrl: "/picpay.png",
   },
 ];
 
@@ -165,6 +209,8 @@ function FluxoCaixaPage() {
   const [seletorBancosAberto, setSeletorBancosAberto] = useState(false);
   const [incluirChecklist, setIncluirChecklist] = useState(true);
   const [salvando, setSalvando] = useState(false);
+  const lateralFluxoRef = useRef<HTMLElement | null>(null);
+  const [alturaLateralFluxo, setAlturaLateralFluxo] = useState(0);
 
   const range = useMemo(
     () => rangePeriodo(periodo, hoje, inicioPersonalizado, fimPersonalizado),
@@ -185,8 +231,8 @@ function FluxoCaixaPage() {
   const { data: titulosPagarVencidos = [] } = useFluxoTitulosPagarVencidos(empresaId, hoje);
   const { data: contas = [], isLoading: carregandoContas } = useFluxoContasBancarias(empresaId);
   const { data: saldos = [] } = useFluxoSaldosBancarios(empresaId);
-  const { data: ajustes = [] } = useFluxoAjustesLancamentos(empresaId);
   const { data: checklist = [] } = useFluxoChecklistPagamentos(empresaId);
+  const carregando = carregandoLancamentos || carregandoTitulos || carregandoContas;
 
   const saldosPorConta = useMemo(
     () => new Map(saldos.map((saldo) => [saldo.conta_id, saldo])),
@@ -195,10 +241,6 @@ function FluxoCaixaPage() {
   const contasPorNome = useMemo(
     () => new Map(contas.map((conta) => [normalizar(conta.nome), conta])),
     [contas],
-  );
-  const ajustesPorLancamento = useMemo(
-    () => new Map(ajustes.map((ajuste) => [ajuste.lancamento_id, ajuste])),
-    [ajustes],
   );
   const checklistPorLancamento = useMemo(
     () => new Map(checklist.map((item) => [item.lancamento_id, item])),
@@ -227,6 +269,30 @@ function FluxoCaixaPage() {
     setContasInicializadas(true);
   }, [contas, contasInicializadas]);
 
+  useEffect(() => {
+    const lateral = lateralFluxoRef.current;
+    if (!lateral) return;
+
+    const atualizarAltura = () => {
+      setAlturaLateralFluxo(Math.ceil(lateral.getBoundingClientRect().height));
+    };
+
+    atualizarAltura();
+    window.addEventListener("resize", atualizarAltura);
+
+    if (typeof ResizeObserver === "undefined") {
+      return () => window.removeEventListener("resize", atualizarAltura);
+    }
+
+    const observer = new ResizeObserver(atualizarAltura);
+    observer.observe(lateral);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", atualizarAltura);
+    };
+  }, [carregando, empresaId]);
+
   const saldoDisponivel = useMemo(
     () =>
       contasSelecionadas.reduce(
@@ -246,8 +312,7 @@ function FluxoCaixaPage() {
   const linhas = useMemo(() => {
     const textoBusca = normalizar(busca);
     const linhasLancamentos: LinhaFluxo[] = lancamentos.map((lancamento) => {
-      const ajuste = ajustesPorLancamento.get(lancamento.id);
-      const dataProjetada = ajuste?.data_projetada ?? lancamento.data_efetiva.slice(0, 10);
+      const vencimento = lancamento.data_efetiva.slice(0, 10);
       const tipoLancamento = tipoProjetadoLancamento(lancamento);
       const valor = Math.abs(Number(lancamento.valor) || 0);
       const pagamento = tipoLancamento === "paga" ? valor : 0;
@@ -257,10 +322,10 @@ function FluxoCaixaPage() {
         id: lancamento.id,
         origem: "lancamento",
         lancamento,
-        dataProjetada,
-        vencimento: lancamento.data_efetiva.slice(0, 10),
+        dataProjetada: vencimento,
+        vencimento,
         nome: lancamento.pessoa?.trim() || "Sem nome",
-        descricao: lancamento.descricao?.trim() || "Sem descricao",
+        descricao: formatarDescricao(lancamento.descricao),
         categoria: lancamento.categoria_nibo?.trim() || "Nao classificado",
         identificadorNibo: lancamento.external_id || lancamento.hash || lancamento.id,
         recebimento,
@@ -271,15 +336,16 @@ function FluxoCaixaPage() {
     const linhasTitulos: LinhaFluxo[] = titulos.map((titulo) => {
       const tipoTitulo = tipoProjetadoTitulo(titulo);
       const valor = Math.abs(Number(titulo.valor) || 0);
+      const vencimento = titulo.vencimento.slice(0, 10);
 
       return {
         id: titulo.id,
         origem: "titulo",
         titulo,
-        dataProjetada: titulo.data_projetada.slice(0, 10),
-        vencimento: titulo.vencimento.slice(0, 10),
+        dataProjetada: vencimento,
+        vencimento,
         nome: titulo.pessoa?.trim() || "Sem nome",
-        descricao: titulo.descricao?.trim() || "Sem descricao",
+        descricao: formatarDescricao(titulo.descricao),
         categoria: titulo.categoria_nibo?.trim() || "Nao classificado",
         identificadorNibo: titulo.external_id || titulo.hash || titulo.id,
         recebimento: tipoTitulo === "recebida" ? valor : 0,
@@ -311,7 +377,7 @@ function FluxoCaixaPage() {
       saldo += linha.recebimento - linha.pagamento;
       return { ...linha, saldoProjetado: saldo };
     });
-  }, [ajustesPorLancamento, busca, lancamentos, range, saldoDisponivel, tipoFiltro, titulos]);
+  }, [busca, lancamentos, range, saldoDisponivel, tipoFiltro, titulos]);
 
   const resumo = useMemo(() => resumirFluxo(linhas, saldoDisponivel), [linhas, saldoDisponivel]);
   const alertas = useMemo(() => calcularAlertas(linhas), [linhas]);
@@ -329,7 +395,9 @@ function FluxoCaixaPage() {
     [titulosPagarVencidos, hoje],
   );
   const periodoLabel = labelPeriodo(range.inicio, range.fim);
-  const carregando = carregandoLancamentos || carregandoTitulos || carregandoContas;
+  const estiloAlturaProjecao = alturaLateralFluxo
+    ? ({ "--altura-projecao": `${alturaLateralFluxo}px` } as CSSProperties)
+    : undefined;
   async function selecionarBanco(banco: BancoPreConfigurado) {
     if (!empresaId) return;
     const existente = contasPorNome.get(normalizar(banco.nome));
@@ -373,35 +441,6 @@ function FluxoCaixaPage() {
     } finally {
       setSalvando(false);
     }
-  }
-
-  async function alterarDataProjetada(linha: LinhaFluxo, dataProjetada: string) {
-    if (!empresaId) return;
-    if (linha.origem === "titulo") {
-      const { error } = await supabase
-        .from("fluxo_titulos_nibo")
-        .update({ data_projetada: dataProjetada })
-        .eq("id", linha.id)
-        .eq("empresa_id", empresaId);
-      if (error) throw error;
-      await queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-nibo", empresaId] });
-      return;
-    }
-    if (!linha.lancamento) return;
-    const { error } = await supabase.from("fluxo_ajustes_lancamentos").upsert(
-      {
-        empresa_id: empresaId,
-        lancamento_id: linha.lancamento.id,
-        data_projetada: dataProjetada,
-        motivo:
-          dataProjetada === linha.vencimento
-            ? "Data projetada igual ao vencimento original"
-            : "Ajuste manual no fluxo de caixa",
-      },
-      { onConflict: "empresa_id,lancamento_id" },
-    );
-    if (error) throw error;
-    await queryClient.invalidateQueries({ queryKey: ["fluxo-ajustes-lancamentos", empresaId] });
   }
 
   async function salvarHistorico() {
@@ -554,146 +593,136 @@ function FluxoCaixaPage() {
               </div>
             </div>
 
-            <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-              <Bloco
-                titulo="Projecao de caixa"
-                className="min-h-[calc(100vh-295px)] overflow-hidden"
-                acoes={
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Checkbox
-                        checked={incluirChecklist}
-                        onCheckedChange={(v) => setIncluirChecklist(v === true)}
-                      />
-                      Incluir checklist
-                    </label>
-                    <Button variant="outline" size="sm" onClick={exportarExcel}>
-                      <FileSpreadsheet className="h-4 w-4" />
-                      Excel
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => window.print()}>
-                      <Printer className="h-4 w-4" />
-                      PDF
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={salvarHistorico}>
-                      <Download className="h-4 w-4" />
-                      Historico
-                    </Button>
-                  </div>
-                }
-              >
-                <div className="mb-4 grid gap-3 border-b pb-4 sm:grid-cols-2 lg:grid-cols-5">
-                  <CampoSelect label="Periodo" value={periodo} onValue={setPeriodo}>
-                    <SelectItem value="semana_atual">Semana atual</SelectItem>
-                    <SelectItem value="proximos_7">Proximos 7 dias</SelectItem>
-                    <SelectItem value="proximos_15">Proximos 15 dias</SelectItem>
-                    <SelectItem value="proximos_30">Proximos 30 dias</SelectItem>
-                    <SelectItem value="personalizado">Personalizado</SelectItem>
-                  </CampoSelect>
-                  <CampoInput
-                    label="De"
-                    type="date"
-                    value={range.inicio}
-                    disabled={periodo !== "personalizado"}
-                    onChange={setInicioPersonalizado}
-                  />
-                  <CampoInput
-                    label="Ate"
-                    type="date"
-                    value={range.fim}
-                    disabled={periodo !== "personalizado"}
-                    onChange={setFimPersonalizado}
-                  />
-                  <CampoSelect label="Tipo" value={tipoFiltro} onValue={setTipoFiltro}>
-                    <SelectItem value="todos">Todos</SelectItem>
-                    <SelectItem value="recebimentos">Recebimentos</SelectItem>
-                    <SelectItem value="pagamentos">Pagamentos</SelectItem>
-                  </CampoSelect>
-                  <div className="space-y-1 sm:col-span-2 lg:col-span-1">
-                    <Label className="text-xs font-medium text-muted-foreground">Busca</Label>
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-2 h-3.5 w-3.5 text-muted-foreground" />
-                      <Input
-                        value={busca}
-                        onChange={(event) => setBusca(event.target.value)}
-                        placeholder="Nome ou descricao"
-                        className="h-8 pl-8 text-xs"
-                      />
+            <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+              <div className="min-h-0 xl:h-[var(--altura-projecao)]" style={estiloAlturaProjecao}>
+                <Bloco
+                  titulo="Projecao de caixa"
+                  className="flex h-full min-h-0 flex-col overflow-hidden [&>div:first-child]:shrink-0 [&>div:last-child]:flex [&>div:last-child]:min-h-0 [&>div:last-child]:flex-1 [&>div:last-child]:flex-col"
+                  acoes={
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={incluirChecklist}
+                          onCheckedChange={(v) => setIncluirChecklist(v === true)}
+                        />
+                        Incluir checklist
+                      </label>
+                      <Button variant="outline" size="sm" onClick={exportarExcel}>
+                        <FileSpreadsheet className="h-4 w-4" />
+                        Excel
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => window.print()}>
+                        <Printer className="h-4 w-4" />
+                        PDF
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={salvarHistorico}>
+                        <Download className="h-4 w-4" />
+                        Historico
+                      </Button>
+                    </div>
+                  }
+                >
+                  <div className="mb-4 grid shrink-0 gap-3 border-b pb-4 sm:grid-cols-2 lg:grid-cols-5">
+                    <CampoSelect label="Periodo" value={periodo} onValue={setPeriodo}>
+                      <SelectItem value="semana_atual">Semana atual</SelectItem>
+                      <SelectItem value="proximos_7">Proximos 7 dias</SelectItem>
+                      <SelectItem value="proximos_15">Proximos 15 dias</SelectItem>
+                      <SelectItem value="proximos_30">Proximos 30 dias</SelectItem>
+                      <SelectItem value="personalizado">Personalizado</SelectItem>
+                    </CampoSelect>
+                    <CampoInput
+                      label="De"
+                      type="date"
+                      value={range.inicio}
+                      disabled={periodo !== "personalizado"}
+                      onChange={setInicioPersonalizado}
+                    />
+                    <CampoInput
+                      label="Ate"
+                      type="date"
+                      value={range.fim}
+                      disabled={periodo !== "personalizado"}
+                      onChange={setFimPersonalizado}
+                    />
+                    <CampoSelect label="Tipo" value={tipoFiltro} onValue={setTipoFiltro}>
+                      <SelectItem value="todos">Todos</SelectItem>
+                      <SelectItem value="recebimentos">Recebimentos</SelectItem>
+                      <SelectItem value="pagamentos">Pagamentos</SelectItem>
+                    </CampoSelect>
+                    <div className="space-y-1 sm:col-span-2 lg:col-span-1">
+                      <Label className="text-xs font-medium text-muted-foreground">Busca</Label>
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute left-3 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                        <Input
+                          value={busca}
+                          onChange={(event) => setBusca(event.target.value)}
+                          placeholder="Nome ou descricao"
+                          className="h-8 pl-8 text-xs"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {linhas.length === 0 ? (
-                  <SemDados mensagem="Nenhum lancamento encontrado para o periodo e filtros atuais." />
-                ) : (
-                  <div className="-mx-5 -mb-5 overflow-x-auto">
-                    <table className="w-full min-w-[820px] text-xs">
-                      <thead>
-                        <tr className="sticky top-0 z-10 border-b bg-muted/80 text-[10px] uppercase text-muted-foreground backdrop-blur">
-                          <th className="px-3 py-1.5 text-left font-medium">Data proj.</th>
-                          <th className="px-2 py-1.5 text-left font-medium">Venc.</th>
-                          <th className="px-2 py-1.5 text-left font-medium">Nome</th>
-                          <th className="px-2 py-1.5 text-left font-medium">Descricao</th>
-                          <th className="px-2 py-1.5 text-right font-medium">Receb.</th>
-                          <th className="px-2 py-1.5 text-right font-medium">Pag.</th>
-                          <th className="px-3 py-1.5 text-right font-medium">Saldo</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {linhas.map((linha) => (
-                          <tr key={linha.id} className="border-b hover:bg-muted/30">
-                            <td className="px-3 py-1.5">
-                              <Input
-                                type="date"
-                                value={linha.dataProjetada}
-                                onChange={(event) =>
-                                  alterarDataProjetada(linha, event.target.value)
-                                }
-                                className="h-7 w-32 text-xs"
-                              />
-                            </td>
-                            <td className="tabular px-2 py-1.5 text-muted-foreground">
-                              {dataBR(linha.vencimento)}
-                            </td>
-                            <td className="max-w-40 px-2 py-1.5">
-                              <span className="block truncate font-medium">{linha.nome}</span>
-                              <span className="block truncate text-[10px] text-muted-foreground">
-                                {linha.identificadorNibo}
-                              </span>
-                            </td>
-                            <td className="max-w-52 px-2 py-1.5">
-                              <span className="block truncate">{linha.descricao}</span>
-                              <span className="block truncate text-[10px] text-muted-foreground">
-                                {linha.categoria}
-                              </span>
-                            </td>
-                            <td className="tabular px-2 py-1.5 text-right font-medium text-positive">
-                              {linha.recebimento ? brl(linha.recebimento) : "-"}
-                            </td>
-                            <td className="tabular px-2 py-1.5 text-right font-medium text-negative">
-                              {linha.pagamento ? brl(linha.pagamento) : "-"}
-                            </td>
-                            <td
-                              className={cn(
-                                "tabular px-3 py-1.5 text-right font-semibold",
-                                linha.saldoProjetado < 0 ? "text-negative" : "text-info",
-                              )}
-                            >
-                              {brl(linha.saldoProjetado)}
-                            </td>
+                  {linhas.length === 0 ? (
+                    <SemDados mensagem="Nenhum lancamento encontrado para o periodo e filtros atuais." />
+                  ) : (
+                    <div className="-mx-5 -mb-5 min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
+                      <table className="w-full min-w-[720px] text-xs">
+                        <thead>
+                          <tr className="sticky top-0 z-10 border-b bg-muted/80 text-[10px] uppercase text-muted-foreground backdrop-blur">
+                            <th className="px-3 py-1.5 text-left font-medium">Vencimento</th>
+                            <th className="px-2 py-1.5 text-left font-medium">Nome</th>
+                            <th className="px-2 py-1.5 text-left font-medium">Descricao</th>
+                            <th className="px-2 py-1.5 text-right font-medium">Receb.</th>
+                            <th className="px-2 py-1.5 text-right font-medium">Pag.</th>
+                            <th className="px-3 py-1.5 text-right font-medium">Saldo</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <div className="sticky bottom-0 bg-card px-3 py-2 text-[11px] text-muted-foreground">
-                      Mostrando {linhas.length} lancamentos - recalculo automatico por data
-                      projetada.
+                        </thead>
+                        <tbody>
+                          {linhas.map((linha) => (
+                            <tr key={linha.id} className="border-b hover:bg-muted/30">
+                              <td className="tabular px-3 py-1.5 text-muted-foreground">
+                                {dataBR(linha.vencimento)}
+                              </td>
+                              <td className="max-w-40 px-2 py-1.5">
+                                <span className="block truncate font-medium">{linha.nome}</span>
+                                <span className="block truncate text-[10px] text-muted-foreground">
+                                  {linha.identificadorNibo}
+                                </span>
+                              </td>
+                              <td className="max-w-52 px-2 py-1.5">
+                                <span className="block truncate">{linha.descricao}</span>
+                                <span className="block truncate text-[10px] text-muted-foreground">
+                                  {linha.categoria}
+                                </span>
+                              </td>
+                              <td className="tabular px-2 py-1.5 text-right font-medium text-positive">
+                                {linha.recebimento ? brl(linha.recebimento) : "-"}
+                              </td>
+                              <td className="tabular px-2 py-1.5 text-right font-medium text-negative">
+                                {linha.pagamento ? brl(linha.pagamento) : "-"}
+                              </td>
+                              <td
+                                className={cn(
+                                  "tabular px-3 py-1.5 text-right font-semibold",
+                                  linha.saldoProjetado < 0 ? "text-negative" : "text-info",
+                                )}
+                              >
+                                {brl(linha.saldoProjetado)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="bg-card px-3 py-2 text-[11px] text-muted-foreground">
+                        Mostrando {linhas.length} lancamentos - recalculo automatico por vencimento.
+                      </div>
                     </div>
-                  </div>
-                )}
-              </Bloco>
+                  )}
+                </Bloco>
+              </div>
 
-              <aside className="space-y-4">
+              <aside ref={lateralFluxoRef} className="space-y-4 self-start">
                 <ResumoPeriodo resumo={resumo} />
                 <PanoramaAtrasos
                   titulo="Panorama de inadimplentes"
@@ -709,12 +738,51 @@ function FluxoCaixaPage() {
                   totalRotulo="Total vencido"
                   itens={pagamentosAtrasados}
                 />
+                <Bloco titulo="Alertas automaticos">
+                  <dl className="space-y-3 text-sm">
+                    <ItemAlerta
+                      rotulo="Menor saldo projetado"
+                      valor={`${brl(alertas.menorSaldo)} em ${dataBR(alertas.dataMenorSaldo)}`}
+                      destaque={alertas.menorSaldo < 0}
+                    />
+                    <ItemAlerta
+                      rotulo="Primeiro dia negativo"
+                      valor={
+                        alertas.primeiroNegativo
+                          ? dataBR(alertas.primeiroNegativo)
+                          : "Nao identificado"
+                      }
+                      destaque={!!alertas.primeiroNegativo}
+                    />
+                    <ItemAlerta
+                      rotulo="Maior pagamento"
+                      valor={
+                        alertas.maiorPagamento
+                          ? `${alertas.maiorPagamento.descricao} - ${brl(alertas.maiorPagamento.pagamento)}`
+                          : "Sem pagamentos"
+                      }
+                    />
+                    <ItemAlerta
+                      rotulo="Maior concentracao"
+                      valor={
+                        alertas.diaMaiorPagamento
+                          ? `${dataBR(alertas.diaMaiorPagamento.data)} - ${brl(alertas.diaMaiorPagamento.total)}`
+                          : "Sem saidas"
+                      }
+                    />
+                    <ItemAlerta
+                      rotulo="Necessidade de caixa"
+                      valor={brl(alertas.necessidadeCaixa)}
+                      destaque={alertas.necessidadeCaixa > 0}
+                    />
+                  </dl>
+                </Bloco>
               </aside>
             </div>
 
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_330px]">
+            <div>
               <Bloco titulo="Evolucao do saldo projetado" className="overflow-hidden">
-                <div className="h-72 min-w-0">
+                <div className="h-[420px] min-h-[360px] min-w-0 xl:h-[calc(100vh-340px)]">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
                       data={serieSaldo}
@@ -768,46 +836,6 @@ function FluxoCaixaPage() {
                   </ResponsiveContainer>
                 </div>
               </Bloco>
-
-              <Bloco titulo="Alertas automaticos">
-                <dl className="space-y-3 text-sm">
-                  <ItemAlerta
-                    rotulo="Menor saldo projetado"
-                    valor={`${brl(alertas.menorSaldo)} em ${dataBR(alertas.dataMenorSaldo)}`}
-                    destaque={alertas.menorSaldo < 0}
-                  />
-                  <ItemAlerta
-                    rotulo="Primeiro dia negativo"
-                    valor={
-                      alertas.primeiroNegativo
-                        ? dataBR(alertas.primeiroNegativo)
-                        : "Nao identificado"
-                    }
-                    destaque={!!alertas.primeiroNegativo}
-                  />
-                  <ItemAlerta
-                    rotulo="Maior pagamento"
-                    valor={
-                      alertas.maiorPagamento
-                        ? `${alertas.maiorPagamento.descricao} - ${brl(alertas.maiorPagamento.pagamento)}`
-                        : "Sem pagamentos"
-                    }
-                  />
-                  <ItemAlerta
-                    rotulo="Maior concentracao"
-                    valor={
-                      alertas.diaMaiorPagamento
-                        ? `${dataBR(alertas.diaMaiorPagamento.data)} - ${brl(alertas.diaMaiorPagamento.total)}`
-                        : "Sem saidas"
-                    }
-                  />
-                  <ItemAlerta
-                    rotulo="Necessidade de caixa"
-                    valor={brl(alertas.necessidadeCaixa)}
-                    destaque={alertas.necessidadeCaixa > 0}
-                  />
-                </dl>
-              </Bloco>
             </div>
           </>
         )}
@@ -838,7 +866,6 @@ function SeletorBancos({
 
   return (
     <div className="space-y-1">
-      <Label className="text-xs font-medium text-muted-foreground">Bancos do caixa</Label>
       <Popover open={aberto} onOpenChange={onAberto}>
         <PopoverTrigger asChild>
           <Button
@@ -872,10 +899,7 @@ function SeletorBancos({
                       value={banco.nome}
                       onSelect={() => onSelecionar(banco)}
                     >
-                      <BancoImagem
-                        nome={banco.nome}
-                        imagemUrl={conta?.imagem_url ?? banco.imagemUrl}
-                      />
+                      <BancoImagem nome={banco.nome} imagemUrl={banco.imagemUrl} />
                       <span className="min-w-0 flex-1 truncate">{banco.nome}</span>
                       <Check className={cn("h-4 w-4", selecionado ? "opacity-100" : "opacity-0")} />
                     </CommandItem>
@@ -913,7 +937,7 @@ function CardConta({
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <BancoImagem nome={conta.nome} imagemUrl={conta.imagem_url} />
+        <BancoImagem nome={conta.nome} imagemUrl={imagemBancoLocal(conta.nome, conta.imagem_url)} />
         <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <Checkbox
             checked={selecionada}
@@ -949,6 +973,13 @@ function BancoImagem({ nome, imagemUrl }: { nome: string; imagemUrl?: string | n
         iniciaisBanco(nome)
       )}
     </span>
+  );
+}
+
+function imagemBancoLocal(nome: string, fallback?: string | null) {
+  return (
+    bancosPreConfigurados.find((banco) => normalizar(banco.nome) === normalizar(nome))?.imagemUrl ??
+    fallback
   );
 }
 
@@ -1105,51 +1136,46 @@ function PanoramaAtrasos({
 }) {
   const total = itens.reduce((s, item) => s + item.valor, 0);
   return (
-    <Bloco
-      titulo={titulo}
-      acoes={
-        <Button variant="ghost" size="sm">
-          Ver todos
-        </Button>
-      }
-    >
+    <Bloco titulo={titulo}>
       {itens.length === 0 ? (
         <SemDados mensagem={vazio} />
       ) : (
         <div className="space-y-3">
-          <table className="w-full text-xs">
-            <thead className="text-muted-foreground">
-              <tr>
-                <th className="pb-2 text-left font-medium">{nomeColuna}</th>
-                <th className="pb-2 text-right font-medium">Dias</th>
-                <th className="pb-2 text-right font-medium">Valor</th>
-                <th className="pb-2 text-right font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {itens.slice(0, 5).map((item) => (
-                <tr key={item.id} className="border-t">
-                  <td className="max-w-28 truncate py-2 font-medium">{item.nome}</td>
-                  <td className="tabular py-2 text-right">{item.dias}</td>
-                  <td className="tabular py-2 text-right">{brl(item.valor, true)}</td>
-                  <td className="py-2 text-right">
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                        item.status === "Critico"
-                          ? "bg-negative-soft text-negative"
-                          : item.status === "Alto"
-                            ? "bg-warning-soft text-warning"
-                            : "bg-info-soft text-info",
-                      )}
-                    >
-                      {item.status}
-                    </span>
-                  </td>
+          <div className="max-h-48 overflow-y-auto pr-1 [scrollbar-gutter:stable]">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 z-10 bg-card text-muted-foreground">
+                <tr>
+                  <th className="pb-2 text-left font-medium">{nomeColuna}</th>
+                  <th className="pb-2 text-right font-medium">Dias</th>
+                  <th className="pb-2 text-right font-medium">Valor</th>
+                  <th className="pb-2 text-right font-medium">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {itens.map((item) => (
+                  <tr key={item.id} className="border-t">
+                    <td className="max-w-28 truncate py-2 font-medium">{item.nome}</td>
+                    <td className="tabular py-2 text-right">{item.dias}</td>
+                    <td className="tabular py-2 text-right">{brl(item.valor, true)}</td>
+                    <td className="py-2 text-right">
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                          item.status === "Critico"
+                            ? "bg-negative-soft text-negative"
+                            : item.status === "Alto"
+                              ? "bg-warning-soft text-warning"
+                              : "bg-info-soft text-info",
+                        )}
+                      >
+                        {item.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <div className="flex items-center justify-between border-t pt-3 text-sm">
             <span className="font-medium">{totalRotulo}</span>
             <span className="tabular font-semibold text-negative">{brl(total)}</span>
@@ -1303,7 +1329,6 @@ function montarPagamentosAtrasados(titulosVencidos: FluxoTituloNibo[], hoje: str
 
 function linhaParaExportacao(linha: LinhaFluxo) {
   return {
-    "Data projetada": dataBR(linha.dataProjetada),
     Vencimento: dataBR(linha.vencimento),
     Nome: linha.nome,
     Descricao: linha.descricao,
@@ -1492,6 +1517,10 @@ function normalizar(texto: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function formatarDescricao(texto?: string | null) {
+  return (texto?.trim() || "Sem descricao").toUpperCase();
 }
 
 function labelPeriodo(inicio: string, fim: string) {

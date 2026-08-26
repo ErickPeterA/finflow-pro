@@ -12,6 +12,7 @@ import {
   Scale,
   ListChecks,
   FileText,
+  ShieldCheck,
   Menu,
   Wallet,
   PanelLeftClose,
@@ -30,6 +31,7 @@ const itensProjeto = [
   { to: "/analises", label: "Análises", icon: LineChart },
   { to: "/ponto-equilibrio", label: "Ponto de Equilíbrio", icon: Scale },
   { to: "/fluxo-caixa", label: "Fluxo de Caixa", icon: Wallet },
+  { to: "/auditoria-financeira", label: "Auditoria Financeira", icon: ShieldCheck },
   { to: "/plano-acao", label: "Plano de Ação", icon: ListChecks },
   { to: "/relatorios", label: "Relatórios", icon: FileText },
 ] as const;
