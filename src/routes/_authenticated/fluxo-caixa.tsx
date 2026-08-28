@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Area,
@@ -15,17 +15,19 @@ import {
 import {
   AlertTriangle,
   CalendarDays,
-  CheckCircle2,
   Check,
   ChevronsUpDown,
   ClipboardCheck,
   Download,
   FileSpreadsheet,
+  Loader2,
+  Plus,
   Printer,
   Search,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { TopBar } from "@/components/TopBar";
 import { Bloco, SemDados, SemEmpresa } from "@/components/ui-blocos";
@@ -39,6 +41,14 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -52,6 +62,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { useApp } from "@/lib/app-context";
+import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
 import {
   useEmpresas,
   useFluxoChecklistPagamentos,
@@ -93,7 +104,7 @@ type TipoFiltro = "todos" | "recebimentos" | "pagamentos";
 
 type LinhaFluxo = {
   id: string;
-  origem: "lancamento" | "titulo";
+  origem: "lancamento" | "titulo" | "manual";
   lancamento?: Lancamento;
   titulo?: FluxoTituloNibo;
   dataProjetada: string;
@@ -105,6 +116,14 @@ type LinhaFluxo = {
   recebimento: number;
   pagamento: number;
   saldoProjetado: number;
+};
+
+type FormularioLancamentoManual = {
+  vencimento: string;
+  nome: string;
+  descricao: string;
+  tipo: "recebida" | "paga";
+  valor: string;
 };
 
 type BancoPreConfigurado = {
@@ -193,7 +212,7 @@ const bancosPreConfigurados: BancoPreConfigurado[] = [
 
 function FluxoCaixaPage() {
   const queryClient = useQueryClient();
-  const { empresaId } = useApp();
+  const { empresaId, centroCusto } = useApp();
   const { data: empresas = [] } = useEmpresas();
   const empresa = empresas.find((item) => item.id === empresaId);
   const hoje = hojeISO();
@@ -204,12 +223,17 @@ function FluxoCaixaPage() {
   const [tipoFiltro, setTipoFiltro] = useState<TipoFiltro>("todos");
   const [busca, setBusca] = useState("");
   const [contasSelecionadas, setContasSelecionadas] = useState<string[]>([]);
-  const [contasInicializadas, setContasInicializadas] = useState(false);
+  const [contasRestauradas, setContasRestauradas] = useState(false);
   const [saldosEditados, setSaldosEditados] = useState<Record<string, string>>({});
+  const [saldosPendentes, setSaldosPendentes] = useState<Record<string, true>>({});
+  const [saldosSalvando, setSaldosSalvando] = useState<Record<string, true>>({});
   const [seletorBancosAberto, setSeletorBancosAberto] = useState(false);
-  const [incluirChecklist, setIncluirChecklist] = useState(true);
-  const [salvando, setSalvando] = useState(false);
+  const [lancamentoManualAberto, setLancamentoManualAberto] = useState(false);
+  const [lancamentoManual, setLancamentoManual] = useState<FormularioLancamentoManual>(() =>
+    criarFormularioLancamentoManual(hoje),
+  );
   const lateralFluxoRef = useRef<HTMLElement | null>(null);
+  const saldosPersistidosRef = useRef<Record<string, number>>({});
   const [alturaLateralFluxo, setAlturaLateralFluxo] = useState(0);
 
   const range = useMemo(
@@ -252,11 +276,22 @@ function FluxoCaixaPage() {
   );
 
   useEffect(() => {
+    setContasSelecionadas([]);
+    setContasRestauradas(false);
+    setSaldosEditados({});
+    setSaldosPendentes({});
+    setSaldosSalvando({});
+    saldosPersistidosRef.current = {};
+  }, [empresaId]);
+
+  useEffect(() => {
     setSaldosEditados((atuais) => {
       const proximos = { ...atuais };
       for (const conta of contas) {
+        const saldoPersistido = Number(saldosPorConta.get(conta.id)?.saldo ?? 0);
+        saldosPersistidosRef.current[conta.id] = saldoPersistido;
         if (proximos[conta.id] === undefined) {
-          proximos[conta.id] = formatarCampoMonetario(saldosPorConta.get(conta.id)?.saldo ?? 0);
+          proximos[conta.id] = formatarCampoMonetario(saldoPersistido);
         }
       }
       return proximos;
@@ -264,10 +299,85 @@ function FluxoCaixaPage() {
   }, [contas, saldosPorConta]);
 
   useEffect(() => {
-    if (contasInicializadas || contas.length === 0) return;
-    setContasSelecionadas(contas.map((conta) => conta.id));
-    setContasInicializadas(true);
-  }, [contas, contasInicializadas]);
+    if (contasRestauradas || !empresaId || contas.length === 0) return;
+    const contasDisponiveis = new Set(contas.map((conta) => conta.id));
+    const salvas = lerContasSelecionadasFluxo(empresaId);
+    const comSaldo = saldos
+      .filter((saldo) => contasDisponiveis.has(saldo.conta_id) && Number(saldo.saldo) !== 0)
+      .map((saldo) => saldo.conta_id);
+    const selecionadas = salvas
+      ? salvas.filter((contaId) => contasDisponiveis.has(contaId))
+      : comSaldo;
+
+    setContasSelecionadas([...new Set(selecionadas)]);
+    setContasRestauradas(true);
+  }, [contas, contasRestauradas, empresaId, saldos]);
+
+  useEffect(() => {
+    if (!empresaId || !contasRestauradas) return;
+    salvarContasSelecionadasFluxo(empresaId, contasSelecionadas);
+  }, [contasRestauradas, contasSelecionadas, empresaId]);
+
+  useEffect(() => {
+    if (!empresaId) return;
+    const idsPendentes = Object.keys(saldosPendentes).filter((contaId) =>
+      contasSelecionadas.includes(contaId),
+    );
+    if (idsPendentes.length === 0) return;
+
+    const linhasSaldo = idsPendentes
+      .map((contaId) => ({
+        empresa_id: empresaId,
+        conta_id: contaId,
+        saldo: numeroDoCampo(saldosEditados[contaId] ?? "0"),
+      }))
+      .filter((linha) => saldosPersistidosRef.current[linha.conta_id] !== linha.saldo);
+
+    if (linhasSaldo.length === 0) {
+      setSaldosPendentes((atuais) => {
+        const proximos = { ...atuais };
+        for (const id of idsPendentes) delete proximos[id];
+        return proximos;
+      });
+      return;
+    }
+
+    const timeout = window.setTimeout(async () => {
+      const ids = linhasSaldo.map((linha) => linha.conta_id);
+      setSaldosSalvando((atuais) => ({
+        ...atuais,
+        ...Object.fromEntries(ids.map((id) => [id, true])),
+      }));
+
+      const { error } = await supabase.from("fluxo_saldos_bancarios").insert(linhasSaldo);
+      if (error) {
+        toast.error("Nao foi possivel salvar os saldos automaticamente.");
+        setSaldosSalvando((atuais) => {
+          const proximos = { ...atuais };
+          for (const id of ids) delete proximos[id];
+          return proximos;
+        });
+        return;
+      }
+
+      for (const linha of linhasSaldo) {
+        saldosPersistidosRef.current[linha.conta_id] = linha.saldo;
+      }
+      setSaldosPendentes((atuais) => {
+        const proximos = { ...atuais };
+        for (const id of ids) delete proximos[id];
+        return proximos;
+      });
+      setSaldosSalvando((atuais) => {
+        const proximos = { ...atuais };
+        for (const id of ids) delete proximos[id];
+        return proximos;
+      });
+      await queryClient.invalidateQueries({ queryKey: ["fluxo-saldos-bancarios", empresaId] });
+    }, 800);
+
+    return () => window.clearTimeout(timeout);
+  }, [contasSelecionadas, empresaId, queryClient, saldosEditados, saldosPendentes]);
 
   useEffect(() => {
     const lateral = lateralFluxoRef.current;
@@ -311,7 +421,9 @@ function FluxoCaixaPage() {
 
   const linhas = useMemo(() => {
     const textoBusca = normalizar(busca);
-    const linhasLancamentos: LinhaFluxo[] = lancamentos.map((lancamento) => {
+    const lancamentosCentro = filtrarLancamentosPorCentroCusto(lancamentos, centroCusto);
+    const titulosCentro = filtrarLancamentosPorCentroCusto(titulos, centroCusto);
+    const linhasLancamentos: LinhaFluxo[] = lancamentosCentro.map((lancamento) => {
       const vencimento = lancamento.data_efetiva.slice(0, 10);
       const tipoLancamento = tipoProjetadoLancamento(lancamento);
       const valor = Math.abs(Number(lancamento.valor) || 0);
@@ -333,14 +445,14 @@ function FluxoCaixaPage() {
         saldoProjetado: 0,
       };
     });
-    const linhasTitulos: LinhaFluxo[] = titulos.map((titulo) => {
+    const linhasTitulos: LinhaFluxo[] = titulosCentro.map((titulo) => {
       const tipoTitulo = tipoProjetadoTitulo(titulo);
       const valor = Math.abs(Number(titulo.valor) || 0);
       const vencimento = titulo.vencimento.slice(0, 10);
 
       return {
         id: titulo.id,
-        origem: "titulo",
+        origem: titulo.external_source === "manual_fluxo_caixa" ? "manual" : "titulo",
         titulo,
         dataProjetada: vencimento,
         vencimento,
@@ -377,7 +489,7 @@ function FluxoCaixaPage() {
       saldo += linha.recebimento - linha.pagamento;
       return { ...linha, saldoProjetado: saldo };
     });
-  }, [busca, lancamentos, range, saldoDisponivel, tipoFiltro, titulos]);
+  }, [busca, centroCusto, lancamentos, range, saldoDisponivel, tipoFiltro, titulos]);
 
   const resumo = useMemo(() => resumirFluxo(linhas, saldoDisponivel), [linhas, saldoDisponivel]);
   const alertas = useMemo(() => calcularAlertas(linhas), [linhas]);
@@ -387,17 +499,103 @@ function FluxoCaixaPage() {
   );
   const pagamentosSemana = linhas.filter((linha) => linha.pagamento > 0);
   const inadimplentes = useMemo(
-    () => montarInadimplentes(vencidos, titulosVencidos, hoje),
-    [vencidos, titulosVencidos, hoje],
+    () =>
+      montarInadimplentes(
+        filtrarLancamentosPorCentroCusto(vencidos, centroCusto),
+        filtrarLancamentosPorCentroCusto(titulosVencidos, centroCusto),
+        hoje,
+      ),
+    [centroCusto, vencidos, titulosVencidos, hoje],
   );
   const pagamentosAtrasados = useMemo(
-    () => montarPagamentosAtrasados(titulosPagarVencidos, hoje),
-    [titulosPagarVencidos, hoje],
+    () =>
+      montarPagamentosAtrasados(
+        filtrarLancamentosPorCentroCusto(titulosPagarVencidos, centroCusto),
+        hoje,
+      ),
+    [centroCusto, titulosPagarVencidos, hoje],
   );
   const periodoLabel = labelPeriodo(range.inicio, range.fim);
   const estiloAlturaProjecao = alturaLateralFluxo
     ? ({ "--altura-projecao": `${alturaLateralFluxo}px` } as CSSProperties)
     : undefined;
+  const dataPadraoLancamentoManual =
+    hoje >= range.inicio && hoje <= range.fim ? hoje : range.inicio;
+
+  const criarLancamentoManual = useMutation({
+    mutationFn: async () => {
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+      const vencimento = lancamentoManual.vencimento;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(vencimento)) {
+        throw new Error("Informe o vencimento.");
+      }
+
+      const nome = lancamentoManual.nome.trim();
+      if (!nome) throw new Error("Informe o nome.");
+
+      const valor = Math.abs(numeroDoCampo(lancamentoManual.valor));
+      if (valor <= 0) throw new Error("Informe um valor maior que zero.");
+
+      const descricao =
+        lancamentoManual.descricao.trim() ||
+        (lancamentoManual.tipo === "paga" ? "Conta a pagar manual" : "Conta a receber manual");
+      const criadoEm = new Date().toISOString();
+      const externalId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      const { error } = await supabase.from("fluxo_titulos_nibo").insert({
+        empresa_id: empresaId,
+        tipo: lancamentoManual.tipo,
+        vencimento,
+        data_projetada: vencimento,
+        competencia: competenciaDoVencimento(vencimento),
+        descricao: descricao.slice(0, 500),
+        categoria_nibo:
+          lancamentoManual.tipo === "paga"
+            ? "Manual - Contas a pagar"
+            : "Manual - Contas a receber",
+        pessoa: nome.slice(0, 180),
+        valor,
+        status: "aberto",
+        hash: `manual|${empresaId}|${externalId}`,
+        external_source: "manual_fluxo_caixa",
+        external_id: externalId,
+        payload: {
+          origem: "manual_fluxo_caixa",
+          criado_em: criadoEm,
+        } as Json,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success("Lancamento manual incluido.");
+      setLancamentoManualAberto(false);
+      setLancamentoManual(criarFormularioLancamentoManual(dataPadraoLancamentoManual));
+      await queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-nibo", empresaId] });
+      await queryClient.invalidateQueries({
+        queryKey: ["fluxo-titulos-pagar-vencidos", empresaId],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["fluxo-titulos-receber-vencidos", empresaId],
+      });
+    },
+    onError: (e) =>
+      toast.error(e instanceof Error ? e.message : "Nao foi possivel incluir o lancamento."),
+  });
+
+  function abrirLancamentoManual(aberto: boolean) {
+    setLancamentoManualAberto(aberto);
+    if (aberto) {
+      setLancamentoManual(criarFormularioLancamentoManual(dataPadraoLancamentoManual));
+    }
+  }
+
+  function atualizarLancamentoManual<K extends keyof FormularioLancamentoManual>(
+    campo: K,
+    valor: FormularioLancamentoManual[K],
+  ) {
+    setLancamentoManual((atual) => ({ ...atual, [campo]: valor }));
+  }
+
   async function selecionarBanco(banco: BancoPreConfigurado) {
     if (!empresaId) return;
     const existente = contasPorNome.get(normalizar(banco.nome));
@@ -426,21 +624,9 @@ function FluxoCaixaPage() {
     await queryClient.invalidateQueries({ queryKey: ["fluxo-contas-bancarias", empresaId] });
   }
 
-  async function salvarSaldos() {
-    if (!empresaId || contasSelecionadas.length === 0) return;
-    setSalvando(true);
-    try {
-      const linhasSaldo = contasSelecionadas.map((contaId) => ({
-        empresa_id: empresaId,
-        conta_id: contaId,
-        saldo: numeroDoCampo(saldosEditados[contaId] ?? "0"),
-      }));
-      const { error } = await supabase.from("fluxo_saldos_bancarios").insert(linhasSaldo);
-      if (error) throw error;
-      await queryClient.invalidateQueries({ queryKey: ["fluxo-saldos-bancarios", empresaId] });
-    } finally {
-      setSalvando(false);
-    }
+  function atualizarSaldoConta(contaId: string, valor: string) {
+    setSaldosEditados((atuais) => ({ ...atuais, [contaId]: valor }));
+    setSaldosPendentes((atuais) => ({ ...atuais, [contaId]: true }));
   }
 
   async function salvarHistorico() {
@@ -506,22 +692,20 @@ function FluxoCaixaPage() {
       { item: "Saldo final projetado", valor: resumo.saldoFinal },
     ];
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(resumoSheet), "Resumo");
-    if (incluirChecklist) {
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.json_to_sheet(
-          pagamentosSemana.map((linha) => ({
-            pagamento: linha.descricao,
-            fornecedor: linha.nome,
-            valor: linha.pagamento,
-            status: labelStatus(
-              statusChecklistLinha(linha, checklistPorLancamento, checklistPorTitulo),
-            ),
-          })),
-        ),
-        "Checklist",
-      );
-    }
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(
+        pagamentosSemana.map((linha) => ({
+          pagamento: linha.descricao,
+          fornecedor: linha.nome,
+          valor: linha.pagamento,
+          status: labelStatus(
+            statusChecklistLinha(linha, checklistPorLancamento, checklistPorTitulo),
+          ),
+        })),
+      ),
+      "Checklist",
+    );
     XLSX.writeFile(workbook, `fluxo-caixa-${range.inicio}-${range.fim}.xlsx`);
   }
 
@@ -548,15 +732,6 @@ function FluxoCaixaPage() {
                   onAberto={setSeletorBancosAberto}
                   onSelecionar={selecionarBanco}
                 />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={salvarSaldos}
-                  disabled={salvando || contasSelecionadas.length === 0}
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  Salvar saldos
-                </Button>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 {contasExibidas.map((conta) => (
@@ -566,6 +741,7 @@ function FluxoCaixaPage() {
                     valor={saldosEditados[conta.id] ?? "0"}
                     selecionada={contasSelecionadas.includes(conta.id)}
                     atualizadoEm={saldosPorConta.get(conta.id)?.informado_em}
+                    salvando={!!saldosSalvando[conta.id]}
                     onSelecionar={(checked) =>
                       setContasSelecionadas((atuais) =>
                         checked
@@ -573,9 +749,7 @@ function FluxoCaixaPage() {
                           : atuais.filter((id) => id !== conta.id),
                       )
                     }
-                    onValor={(valor) =>
-                      setSaldosEditados((atuais) => ({ ...atuais, [conta.id]: valor }))
-                    }
+                    onValor={(valor) => atualizarSaldoConta(conta.id, valor)}
                   />
                 ))}
                 <KpiFluxo
@@ -600,13 +774,128 @@ function FluxoCaixaPage() {
                   className="flex h-full min-h-0 flex-col overflow-hidden [&>div:first-child]:shrink-0 [&>div:last-child]:flex [&>div:last-child]:min-h-0 [&>div:last-child]:flex-1 [&>div:last-child]:flex-col"
                   acoes={
                     <div className="flex flex-wrap items-center gap-2">
-                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Checkbox
-                          checked={incluirChecklist}
-                          onCheckedChange={(v) => setIncluirChecklist(v === true)}
-                        />
-                        Incluir checklist
-                      </label>
+                      <Dialog open={lancamentoManualAberto} onOpenChange={abrirLancamentoManual}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            <Plus className="h-4 w-4" />
+                            Lancamento manual
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-xl">
+                          <DialogHeader>
+                            <DialogTitle>Lancamento manual</DialogTitle>
+                          </DialogHeader>
+                          <form
+                            className="space-y-4"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              criarLancamentoManual.mutate();
+                            }}
+                          >
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="space-y-1.5">
+                                <Label htmlFor="manual-vencimento">Vencimento</Label>
+                                <Input
+                                  id="manual-vencimento"
+                                  type="date"
+                                  value={lancamentoManual.vencimento}
+                                  onChange={(event) =>
+                                    atualizarLancamentoManual("vencimento", event.target.value)
+                                  }
+                                  required
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor="manual-tipo">Tipo</Label>
+                                <Select
+                                  value={lancamentoManual.tipo}
+                                  onValueChange={(valor) =>
+                                    atualizarLancamentoManual(
+                                      "tipo",
+                                      valor as FormularioLancamentoManual["tipo"],
+                                    )
+                                  }
+                                >
+                                  <SelectTrigger id="manual-tipo">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="paga">Pagamento</SelectItem>
+                                    <SelectItem value="recebida">Recebimento</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor="manual-nome">Nome</Label>
+                                <Input
+                                  id="manual-nome"
+                                  value={lancamentoManual.nome}
+                                  onChange={(event) =>
+                                    atualizarLancamentoManual("nome", event.target.value)
+                                  }
+                                  maxLength={180}
+                                  autoFocus
+                                  required
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor="manual-valor">Valor</Label>
+                                <Input
+                                  id="manual-valor"
+                                  value={lancamentoManual.valor}
+                                  onChange={(event) =>
+                                    atualizarLancamentoManual("valor", event.target.value)
+                                  }
+                                  onBlur={() =>
+                                    atualizarLancamentoManual(
+                                      "valor",
+                                      formatarCampoMonetario(lancamentoManual.valor),
+                                    )
+                                  }
+                                  inputMode="decimal"
+                                  className="tabular"
+                                  required
+                                />
+                              </div>
+                              <div className="space-y-1.5 sm:col-span-2">
+                                <Label htmlFor="manual-descricao">Descricao</Label>
+                                <Input
+                                  id="manual-descricao"
+                                  value={lancamentoManual.descricao}
+                                  onChange={(event) =>
+                                    atualizarLancamentoManual("descricao", event.target.value)
+                                  }
+                                  maxLength={500}
+                                />
+                              </div>
+                            </div>
+                            <DialogFooter>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setLancamentoManualAberto(false)}
+                              >
+                                Cancelar
+                              </Button>
+                              <Button
+                                type="submit"
+                                disabled={
+                                  criarLancamentoManual.isPending ||
+                                  !lancamentoManual.nome.trim() ||
+                                  numeroDoCampo(lancamentoManual.valor) <= 0
+                                }
+                              >
+                                {criarLancamentoManual.isPending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Plus className="h-4 w-4" />
+                                )}
+                                Incluir
+                              </Button>
+                            </DialogFooter>
+                          </form>
+                        </DialogContent>
+                      </Dialog>
                       <Button variant="outline" size="sm" onClick={exportarExcel}>
                         <FileSpreadsheet className="h-4 w-4" />
                         Excel
@@ -919,6 +1208,7 @@ function CardConta({
   valor,
   selecionada,
   atualizadoEm,
+  salvando,
   onSelecionar,
   onValor,
 }: {
@@ -926,6 +1216,7 @@ function CardConta({
   valor: string;
   selecionada: boolean;
   atualizadoEm?: string;
+  salvando?: boolean;
   onSelecionar: (checked: boolean) => void;
   onValor: (valor: string) => void;
 }) {
@@ -958,7 +1249,11 @@ function CardConta({
         className="tabular mt-2 h-8 text-base font-semibold text-positive"
       />
       <p className="mt-1.5 truncate text-[10px] text-muted-foreground">
-        {atualizadoEm ? `Atualizado em ${dataHoraBR(atualizadoEm)}` : "Ainda nao salvo"}
+        {salvando
+          ? "Salvando..."
+          : atualizadoEm
+            ? `Atualizado em ${dataHoraBR(atualizadoEm)}`
+            : "Ainda nao salvo"}
       </p>
     </div>
   );
@@ -1337,7 +1632,12 @@ function linhaParaExportacao(linha: LinhaFluxo) {
     "Saldo projetado": linha.saldoProjetado,
     Categoria: linha.categoria,
     "ID NIBO": linha.identificadorNibo,
-    Origem: linha.origem === "titulo" ? "Titulo futuro" : "Lancamento realizado",
+    Origem:
+      linha.origem === "manual"
+        ? "Lancamento manual"
+        : linha.origem === "titulo"
+          ? "Titulo futuro"
+          : "Lancamento realizado",
   };
 }
 
@@ -1422,9 +1722,9 @@ function statusChecklistLinha(
   checklistPorTitulo: Map<string | null, { status: StatusChecklistFluxo }>,
 ) {
   return (
-    (linha.origem === "titulo"
-      ? checklistPorTitulo.get(linha.id)?.status
-      : checklistPorLancamento.get(linha.id)?.status) ?? "nao_selecionado"
+    (linha.origem === "lancamento"
+      ? checklistPorLancamento.get(linha.id)?.status
+      : checklistPorTitulo.get(linha.id)?.status) ?? "nao_selecionado"
   );
 }
 
@@ -1525,6 +1825,47 @@ function formatarDescricao(texto?: string | null) {
 
 function labelPeriodo(inicio: string, fim: string) {
   return `${dataBR(inicio)} a ${dataBR(fim)}`;
+}
+
+function criarFormularioLancamentoManual(vencimento: string): FormularioLancamentoManual {
+  return {
+    vencimento,
+    nome: "",
+    descricao: "",
+    tipo: "paga",
+    valor: "",
+  };
+}
+
+function competenciaDoVencimento(vencimento: string) {
+  return `${vencimento.slice(0, 7)}-01`;
+}
+
+function chaveContasSelecionadasFluxo(empresaId: string) {
+  return `vg.fluxo.contasSelecionadas.${empresaId}`;
+}
+
+function lerContasSelecionadasFluxo(empresaId: string) {
+  const salvo = localStorage.getItem(chaveContasSelecionadasFluxo(empresaId));
+  if (!salvo) return null;
+
+  try {
+    const parsed = JSON.parse(salvo);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item): item is string => typeof item === "string" && !!item);
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function salvarContasSelecionadasFluxo(empresaId: string, contasSelecionadas: string[]) {
+  localStorage.setItem(
+    chaveContasSelecionadasFluxo(empresaId),
+    JSON.stringify([...new Set(contasSelecionadas)]),
+  );
 }
 
 function dataHoraBR(iso: string) {

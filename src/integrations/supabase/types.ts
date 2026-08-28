@@ -1092,7 +1092,6 @@ export type Database = {
       projeto_usuarios: {
         Row: {
           ativo: boolean;
-          cargo: string;
           created_at: string;
           created_by: string | null;
           empresa_id: string;
@@ -1103,7 +1102,6 @@ export type Database = {
         };
         Insert: {
           ativo?: boolean;
-          cargo: string;
           created_at?: string;
           created_by?: string | null;
           empresa_id: string;
@@ -1114,7 +1112,6 @@ export type Database = {
         };
         Update: {
           ativo?: boolean;
-          cargo?: string;
           created_at?: string;
           created_by?: string | null;
           empresa_id?: string;

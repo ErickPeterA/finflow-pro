@@ -18,8 +18,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
+import { useApp } from "@/lib/app-context";
 import { cn } from "@/lib/utils";
-import { useMeuCargo } from "@/lib/data";
+import { useMeuCargo, usePerfilProjetoAtual } from "@/lib/data";
 
 const itensProjeto = [
   { to: "/home", label: "Home", icon: LayoutDashboard },
@@ -50,14 +51,26 @@ const subItensGerenciamento = [
   { label: "Atrelar usuários", aba: "atrelar-usuarios" },
 ] as const;
 
+const rotasRestritasUsuarioExterno = new Set([
+  "/importacao",
+  "/ponto-equilibrio",
+  "/auditoria-financeira",
+  "/relatorios",
+]);
+
 export function AppSidebar({ colapsado, onToggle }: { colapsado: boolean; onToggle: () => void }) {
+  const { empresaId } = useApp();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const abaGerenciamento = useRouterState({
     select: (s) => String((s.location.search as { aba?: unknown }).aba ?? "criar-login"),
   });
   const { data: cargo } = useMeuCargo();
+  const { data: perfilProjeto } = usePerfilProjetoAtual(empresaId);
   const estaNoProjeto = pathname !== "/projetos" && pathname !== "/gerenciamento";
-  const itensBase = estaNoProjeto ? itensProjeto : itensEntrada;
+  const usuarioExterno = cargo !== "admin" && perfilProjeto === "externo";
+  const itensBase = estaNoProjeto
+    ? itensProjeto.filter((item) => !usuarioExterno || !rotasRestritasUsuarioExterno.has(item.to))
+    : itensEntrada;
   const itensVisiveis =
     cargo === "admin" && !estaNoProjeto ? [...itensBase, itemGerenciamento] : itensBase;
   const gerenciamentoAberto = cargo === "admin" && pathname === "/gerenciamento";

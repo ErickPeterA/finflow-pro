@@ -1,14 +1,23 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { LogOut } from "lucide-react";
+import { Check, ChevronsUpDown, LogOut } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "@/lib/app-context";
-import { CENTRO_CUSTO_TODOS, opcoesCentroCusto, type CentroCustoFiltro } from "@/lib/centro-custo";
+import { CENTRO_CUSTO_TODOS, opcoesCentroCusto } from "@/lib/centro-custo";
 import { useEmpresas, useLancamentos } from "@/lib/data";
 import { meses } from "@/lib/format";
 import { periodosFiltro, type PeriodoFiltro } from "@/lib/periodo";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -16,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 export function TopBar({
   titulo,
@@ -50,13 +60,29 @@ export function TopBar({
   const queryClient = useQueryClient();
   const anoAtual = new Date().getFullYear();
   const estaNoProjeto = pathname !== "/projetos" && pathname !== "/gerenciamento";
+  const todosCentrosSelecionados = centroCusto.includes(CENTRO_CUSTO_TODOS);
+  const centrosSelecionados = todosCentrosSelecionados
+    ? []
+    : centrosCusto.filter((centro) => centroCusto.includes(centro.value));
+  const centroCustoLabel = todosCentrosSelecionados
+    ? "Todos os centros"
+    : centrosSelecionados.length === 1
+      ? centrosSelecionados[0]?.label
+      : `${centrosSelecionados.length} centros selecionados`;
 
   useEffect(() => {
-    if (
-      centroCusto !== CENTRO_CUSTO_TODOS &&
-      !centrosCusto.some((centro) => centro.value === centroCusto)
-    ) {
-      setCentroCusto(CENTRO_CUSTO_TODOS);
+    const opcoesValidas = new Set(centrosCusto.map((centro) => centro.value));
+    const centrosValidos = centroCusto.filter(
+      (centro) => centro === CENTRO_CUSTO_TODOS || opcoesValidas.has(centro),
+    );
+
+    if (centrosValidos.length !== centroCusto.length) {
+      setCentroCusto(centrosValidos.length ? centrosValidos : [CENTRO_CUSTO_TODOS]);
+      return;
+    }
+
+    if (centroCusto.includes(CENTRO_CUSTO_TODOS) && centroCusto.length > 1) {
+      setCentroCusto([CENTRO_CUSTO_TODOS]);
     }
   }, [centroCusto, centrosCusto, setCentroCusto]);
 
@@ -73,7 +99,16 @@ export function TopBar({
   }
 
   function selecionarCentroCusto(value: string) {
-    setCentroCusto(value as CentroCustoFiltro);
+    if (value === CENTRO_CUSTO_TODOS) {
+      setCentroCusto([CENTRO_CUSTO_TODOS]);
+      return;
+    }
+
+    const atuais = centroCusto.filter((centro) => centro !== CENTRO_CUSTO_TODOS);
+    const proximo = atuais.includes(value)
+      ? atuais.filter((centro) => centro !== value)
+      : [...atuais, value];
+    setCentroCusto(proximo.length ? proximo : [CENTRO_CUSTO_TODOS]);
   }
 
   function selecionarPeriodo(value: string) {
@@ -129,19 +164,57 @@ export function TopBar({
               </SelectContent>
             </Select>
 
-            <Select value={centroCusto} onValueChange={selecionarCentroCusto}>
-              <SelectTrigger className="h-9 w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={CENTRO_CUSTO_TODOS}>Todos os centros</SelectItem>
-                {centrosCusto.map((centro) => (
-                  <SelectItem key={centro.value} value={centro.value}>
-                    {centro.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  className="h-9 w-56 justify-between"
+                >
+                  <span className="truncate">{centroCustoLabel}</span>
+                  <ChevronsUpDown className="h-4 w-4 opacity-60" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 p-0">
+                <Command>
+                  <CommandInput placeholder="Buscar centro..." />
+                  <CommandList>
+                    <CommandEmpty>Nenhum centro encontrado.</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        value="Todos os centros"
+                        onSelect={() => selecionarCentroCusto(CENTRO_CUSTO_TODOS)}
+                      >
+                        <span className="min-w-0 flex-1 truncate">Todos os centros</span>
+                        <Check
+                          className={cn(
+                            "h-4 w-4",
+                            todosCentrosSelecionados ? "opacity-100" : "opacity-0",
+                          )}
+                        />
+                      </CommandItem>
+                      {centrosCusto.map((centro) => {
+                        const selecionado = centroCusto.includes(centro.value);
+
+                        return (
+                          <CommandItem
+                            key={centro.value}
+                            value={centro.label}
+                            onSelect={() => selecionarCentroCusto(centro.value)}
+                          >
+                            <span className="min-w-0 flex-1 truncate">{centro.label}</span>
+                            <Check
+                              className={cn("h-4 w-4", selecionado ? "opacity-100" : "opacity-0")}
+                            />
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
 
             <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
               <SelectTrigger className="h-9 w-24">

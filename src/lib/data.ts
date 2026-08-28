@@ -4,6 +4,7 @@ import type { Categoria, Lancamento } from "./dre";
 import type { Database } from "@/integrations/supabase/types";
 
 export type Cargo = Database["public"]["Enums"]["app_role"];
+export type PerfilProjeto = "interno" | "externo";
 
 export interface Empresa {
   id: string;
@@ -56,6 +57,28 @@ export function useMeuCargo() {
       if (cargos.includes("consultor")) return "consultor";
       if (cargos.includes("cliente")) return "cliente";
       return null;
+    },
+  });
+}
+
+export function usePerfilProjetoAtual(empresaId: string | null) {
+  return useQuery({
+    queryKey: ["perfil-projeto-atual", empresaId],
+    enabled: !!empresaId,
+    queryFn: async (): Promise<PerfilProjeto | null> => {
+      const { data: usuario, error: userError } = await supabase.auth.getUser();
+      if (userError || !usuario.user) return null;
+
+      const { data, error } = await supabase
+        .from("projeto_usuarios")
+        .select("perfil")
+        .eq("empresa_id", empresaId!)
+        .eq("user_id", usuario.user.id)
+        .eq("ativo", true)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data?.perfil === "externo" ? "externo" : data?.perfil === "interno" ? "interno" : null;
     },
   });
 }

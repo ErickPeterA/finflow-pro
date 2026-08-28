@@ -23,7 +23,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [ano, setAnoState] = useState(hoje.getFullYear());
   const [mes, setMesState] = useState(hoje.getMonth());
   const [periodo, setPeriodoState] = useState<PeriodoFiltro>("mes_atual");
-  const [centroCusto, setCentroCustoState] = useState<CentroCustoFiltro>(CENTRO_CUSTO_TODOS);
+  const [centroCusto, setCentroCustoState] = useState<CentroCustoFiltro>([CENTRO_CUSTO_TODOS]);
 
   useEffect(() => {
     const e = localStorage.getItem("vg.empresa");
@@ -35,7 +35,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (a) setAnoState(Number(a));
     if (m) setMesState(Number(m));
     if (p) setPeriodoState(p);
-    if (c) setCentroCustoState(c);
+    if (c) setCentroCustoState(parseCentroCustoSalvo(c));
   }, []);
 
   const value = useMemo<AppState>(
@@ -63,8 +63,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
       centroCusto,
       setCentroCusto: (c) => {
-        setCentroCustoState(c);
-        localStorage.setItem("vg.centroCusto", c);
+        const proximo = c.length ? c : [CENTRO_CUSTO_TODOS];
+        setCentroCustoState(proximo);
+        localStorage.setItem("vg.centroCusto", JSON.stringify(proximo));
       },
     }),
     [empresaId, ano, mes, periodo, centroCusto],
@@ -77,4 +78,18 @@ export function useApp(): AppState {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error("useApp precisa estar dentro de AppProvider");
   return ctx;
+}
+
+function parseCentroCustoSalvo(valor: string): CentroCustoFiltro {
+  try {
+    const parsed = JSON.parse(valor);
+    if (Array.isArray(parsed)) {
+      const centros = parsed.filter((item): item is string => typeof item === "string" && !!item);
+      return centros.length ? centros : [CENTRO_CUSTO_TODOS];
+    }
+  } catch {
+    // Mantem compatibilidade com o valor antigo salvo como string simples.
+  }
+
+  return valor ? [valor] : [CENTRO_CUSTO_TODOS];
 }

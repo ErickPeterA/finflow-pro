@@ -25,9 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { Database } from "@/integrations/supabase/types";
 
-type Cargo = Database["public"]["Enums"]["app_role"];
 type PerfilProjeto = "interno" | "externo";
 type AbaGerenciamento = "criar-login" | "gerenciar-usuarios" | "atrelar-usuarios";
 
@@ -35,7 +33,6 @@ interface UsuarioGerenciado {
   id: string;
   email: string;
   nome: string;
-  cargo: Cargo;
   ativo: boolean;
   criadoEm: string | null;
   ultimoAcesso: string | null;
@@ -47,12 +44,6 @@ interface ProjetoGerenciado {
   cnpj: string | null;
   ativo: boolean;
 }
-
-const cargoLabels: Record<Cargo, string> = {
-  admin: "Admin",
-  consultor: "Consultor",
-  cliente: "Cliente",
-};
 
 const perfilLabels: Record<PerfilProjeto, string> = {
   interno: "Interno",
@@ -154,12 +145,6 @@ async function montarPainel(adminId: string) {
     .in("id", ids);
   if (profilesError) throw profilesError;
 
-  const { data: roles, error: rolesError } = await supabaseAdmin
-    .from("user_roles")
-    .select("user_id, role")
-    .in("user_id", ids);
-  if (rolesError) throw rolesError;
-
   const { data: projetos, error: projetosError } = await supabaseAdmin
     .from("empresas")
     .select("id, nome, cnpj, ativo")
@@ -168,25 +153,11 @@ async function montarPainel(adminId: string) {
 
   const { data: vinculos, error: vinculosError } = await supabaseAdmin
     .from("projeto_usuarios")
-    .select("id, empresa_id, user_id, perfil, cargo, ativo, created_at")
+    .select("id, empresa_id, user_id, perfil, ativo, created_at")
     .order("created_at", { ascending: false });
   if (vinculosError) throw vinculosError;
 
   const profilePorId = new Map((profiles ?? []).map((p) => [p.id, p]));
-  const rolesPorId = new Map<string, Cargo[]>();
-  for (const role of roles ?? []) {
-    const lista = rolesPorId.get(role.user_id) ?? [];
-    lista.push(role.role);
-    rolesPorId.set(role.user_id, lista);
-  }
-
-  const prioridade = (lista: Cargo[] | undefined): Cargo => {
-    if (lista?.includes("admin")) return "admin";
-    if (lista?.includes("consultor")) return "consultor";
-    if (lista?.includes("cliente")) return "cliente";
-    return "consultor";
-  };
-
   const usuarios: UsuarioGerenciado[] = authData.users
     .map((user) => {
       const profile = profilePorId.get(user.id);
@@ -201,7 +172,6 @@ async function montarPainel(adminId: string) {
           (typeof nomeMetadata === "string" ? nomeMetadata : "") ||
           user.email?.split("@")[0] ||
           "Usuário",
-        cargo: prioridade(rolesPorId.get(user.id)),
         ativo: usuarioEstaAtivo(bannedUntil),
         criadoEm: user.created_at ?? null,
         ultimoAcesso: user.last_sign_in_at ?? null,
@@ -217,7 +187,6 @@ async function montarPainel(adminId: string) {
       userId: v.user_id,
       empresaId: v.empresa_id,
       perfil: v.perfil as PerfilProjeto,
-      cargo: v.cargo,
       ativo: v.ativo,
       criadoEm: v.created_at,
     })),
@@ -309,24 +278,19 @@ const alterarStatusUsuario = createServerFn({ method: "POST" })
 
 const salvarVinculo = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .validator(
-    (data: { userId: string; empresaId: string; perfil: PerfilProjeto; cargo: string }) => {
-      const cargo = data.cargo.trim();
-      if (!data.userId) throw new Error("Selecione um usuário.");
-      if (!data.empresaId) throw new Error("Selecione um projeto.");
-      if (data.perfil !== "interno" && data.perfil !== "externo") {
-        throw new Error("Selecione um perfil válido.");
-      }
-      if (!cargo) throw new Error("Informe o cargo do usuário no projeto.");
+  .validator((data: { userId: string; empresaId: string; perfil: PerfilProjeto }) => {
+    if (!data.userId) throw new Error("Selecione um usuário.");
+    if (!data.empresaId) throw new Error("Selecione um projeto.");
+    if (data.perfil !== "interno" && data.perfil !== "externo") {
+      throw new Error("Selecione um perfil válido.");
+    }
 
-      return {
-        userId: data.userId,
-        empresaId: data.empresaId,
-        perfil: data.perfil,
-        cargo: cargo.slice(0, 80),
-      };
-    },
-  )
+    return {
+      userId: data.userId,
+      empresaId: data.empresaId,
+      perfil: data.perfil,
+    };
+  })
   .handler(async ({ context, data }) => {
     const adminId = String(context.userId);
     const supabaseAdmin = await exigirAdmin(adminId);
@@ -344,7 +308,6 @@ const salvarVinculo = createServerFn({ method: "POST" })
         user_id: data.userId,
         empresa_id: data.empresaId,
         perfil: data.perfil,
-        cargo: data.cargo,
         ativo: true,
         created_by: adminId,
       },
@@ -388,12 +351,10 @@ function GerenciamentoPage() {
     userId: string;
     empresaId: string;
     perfil: PerfilProjeto;
-    cargo: string;
   }>({
     userId: "",
     empresaId: "",
     perfil: "interno",
-    cargo: "",
   });
 
   const painelQuery = useQuery({
@@ -405,6 +366,7 @@ function GerenciamentoPage() {
     queryClient.invalidateQueries({ queryKey: ["gerenciamento-painel"] });
     queryClient.invalidateQueries({ queryKey: ["empresas"] });
     queryClient.invalidateQueries({ queryKey: ["meu-cargo"] });
+    queryClient.invalidateQueries({ queryKey: ["perfil-projeto-atual"] });
   };
 
   const criarLoginMutation = useMutation({
@@ -430,7 +392,7 @@ function GerenciamentoPage() {
     mutationFn: () => salvarVinculoFn({ data: novoVinculo }),
     onSuccess: () => {
       toast.success("Usuário atrelado ao projeto.");
-      setNovoVinculo({ userId: "", empresaId: "", perfil: "interno", cargo: "" });
+      setNovoVinculo({ userId: "", empresaId: "", perfil: "interno" });
       invalidarPainel();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao atrelar usuário."),
@@ -562,7 +524,6 @@ function GerenciamentoPage() {
                     <TableRow>
                       <TableHead className="px-5">Usuário</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Cargo global</TableHead>
                       <TableHead>Projetos ativos</TableHead>
                       <TableHead>Último acesso</TableHead>
                       <TableHead className="px-5 text-right">Ações</TableHead>
@@ -588,11 +549,6 @@ function GerenciamentoPage() {
                           <TableCell>
                             <Badge variant={usuario.ativo ? "secondary" : "destructive"}>
                               {usuario.ativo ? "Ativo" : "Desativado"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={usuario.cargo === "admin" ? "default" : "outline"}>
-                              {cargoLabels[usuario.cargo]}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-muted-foreground">{projetosAtivos}</TableCell>
@@ -634,7 +590,7 @@ function GerenciamentoPage() {
                   <div>
                     <h2 className="text-sm font-semibold">Atrelar usuário</h2>
                     <p className="text-xs text-muted-foreground">
-                      Selecione um usuário, projeto, perfil e cargo.
+                      Selecione um usuário, projeto e perfil.
                     </p>
                   </div>
                 </div>
@@ -680,34 +636,22 @@ function GerenciamentoPage() {
                     </Select>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label>Perfil</Label>
-                      <Select
-                        value={novoVinculo.perfil}
-                        onValueChange={(perfil) =>
-                          setNovoVinculo((v) => ({ ...v, perfil: perfil as PerfilProjeto }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="interno">Interno</SelectItem>
-                          <SelectItem value="externo">Externo</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="cargo-projeto">Cargo</Label>
-                      <Input
-                        id="cargo-projeto"
-                        value={novoVinculo.cargo}
-                        onChange={(e) => setNovoVinculo((v) => ({ ...v, cargo: e.target.value }))}
-                        placeholder="Ex.: Financeiro"
-                        maxLength={80}
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label>Perfil</Label>
+                    <Select
+                      value={novoVinculo.perfil}
+                      onValueChange={(perfil) =>
+                        setNovoVinculo((v) => ({ ...v, perfil: perfil as PerfilProjeto }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="interno">Interno</SelectItem>
+                        <SelectItem value="externo">Externo</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <Button
@@ -738,7 +682,6 @@ function GerenciamentoPage() {
                       <TableHead className="px-5">Usuário</TableHead>
                       <TableHead>Projeto</TableHead>
                       <TableHead>Perfil</TableHead>
-                      <TableHead>Cargo</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="px-5 text-right">Ações</TableHead>
                     </TableRow>
@@ -746,7 +689,7 @@ function GerenciamentoPage() {
                   <TableBody>
                     {vinculos.length === 0 ? (
                       <TableRow>
-                        <TableCell className="px-5 text-muted-foreground" colSpan={6}>
+                        <TableCell className="px-5 text-muted-foreground" colSpan={5}>
                           Nenhum vínculo criado.
                         </TableCell>
                       </TableRow>
@@ -763,7 +706,6 @@ function GerenciamentoPage() {
                             </TableCell>
                             <TableCell>{projeto?.nome ?? "Projeto removido"}</TableCell>
                             <TableCell>{perfilLabels[vinculo.perfil]}</TableCell>
-                            <TableCell>{vinculo.cargo}</TableCell>
                             <TableCell>
                               <Badge variant={vinculo.ativo ? "secondary" : "outline"}>
                                 {vinculo.ativo ? "Ativo" : "Desativado"}

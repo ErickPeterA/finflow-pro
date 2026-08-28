@@ -1,8 +1,16 @@
-import { createFileRoute, redirect, Outlet, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import {
+  createFileRoute,
+  redirect,
+  Outlet,
+  Link,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { AppProvider } from "@/lib/app-context";
+import { AppProvider, useApp } from "@/lib/app-context";
 import { AppSidebar } from "@/components/AppSidebar";
+import { useMeuCargo, usePerfilProjetoAtual } from "@/lib/data";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -14,6 +22,13 @@ export const Route = createFileRoute("/_authenticated")({
   component: Layout,
   errorComponent: LayoutErro,
 });
+
+const rotasRestritasUsuarioExterno = [
+  "/importacao",
+  "/ponto-equilibrio",
+  "/auditoria-financeira",
+  "/relatorios",
+];
 
 function LayoutErro({ error }: { error: Error }) {
   return (
@@ -34,13 +49,36 @@ function Layout() {
 
   return (
     <AppProvider>
-      <div className="flex min-h-screen w-full bg-sidebar">
-        <AppSidebar colapsado={colapsado} onToggle={() => setColapsado((c) => !c)} />
-        <div className="w-3 shrink-0 bg-sidebar shadow-[inset_-1px_0_0_rgba(255,255,255,0.22)]" />
-        <div className="flex min-w-0 flex-1 flex-col bg-[linear-gradient(180deg,#08245a_0%,#0f3f86_42%,#0f3f86_100%)]">
-          <Outlet />
-        </div>
-      </div>
+      <LayoutAutenticado colapsado={colapsado} onToggle={() => setColapsado((c) => !c)} />
     </AppProvider>
+  );
+}
+
+function LayoutAutenticado({ colapsado, onToggle }: { colapsado: boolean; onToggle: () => void }) {
+  const { empresaId } = useApp();
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { data: cargo } = useMeuCargo();
+  const { data: perfilProjeto } = usePerfilProjetoAtual(empresaId);
+  const usuarioExterno = cargo !== "admin" && perfilProjeto === "externo";
+  const rotaRestrita = rotasRestritasUsuarioExterno.some(
+    (rota) => pathname === rota || pathname.startsWith(`${rota}/`),
+  );
+  const acessoBloqueado = usuarioExterno && rotaRestrita;
+
+  useEffect(() => {
+    if (acessoBloqueado) {
+      navigate({ to: "/home", replace: true });
+    }
+  }, [acessoBloqueado, navigate]);
+
+  return (
+    <div className="flex min-h-screen w-full bg-sidebar">
+      <AppSidebar colapsado={colapsado} onToggle={onToggle} />
+      <div className="w-3 shrink-0 bg-sidebar shadow-[inset_-1px_0_0_rgba(255,255,255,0.22)]" />
+      <div className="flex min-w-0 flex-1 flex-col bg-[linear-gradient(180deg,#08245a_0%,#0f3f86_42%,#0f3f86_100%)]">
+        {acessoBloqueado ? null : <Outlet />}
+      </div>
+    </div>
   );
 }
