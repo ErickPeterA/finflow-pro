@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "@/lib/app-context";
 import { CENTRO_CUSTO_TODOS, opcoesCentroCusto } from "@/lib/centro-custo";
-import { useEmpresas, useLancamentos } from "@/lib/data";
+import { useCentrosCusto, useEmpresaAtual } from "@/lib/data";
 import { meses } from "@/lib/format";
 import { periodosFiltro, type PeriodoFiltro } from "@/lib/periodo";
 import { Button } from "@/components/ui/button";
@@ -52,9 +52,9 @@ export function TopBar({
     centroCusto,
     setCentroCusto,
   } = useApp();
-  const { data: empresas = [] } = useEmpresas();
-  const { data: lancamentos = [] } = useLancamentos(empresaId, ano);
-  const centrosCusto = opcoesCentroCusto(lancamentos);
+  const { data: empresaAtual } = useEmpresaAtual(empresaId);
+  const { data: centrosCustoBase = [] } = useCentrosCusto(empresaId, ano);
+  const centrosCusto = opcoesCentroCusto(centrosCustoBase);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const queryClient = useQueryClient();
@@ -125,18 +125,15 @@ export function TopBar({
 
         {mostrarContexto && (
           <>
-            <Select value={empresaId ?? ""} onValueChange={(v) => setEmpresaId(v)}>
-              <SelectTrigger className="h-9 w-52">
-                <SelectValue placeholder="Selecione a empresa" />
-              </SelectTrigger>
-              <SelectContent>
-                {empresas.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 w-52 justify-start"
+              onClick={voltarParaProjetos}
+              title="Trocar projeto"
+            >
+              <span className="truncate">{empresaAtual?.nome ?? "Selecionar projeto"}</span>
+            </Button>
 
             <Select value={periodo} onValueChange={selecionarPeriodo}>
               <SelectTrigger className="h-9 w-44">

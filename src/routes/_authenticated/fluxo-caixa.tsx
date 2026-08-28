@@ -64,7 +64,7 @@ import type { Json } from "@/integrations/supabase/types";
 import { useApp } from "@/lib/app-context";
 import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
 import {
-  useEmpresas,
+  useEmpresaAtual,
   useFluxoChecklistPagamentos,
   useFluxoContasBancarias,
   useFluxoSaldosBancarios,
@@ -213,8 +213,7 @@ const bancosPreConfigurados: BancoPreConfigurado[] = [
 function FluxoCaixaPage() {
   const queryClient = useQueryClient();
   const { empresaId, centroCusto } = useApp();
-  const { data: empresas = [] } = useEmpresas();
-  const empresa = empresas.find((item) => item.id === empresaId);
+  const { data: empresa } = useEmpresaAtual(empresaId);
   const hoje = hojeISO();
   const semana = semanaAtual(hoje);
   const [periodo, setPeriodo] = useState<PeriodoFluxo>("semana_atual");

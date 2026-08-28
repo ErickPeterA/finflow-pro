@@ -25,7 +25,7 @@ import { TopBar } from "@/components/TopBar";
 import { Bloco, Kpi, SemDados, SemEmpresa, type Tom } from "@/components/ui-blocos";
 import { useApp } from "@/lib/app-context";
 import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
-import { useCategorias, useConfiguracao, useEmpresas, useLancamentos } from "@/lib/data";
+import { useCategorias, useConfiguracao, useEmpresaAtual, useLancamentos } from "@/lib/data";
 import {
   calcularDre,
   mesDaCompetencia,
@@ -77,12 +77,11 @@ const coresGraficoHome = {
 
 function HomePage() {
   const { empresaId, ano, mes, periodo, centroCusto } = useApp();
-  const { data: empresas = [] } = useEmpresas();
+  const { data: empresa } = useEmpresaAtual(empresaId);
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
   const { data: config } = useConfiguracao(empresaId);
 
-  const empresa = empresas.find((e) => e.id === empresaId);
   const margemDesejada = Number(config?.margem_desejada ?? 15);
 
   const lancamentosFiltrados = useMemo(

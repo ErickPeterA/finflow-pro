@@ -27,6 +27,7 @@ export type StatusChecklistFluxo = Database["public"]["Enums"]["status_checklist
 export function useEmpresas() {
   return useQuery({
     queryKey: ["empresas"],
+    staleTime: 60_000,
     queryFn: async (): Promise<Empresa[]> => {
       const { data, error } = await supabase
         .from("empresas")
@@ -38,9 +39,27 @@ export function useEmpresas() {
   });
 }
 
+export function useEmpresaAtual(empresaId: string | null) {
+  return useQuery({
+    queryKey: ["empresa", empresaId],
+    enabled: !!empresaId,
+    staleTime: 60_000,
+    queryFn: async (): Promise<Empresa | null> => {
+      const { data, error } = await supabase
+        .from("empresas")
+        .select("id, nome, cnpj, cor_primaria, logo_url, ativo")
+        .eq("id", empresaId!)
+        .maybeSingle();
+      if (error) throw error;
+      return data as Empresa | null;
+    },
+  });
+}
+
 export function useMeuCargo() {
   return useQuery({
     queryKey: ["meu-cargo"],
+    staleTime: 60_000,
     queryFn: async (): Promise<Cargo | null> => {
       const { data: usuario, error: userError } = await supabase.auth.getUser();
       if (userError || !usuario.user) return null;
@@ -65,6 +84,7 @@ export function usePerfilProjetoAtual(empresaId: string | null) {
   return useQuery({
     queryKey: ["perfil-projeto-atual", empresaId],
     enabled: !!empresaId,
+    staleTime: 60_000,
     queryFn: async (): Promise<PerfilProjeto | null> => {
       const { data: usuario, error: userError } = await supabase.auth.getUser();
       if (userError || !usuario.user) return null;
@@ -132,6 +152,69 @@ export function useLancamentos(empresaId: string | null, ano: number) {
       }
 
       return lancamentos;
+    },
+  });
+}
+
+export function useLancamentoHashes(empresaId: string | null, ano: number) {
+  return useQuery({
+    queryKey: ["lancamento-hashes", empresaId, ano],
+    enabled: !!empresaId,
+    staleTime: 60_000,
+    queryFn: async (): Promise<string[]> => {
+      const pageSize = 1000;
+      const hashes: string[] = [];
+
+      for (let from = 0; ; from += pageSize) {
+        const to = from + pageSize - 1;
+        const { data, error } = await supabase
+          .from("lancamentos")
+          .select("hash")
+          .eq("empresa_id", empresaId!)
+          .gte("competencia", `${ano}-01-01`)
+          .lte("competencia", `${ano}-12-01`)
+          .range(from, to);
+        if (error) throw error;
+
+        const pagina = data ?? [];
+        hashes.push(...pagina.map((linha) => linha.hash).filter((hash): hash is string => !!hash));
+        if (pagina.length < pageSize) break;
+      }
+
+      return hashes;
+    },
+  });
+}
+
+export function useCentrosCusto(empresaId: string | null, ano: number) {
+  return useQuery({
+    queryKey: ["centros-custo", empresaId, ano],
+    enabled: !!empresaId,
+    staleTime: 60_000,
+    queryFn: async (): Promise<Array<{ centro_custo: string | null }>> => {
+      const pageSize = 1000;
+      const centros = new Map<string, string | null>();
+
+      for (let from = 0; ; from += pageSize) {
+        const to = from + pageSize - 1;
+        const { data, error } = await supabase
+          .from("lancamentos")
+          .select("centro_custo")
+          .eq("empresa_id", empresaId!)
+          .gte("competencia", `${ano}-01-01`)
+          .lte("competencia", `${ano}-12-01`)
+          .range(from, to);
+        if (error) throw error;
+
+        const pagina = data ?? [];
+        for (const linha of pagina) {
+          const centro = linha.centro_custo?.trim() || null;
+          centros.set(centro ?? "__sem_centro__", centro);
+        }
+        if (pagina.length < pageSize) break;
+      }
+
+      return [...centros.values()].map((centro_custo) => ({ centro_custo }));
     },
   });
 }

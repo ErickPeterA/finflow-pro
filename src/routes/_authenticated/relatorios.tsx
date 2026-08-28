@@ -29,7 +29,7 @@ import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
 import {
   useCategorias,
   useConfiguracao,
-  useEmpresas,
+  useEmpresaAtual,
   useLancamentos,
   usePlanosAcao,
 } from "@/lib/data";
@@ -96,13 +96,12 @@ const prioridadeLabels: Record<string, string> = {
 
 function RelatoriosPage() {
   const { empresaId, ano, mes, periodo, centroCusto } = useApp();
-  const { data: empresas = [] } = useEmpresas();
+  const { data: empresa } = useEmpresaAtual(empresaId);
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
   const { data: planos = [] } = usePlanosAcao(empresaId);
   const { data: config } = useConfiguracao(empresaId);
 
-  const empresa = empresas.find((e) => e.id === empresaId);
   const margemDesejada = Number(config?.margem_desejada ?? 15);
   const lancamentosFiltrados = useMemo(
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),

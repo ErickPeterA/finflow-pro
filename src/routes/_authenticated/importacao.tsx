@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "@/lib/app-context";
-import { useImportacoes, useLancamentos, useMapeamentos } from "@/lib/data";
+import { useImportacoes, useLancamentoHashes, useMapeamentos } from "@/lib/data";
 import { importarLinhasFinanceiras, importarTitulosFinanceiros } from "@/lib/importacao/importer";
 import {
   parseArquivoNibo,
@@ -56,7 +56,7 @@ function ImportacaoPage() {
   const queryClient = useQueryClient();
   const { data: importacoes = [] } = useImportacoes(empresaId);
   const { data: mapeamentos = [] } = useMapeamentos(empresaId);
-  const { data: lancamentos = [] } = useLancamentos(empresaId, ano);
+  const { data: hashes = [] } = useLancamentoHashes(empresaId, ano);
 
   const [arquivos, setArquivos] = useState<File[]>([]);
   const [previa, setPrevia] = useState<LinhaImportada[]>([]);
@@ -68,7 +68,7 @@ function ImportacaoPage() {
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
   const [arrastando, setArrastando] = useState(false);
 
-  const hashesExistentes = useMemo(() => new Set(lancamentos.map((l) => l.hash)), [lancamentos]);
+  const hashesExistentes = useMemo(() => new Set(hashes), [hashes]);
 
   const modoTitulos = deteccao?.modo === "titulos";
   const previaAtiva = modoTitulos ? previaTitulos : previa;
@@ -135,7 +135,7 @@ function ImportacaoPage() {
       const deteccaoConsolidada = consolidarDeteccoes(
         analisados.map((item) => item.inteligente.deteccao),
       );
-      const linhas = analisados.flatMap((item) => item.inteligente.linhas);
+      const linhas = analisados.flatMap((item) => item.resultado.linhas);
       const titulos = analisados.flatMap((item) => item.inteligente.titulos);
       const errosArquivos = resultados.flatMap((item) =>
         item.resultado.erros.map((erro) => `${item.file.name}: ${erro}`),
@@ -204,6 +204,8 @@ function ImportacaoPage() {
       setDeteccao(null);
       setArquivos([]);
       queryClient.invalidateQueries({ queryKey: ["lancamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["lancamento-hashes"] });
+      queryClient.invalidateQueries({ queryKey: ["centros-custo"] });
       queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-nibo"] });
       queryClient.invalidateQueries({ queryKey: ["importacoes"] });
     },
@@ -227,6 +229,8 @@ function ImportacaoPage() {
       toast.success("Importação excluída. Os lançamentos desse arquivo foram removidos.");
       queryClient.invalidateQueries({ queryKey: ["importacoes"] });
       queryClient.invalidateQueries({ queryKey: ["lancamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["lancamento-hashes"] });
+      queryClient.invalidateQueries({ queryKey: ["centros-custo"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao excluir a importação."),
     onSettled: () => setExcluindoId(null),
@@ -642,45 +646,7 @@ function detectarImportacaoInteligente(nomeArquivo: string, resultado: Resultado
 
   return {
     deteccao,
-    linhas: resultado.linhas.map((linha) =>
-      linhaComTipoRealizadoDetectado(linha, deteccao.modo, detectarTipoRealizado(contexto)),
-    ),
     titulos: resultado.titulos.map((titulo) => tituloComTipoDetectado(titulo, deteccao.tipo)),
-  };
-}
-
-function detectarTipoRealizado(contexto: string): LinhaImportada["tipo"] | null {
-  const pagas = pontuar(contexto, [
-    "contas pagas",
-    "pagas",
-    "contas pagas nibo",
-    "data de pagamento",
-  ]);
-  const recebidas = pontuar(contexto, [
-    "contas recebidas",
-    "recebidas",
-    "contas recebidas nibo",
-    "data de recebimento",
-  ]);
-
-  if (pagas > recebidas) return "paga";
-  if (recebidas > pagas) return "recebida";
-  return null;
-}
-
-function linhaComTipoRealizadoDetectado(
-  linha: LinhaImportada,
-  modo: DeteccaoImportacao["modo"],
-  tipoDetectado: LinhaImportada["tipo"] | null,
-): LinhaImportada {
-  if (modo !== "realizado" || !tipoDetectado || linha.tipo === tipoDetectado) return linha;
-
-  const valor = tipoDetectado === "paga" ? -Math.abs(linha.valor) : Math.abs(linha.valor);
-  return {
-    ...linha,
-    tipo: tipoDetectado,
-    valor,
-    hash: `${tipoDetectado}|${linha.hash}`,
   };
 }
 

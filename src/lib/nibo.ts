@@ -532,9 +532,8 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
 
   const temPositivo = candidatas.some((linha) => linha.valorAssinado > 0);
   const temNegativo = candidatas.some((linha) => linha.valorAssinado < 0);
-  const arquivoMisto = temPositivo && temNegativo;
 
-  if (arquivoMisto) {
+  if (temPositivo && temNegativo) {
     avisos.push(
       "Arquivo misto detectado: valores positivos foram tratados como recebidos e negativos como pagos.",
     );
@@ -545,15 +544,9 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
   const linhas = candidatas.map((linha) => {
     const tipoPorCodigo = inferirTipoPorCodigo(linha.codigo_nibo, linha.categoria_nibo);
     const tipoPorSinal: TipoLancamento = linha.valorAssinado < 0 ? "paga" : "recebida";
-    const tipoLinha: TipoLancamento = arquivoMisto
-      ? tipoPorSinal
-      : (tipoPorCodigo ?? linha.tipoContexto ?? tipoPorSinal);
+    const tipoLinha: TipoLancamento = tipoPorSinal;
     const valorLinha =
-      arquivoMisto || tipoLinha === tipoPorSinal
-        ? linha.valorAssinado
-        : tipoLinha === "paga"
-          ? -Math.abs(linha.valorAssinado)
-          : Math.abs(linha.valorAssinado);
+      tipoPorSinal === "paga" ? -Math.abs(linha.valorAssinado) : Math.abs(linha.valorAssinado);
 
     if (
       (tipoPorCodigo && tipoPorCodigo !== tipoPorSinal) ||

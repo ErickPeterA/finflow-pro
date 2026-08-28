@@ -17,7 +17,7 @@ export function centroCustoFiltroLabel(value: string) {
   return value === CENTRO_CUSTO_SEM_CENTRO ? "Nenhum centro" : value;
 }
 
-export function opcoesCentroCusto(lancamentos: Lancamento[]) {
+export function opcoesCentroCusto(lancamentos: RegistroComCentroCusto[]) {
   const opcoes = new Map<string, string>();
 
   for (const lancamento of lancamentos) {
