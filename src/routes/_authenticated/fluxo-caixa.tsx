@@ -713,6 +713,7 @@ function FluxoCaixaPage() {
       <TopBar
         titulo="Fluxo de Caixa"
         descricao={`${empresa?.nome ?? "Selecione uma empresa"} - projecao ${periodoLabel}`}
+        mostrarFiltrosData={false}
       />
       <main className="space-y-5 p-6">
         {!empresaId ? (

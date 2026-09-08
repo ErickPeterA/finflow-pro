@@ -32,6 +32,7 @@ export function TopBar({
   descricao,
   acoes,
   mostrarContexto = true,
+  mostrarFiltrosData = true,
 }: {
   titulo: string;
   descricao?: string;
@@ -39,6 +40,7 @@ export function TopBar({
   onBusca?: (v: string) => void;
   acoes?: ReactNode;
   mostrarContexto?: boolean;
+  mostrarFiltrosData?: boolean;
 }) {
   const {
     empresaId,
@@ -53,7 +55,10 @@ export function TopBar({
     setCentroCusto,
   } = useApp();
   const { data: empresaAtual } = useEmpresaAtual(empresaId);
-  const { data: centrosCustoBase = [] } = useCentrosCusto(empresaId, ano);
+  const { data: centrosCustoBase = [] } = useCentrosCusto(
+    empresaId,
+    mostrarFiltrosData ? ano : null,
+  );
   const centrosCusto = opcoesCentroCusto(centrosCustoBase);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -135,31 +140,35 @@ export function TopBar({
               <span className="truncate">{empresaAtual?.nome ?? "Selecionar projeto"}</span>
             </Button>
 
-            <Select value={periodo} onValueChange={selecionarPeriodo}>
-              <SelectTrigger className="h-9 w-44">
-                <SelectValue placeholder="Período" />
-              </SelectTrigger>
-              <SelectContent>
-                {periodosFiltro.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {mostrarFiltrosData && (
+              <>
+                <Select value={periodo} onValueChange={selecionarPeriodo}>
+                  <SelectTrigger className="h-9 w-44">
+                    <SelectValue placeholder="Período" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {periodosFiltro.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-            <Select value={String(mes)} onValueChange={(v) => setMes(Number(v))}>
-              <SelectTrigger className="h-9 w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {meses.map((m, i) => (
-                  <SelectItem key={m} value={String(i)}>
-                    {m}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                <Select value={String(mes)} onValueChange={(v) => setMes(Number(v))}>
+                  <SelectTrigger className="h-9 w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {meses.map((m, i) => (
+                      <SelectItem key={m} value={String(i)}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
 
             <Popover>
               <PopoverTrigger asChild>
@@ -213,18 +222,20 @@ export function TopBar({
               </PopoverContent>
             </Popover>
 
-            <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
-              <SelectTrigger className="h-9 w-24">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[anoAtual + 1, anoAtual, anoAtual - 1, anoAtual - 2].map((a) => (
-                  <SelectItem key={a} value={String(a)}>
-                    {a}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {mostrarFiltrosData && (
+              <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
+                <SelectTrigger className="h-9 w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[anoAtual + 1, anoAtual, anoAtual - 1, anoAtual - 2].map((a) => (
+                    <SelectItem key={a} value={String(a)}>
+                      {a}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </>
         )}
 

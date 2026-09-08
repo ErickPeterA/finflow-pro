@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -17,7 +17,7 @@ import { TopBar } from "@/components/TopBar";
 import { Bloco, SemDados, SemEmpresa } from "@/components/ui-blocos";
 import { useApp } from "@/lib/app-context";
 import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
-import { useCategorias, useConfiguracao, useLancamentos } from "@/lib/data";
+import { useAnosLancamentos, useCategorias, useConfiguracao, useLancamentos } from "@/lib/data";
 import {
   agregarPorCategoria,
   calcularDre,
@@ -29,7 +29,6 @@ import {
   valorAssinado,
 } from "@/lib/dre";
 import { brl, meses, mesesCurtos, pct, variacao } from "@/lib/format";
-import { mesesDoPeriodoFiltro } from "@/lib/periodo";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/analises")({
@@ -52,8 +51,12 @@ export const Route = createFileRoute("/_authenticated/analises")({
 });
 
 function AnalisesPage() {
-  const { empresaId, ano, mes, periodo, centroCusto } = useApp();
-  const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
+  const { empresaId, centroCusto } = useApp();
+  const anoAtual = new Date().getFullYear();
+  const mesAtual = new Date().getMonth();
+  const { data: anosLancamentos = [] } = useAnosLancamentos(empresaId);
+  const anoAnalise = anosLancamentos[0] ?? anoAtual;
+  const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, anoAnalise);
   const { data: categorias = [] } = useCategorias(empresaId);
   const { data: config } = useConfiguracao(empresaId);
   const margemDesejada = Number(config?.margem_desejada ?? 15);
@@ -62,12 +65,9 @@ function AnalisesPage() {
     "resultadoOperacional",
     "resultadoLiquido",
   ]);
-  const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
-  const [mesesVisiveis, setMesesVisiveis] = useState<number[]>(mesesPeriodo);
-
-  useEffect(() => {
-    setMesesVisiveis(mesesPeriodo);
-  }, [mesesPeriodo]);
+  const [mesesVisiveis, setMesesVisiveis] = useState<number[]>(
+    Array.from({ length: 12 }, (_, i) => i),
+  );
 
   const lancamentosFiltrados = useMemo(
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
@@ -83,7 +83,7 @@ function AnalisesPage() {
   );
 
   const resultadosPeriodo = resultados.filter((m) => mesesVisiveis.includes(m.mes));
-  const mesReferencia = mesesVisiveis.at(-1) ?? mes;
+  const mesReferencia = mesesVisiveis.at(-1) ?? mesAtual;
   const comMovimento = resultadosPeriodo.filter((m) => m.temMovimento);
   const receitaMedia = mediaFechados(resultadosPeriodo, (m) => m.receitaBruta);
   const resultadoMedio = mediaFechados(resultadosPeriodo, (m) => m.resultadoOperacional);
@@ -164,14 +164,16 @@ function AnalisesPage() {
 
   return (
     <>
-      <TopBar titulo="Análises" descricao={`Tendências e comportamento do exercício ${ano}`} />
+      <TopBar
+        titulo="Análises"
+        descricao={`Tendências e comportamento do exercício ${anoAnalise}`}
+        mostrarFiltrosData={false}
+      />
       <main className="space-y-5 p-6">
         {!empresaId ? (
           <SemEmpresa />
         ) : isLoading ? (
           <SemDados mensagem="Carregando análises..." />
-        ) : comMovimento.length === 0 ? (
-          <SemDados mensagem="Ainda não há lançamentos importados neste exercício." />
         ) : (
           <>
             <GraficoContasResultado
@@ -204,7 +206,7 @@ function AnalisesPage() {
                 ])
               }
               onTodosMeses={() => setMesesVisiveis(Array.from({ length: 12 }, (_, i) => i))}
-              onMesAtual={() => setMesesVisiveis([mes])}
+              onMesAtual={() => setMesesVisiveis([mesAtual])}
             />
 
             <GraficoInvestimentos dados={dadosInvestimentos} mesesVisiveis={mesesVisiveis} />

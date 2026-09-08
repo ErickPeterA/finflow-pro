@@ -18,6 +18,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "@/lib/app-context";
 import { useImportacoes, useLancamentoHashes, useMapeamentos } from "@/lib/data";
@@ -51,6 +58,8 @@ export const Route = createFileRoute("/_authenticated/importacao")({
   component: ImportacaoPage,
 });
 
+type TipoLimpezaImportacao = "paga" | "recebida";
+
 function ImportacaoPage() {
   const { empresaId, ano, mes } = useApp();
   const queryClient = useQueryClient();
@@ -66,6 +75,7 @@ function ImportacaoPage() {
   const [avisos, setAvisos] = useState<string[]>([]);
   const [processando, setProcessando] = useState(false);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
+  const [tipoLimpeza, setTipoLimpeza] = useState<TipoLimpezaImportacao>("paga");
   const [arrastando, setArrastando] = useState(false);
 
   const hashesExistentes = useMemo(() => new Set(hashes), [hashes]);
@@ -231,9 +241,44 @@ function ImportacaoPage() {
       queryClient.invalidateQueries({ queryKey: ["lancamentos"] });
       queryClient.invalidateQueries({ queryKey: ["lancamento-hashes"] });
       queryClient.invalidateQueries({ queryKey: ["centros-custo"] });
+      queryClient.invalidateQueries({ queryKey: ["lancamentos-fluxo"] });
+      queryClient.invalidateQueries({ queryKey: ["lancamentos-receber-vencidos"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-nibo"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-pagar-vencidos"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-receber-vencidos"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-checklist-pagamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-ajustes-lancamentos"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao excluir a importação."),
     onSettled: () => setExcluindoId(null),
+  });
+
+  const limparImportacoesPorTipo = useMutation({
+    mutationFn: async (tipo: TipoLimpezaImportacao) => {
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+
+      const { error: erroImportacoes } = await supabase
+        .from("importacoes")
+        .delete()
+        .eq("empresa_id", empresaId)
+        .eq("tipo", tipo);
+      if (erroImportacoes) throw erroImportacoes;
+    },
+    onSuccess: (_data, tipo) => {
+      toast.success(`${rotuloTipoLimpeza(tipo)} removidas das importações.`);
+      queryClient.invalidateQueries({ queryKey: ["importacoes"] });
+      queryClient.invalidateQueries({ queryKey: ["lancamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["lancamento-hashes"] });
+      queryClient.invalidateQueries({ queryKey: ["centros-custo"] });
+      queryClient.invalidateQueries({ queryKey: ["lancamentos-fluxo"] });
+      queryClient.invalidateQueries({ queryKey: ["lancamentos-receber-vencidos"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-nibo"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-pagar-vencidos"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-receber-vencidos"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-checklist-pagamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-ajustes-lancamentos"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao limpar as importações."),
   });
 
   return (
@@ -426,7 +471,63 @@ function ImportacaoPage() {
               </Bloco>
             )}
 
-            <Bloco titulo="Histórico de importações">
+            <Bloco
+              titulo="Histórico de importações"
+              acoes={
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={limparImportacoesPorTipo.isPending || importacoes.length === 0}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Excluir por tipo
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Excluir dados importados?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Escolha se deseja remover todas as contas pagas ou recebidas importadas
+                        desta empresa.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="space-y-2 py-2">
+                      <Label htmlFor="tipo-limpeza-importacao">Tipo de conta</Label>
+                      <Select
+                        value={tipoLimpeza}
+                        onValueChange={(valor) => setTipoLimpeza(valor as TipoLimpezaImportacao)}
+                      >
+                        <SelectTrigger id="tipo-limpeza-importacao">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="paga">Contas pagas</SelectItem>
+                          <SelectItem value="recebida">Contas recebidas</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Esta ação apaga os lançamentos e títulos vinculados ao histórico de
+                        importações do tipo selecionado.
+                      </p>
+                    </div>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        disabled={limparImportacoesPorTipo.isPending}
+                        onClick={() => limparImportacoesPorTipo.mutate(tipoLimpeza)}
+                      >
+                        {limparImportacoesPorTipo.isPending
+                          ? "Excluindo..."
+                          : `Excluir ${rotuloTipoLimpeza(tipoLimpeza).toLowerCase()}`}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              }
+            >
               {importacoes.length === 0 ? (
                 <SemDados mensagem="Nenhuma importação registrada para esta empresa." />
               ) : (
@@ -526,6 +627,10 @@ function Resumo({ rotulo, valor, alerta }: { rotulo: string; valor: string; aler
       <p className="tabular mt-1 text-base font-semibold">{valor}</p>
     </div>
   );
+}
+
+function rotuloTipoLimpeza(tipo: TipoLimpezaImportacao) {
+  return tipo === "paga" ? "Contas pagas" : "Contas recebidas";
 }
 
 function valorAssinadoPrevia(linha: LinhaImportada | TituloImportado, modoTitulos: boolean) {
