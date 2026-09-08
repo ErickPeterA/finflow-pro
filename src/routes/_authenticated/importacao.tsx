@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState, type DragEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, Trash2, Upload } from "lucide-react";
@@ -25,10 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "@/lib/app-context";
 import { useImportacoes, useLancamentoHashes, useMapeamentos } from "@/lib/data";
-import { importarLinhasFinanceiras, importarTitulosFinanceiros } from "@/lib/importacao/importer";
+import { importarManual, removerImportacaoManual } from "@/lib/importacao/importer.functions";
 import {
   parseArquivoNibo,
   type DeteccaoImportacao,
@@ -63,6 +63,8 @@ type TipoLimpezaImportacao = "paga" | "recebida";
 function ImportacaoPage() {
   const { empresaId, ano, mes } = useApp();
   const queryClient = useQueryClient();
+  const importarServidor = useServerFn(importarManual);
+  const removerServidor = useServerFn(removerImportacaoManual);
   const { data: importacoes = [] } = useImportacoes(empresaId);
   const { data: mapeamentos = [] } = useMapeamentos(empresaId);
   const { data: hashes = [] } = useLancamentoHashes(empresaId, ano);
@@ -185,25 +187,7 @@ function ImportacaoPage() {
   const importar = useMutation({
     mutationFn: async () => {
       if (!empresaId) throw new Error("Selecione uma empresa.");
-      if (modoTitulos) {
-        return importarTitulosFinanceiros({
-          supabase,
-          empresaId,
-          titulos: previaTitulos,
-          arquivoNome: nomeImportacao,
-          origem: "manual",
-          ignorarDuplicados: true,
-        });
-      }
-      return importarLinhasFinanceiras({
-        supabase,
-        empresaId,
-        linhas: previa,
-        mapeamentos,
-        arquivoNome: nomeImportacao,
-        origem: "manual",
-        ignorarDuplicados: true,
-      });
+      return importarServidor({ data: modoTitulos ? { empresaId, arquivoNome: nomeImportacao, modo: "titulos", titulos: previaTitulos } : { empresaId, arquivoNome: nomeImportacao, modo: "linhas", linhas: previa } });
     },
     onSuccess: ({ inseridos, ignorados }) => {
       toast.success(
@@ -226,13 +210,7 @@ function ImportacaoPage() {
     mutationFn: async (importacaoId: string) => {
       if (!empresaId) throw new Error("Selecione uma empresa.");
 
-      const { error } = await supabase
-        .from("importacoes")
-        .delete()
-        .eq("id", importacaoId)
-        .eq("empresa_id", empresaId);
-
-      if (error) throw error;
+      await removerServidor({ data: { empresaId, importacaoId } });
     },
     onMutate: (importacaoId) => setExcluindoId(importacaoId),
     onSuccess: () => {
@@ -257,12 +235,7 @@ function ImportacaoPage() {
     mutationFn: async (tipo: TipoLimpezaImportacao) => {
       if (!empresaId) throw new Error("Selecione uma empresa.");
 
-      const { error: erroImportacoes } = await supabase
-        .from("importacoes")
-        .delete()
-        .eq("empresa_id", empresaId)
-        .eq("tipo", tipo);
-      if (erroImportacoes) throw erroImportacoes;
+      await removerServidor({ data: { empresaId, tipo } });
     },
     onSuccess: (_data, tipo) => {
       toast.success(`${rotuloTipoLimpeza(tipo)} removidas das importações.`);

@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { query, withTransaction } from "@/lib/postgres";
 
 type PerfilProjeto = "interno" | "externo";
 type AbaGerenciamento = "criar-login" | "gerenciar-usuarios" | "atrelar-usuarios";
@@ -80,18 +81,9 @@ async function carregarAdmin() {
 }
 
 async function exigirAdmin(userId: string) {
-  const supabaseAdmin = await carregarAdmin();
-  const { data, error } = await supabaseAdmin
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("role", "admin")
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) throw new Error("Acesso restrito a administradores.");
-
-  return supabaseAdmin;
+  const result = await query("select 1 from user_roles where user_id=$1::uuid and role='admin'", [userId]);
+  if (!result.rowCount) throw new Error("Acesso restrito a administradores.");
+  return carregarAdmin();
 }
 
 function criarEmailAutenticacao(valor: string) {
@@ -139,23 +131,12 @@ async function montarPainel(adminId: string) {
 
   const ids = authData.users.map((u) => u.id);
 
-  const { data: profiles, error: profilesError } = await supabaseAdmin
-    .from("profiles")
-    .select("id, nome, email")
-    .in("id", ids);
-  if (profilesError) throw profilesError;
-
-  const { data: projetos, error: projetosError } = await supabaseAdmin
-    .from("empresas")
-    .select("id, nome, cnpj, ativo")
-    .order("nome");
-  if (projetosError) throw projetosError;
-
-  const { data: vinculos, error: vinculosError } = await supabaseAdmin
-    .from("projeto_usuarios")
-    .select("id, empresa_id, user_id, perfil, ativo, created_at")
-    .order("created_at", { ascending: false });
-  if (vinculosError) throw vinculosError;
+  const [profilesResult, projetosResult, vinculosResult] = await Promise.all([
+    query<{id:string;nome:string;email:string|null}>("select id,nome,email from profiles where id=any($1::uuid[])", [ids]),
+    query<ProjetoGerenciado>("select id,nome,cnpj,ativo from empresas order by nome"),
+    query<{id:string;empresa_id:string;user_id:string;perfil:PerfilProjeto;ativo:boolean;created_at:string}>("select id,empresa_id,user_id,perfil,ativo,created_at from projeto_usuarios order by created_at desc"),
+  ]);
+  const profiles=profilesResult.rows, projetos=projetosResult.rows, vinculos=vinculosResult.rows;
 
   const profilePorId = new Map((profiles ?? []).map((p) => [p.id, p]));
   const usuarios: UsuarioGerenciado[] = authData.users
@@ -238,19 +219,11 @@ const criarLogin = createServerFn({ method: "POST" })
     const userId = userData.user?.id;
     if (!userId) throw new Error("Login criado sem usuário associado.");
 
-    const { error: profileError } = await supabaseAdmin.from("profiles").upsert({
-      id: userId,
-      nome: data.nome,
-      email: data.email,
+    await withTransaction(async (client) => {
+      await client.query("insert into users (id,email,nome) values ($1,$2,$3) on conflict (id) do update set email=excluded.email,nome=excluded.nome", [userId,data.email,data.nome]);
+      await client.query("insert into profiles (id,nome,email) values ($1,$2,$3) on conflict (id) do update set nome=excluded.nome,email=excluded.email", [userId,data.nome,data.email]);
+      await client.query("insert into user_roles (user_id,role) values ($1,'consultor') on conflict (user_id,role) do nothing", [userId]);
     });
-    if (profileError) throw profileError;
-
-    const { error: roleError } = await supabaseAdmin
-      .from("user_roles")
-      .insert({ user_id: userId, role: "consultor" })
-      .select("id")
-      .single();
-    if (roleError && !roleError.message.toLowerCase().includes("duplicate")) throw roleError;
 
     return { ok: true };
   });
@@ -295,25 +268,11 @@ const salvarVinculo = createServerFn({ method: "POST" })
     const adminId = String(context.userId);
     const supabaseAdmin = await exigirAdmin(adminId);
 
-    const { data: projeto, error: projetoError } = await supabaseAdmin
-      .from("empresas")
-      .select("id")
-      .eq("id", data.empresaId)
-      .maybeSingle();
-    if (projetoError) throw projetoError;
+    const { rows: projeto } = await query("select id from empresas where id=$1::uuid", [data.empresaId]);
+    if (!projeto.length) throw new Error("Projeto não encontrado.");
     if (!projeto) throw new Error("Projeto não encontrado.");
 
-    const { error } = await supabaseAdmin.from("projeto_usuarios").upsert(
-      {
-        user_id: data.userId,
-        empresa_id: data.empresaId,
-        perfil: data.perfil,
-        ativo: true,
-        created_by: adminId,
-      },
-      { onConflict: "empresa_id,user_id" },
-    );
-    if (error) throw error;
+    await query("insert into projeto_usuarios (user_id,empresa_id,perfil,ativo,created_by) values ($1,$2,$3,true,$4) on conflict (empresa_id,user_id) do update set perfil=excluded.perfil,ativo=true,created_by=excluded.created_by", [data.userId,data.empresaId,data.perfil,adminId]);
 
     return { ok: true };
   });
@@ -328,11 +287,7 @@ const desativarVinculo = createServerFn({ method: "POST" })
     const adminId = String(context.userId);
     const supabaseAdmin = await exigirAdmin(adminId);
 
-    const { error } = await supabaseAdmin
-      .from("projeto_usuarios")
-      .update({ ativo: false })
-      .eq("id", data.vinculoId);
-    if (error) throw error;
+    await query("update projeto_usuarios set ativo=false where id=$1::uuid", [data.vinculoId]);
 
     return { ok: true };
   });
