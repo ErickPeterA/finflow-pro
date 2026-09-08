@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
@@ -59,8 +60,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
-import type { Json } from "@/integrations/supabase/types";
 import { useApp } from "@/lib/app-context";
 import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
 import {
@@ -77,6 +76,7 @@ import {
   type FluxoTituloNibo,
   type StatusChecklistFluxo,
 } from "@/lib/data";
+import { mutateFinancialData } from "@/lib/financial-mutations.functions";
 import type { Lancamento } from "@/lib/dre";
 import { brl, dataBR } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -212,6 +212,7 @@ const bancosPreConfigurados: BancoPreConfigurado[] = [
 
 function FluxoCaixaPage() {
   const queryClient = useQueryClient();
+  const mutateData = useServerFn(mutateFinancialData);
   const { empresaId, centroCusto } = useApp();
   const { data: empresa } = useEmpresaAtual(empresaId);
   const hoje = hojeISO();
@@ -348,8 +349,9 @@ function FluxoCaixaPage() {
         ...Object.fromEntries(ids.map((id) => [id, true])),
       }));
 
-      const { error } = await supabase.from("fluxo_saldos_bancarios").insert(linhasSaldo);
-      if (error) {
+      try {
+        await mutateData({ data: { action: "saveSaldos", empresaId, saldos: linhasSaldo.map((linha) => ({ contaId: linha.conta_id, saldo: linha.saldo })) } });
+      } catch {
         toast.error("Nao foi possivel salvar os saldos automaticamente.");
         setSaldosSalvando((atuais) => {
           const proximos = { ...atuais };
@@ -541,29 +543,7 @@ function FluxoCaixaPage() {
       const criadoEm = new Date().toISOString();
       const externalId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-      const { error } = await supabase.from("fluxo_titulos_nibo").insert({
-        empresa_id: empresaId,
-        tipo: lancamentoManual.tipo,
-        vencimento,
-        data_projetada: vencimento,
-        competencia: competenciaDoVencimento(vencimento),
-        descricao: descricao.slice(0, 500),
-        categoria_nibo:
-          lancamentoManual.tipo === "paga"
-            ? "Manual - Contas a pagar"
-            : "Manual - Contas a receber",
-        pessoa: nome.slice(0, 180),
-        valor,
-        status: "aberto",
-        hash: `manual|${empresaId}|${externalId}`,
-        external_source: "manual_fluxo_caixa",
-        external_id: externalId,
-        payload: {
-          origem: "manual_fluxo_caixa",
-          criado_em: criadoEm,
-        } as Json,
-      });
-      if (error) throw error;
+      await mutateData({ data: { action: "createTituloManual", empresaId, titulo: { tipo: lancamentoManual.tipo, vencimento, competencia: competenciaDoVencimento(vencimento), descricao: descricao.slice(0,500), categoria: lancamentoManual.tipo === "paga" ? "Manual - Contas a pagar" : "Manual - Contas a receber", pessoa: nome.slice(0,180), valor, hash: `manual|${empresaId}|${externalId}`, externalId, payload: { origem: "manual_fluxo_caixa", criado_em: criadoEm } } } });
     },
     onSuccess: async () => {
       toast.success("Lancamento manual incluido.");
@@ -607,15 +587,7 @@ function FluxoCaixaPage() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from("fluxo_contas_bancarias")
-      .upsert(
-        { empresa_id: empresaId, nome: banco.nome, imagem_url: banco.imagemUrl, ativo: true },
-        { onConflict: "empresa_id,nome" },
-      )
-      .select("id")
-      .single();
-    if (error) throw error;
+    const data = await mutateData({ data: { action: "createConta", empresaId, nome: banco.nome, imagemUrl: banco.imagemUrl } });
     if (data?.id) {
       setContasSelecionadas((atuais) => [...new Set([...atuais, data.id])]);
       setSaldosEditados((atuais) => ({ ...atuais, [data.id]: formatarCampoMonetario(0) }));
@@ -643,7 +615,8 @@ function FluxoCaixaPage() {
         valor: linha.pagamento,
       }));
 
-    const { error } = await supabase.from("fluxo_historicos").insert({
+    await mutateData({ data: { action: "createHistorico", empresaId, historico: {
+      inicio: range.inicio, fim: range.fim, saldoInicial: saldoDisponivel, recebimentos: resumo.recebimentos, pagamentos: resumo.pagamentos, saldoFinal: resumo.saldoFinal,
       empresa_id: empresaId,
       periodo_inicio: range.inicio,
       periodo_fim: range.fim,
@@ -674,9 +647,8 @@ function FluxoCaixaPage() {
           diaMaiorPagamento: alertas.diaMaiorPagamento ?? null,
           necessidadeCaixa: alertas.necessidadeCaixa,
         },
-      } as Json,
-    });
-    if (error) throw error;
+      },
+    } } });
   }
 
   function exportarExcel() {

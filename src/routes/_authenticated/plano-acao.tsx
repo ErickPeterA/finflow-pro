@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Eye, FileDown, Plus, Trash2 } from "lucide-react";
@@ -24,10 +25,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useApp } from "@/lib/app-context";
 import { usePlanosAcao } from "@/lib/data";
+import { mutateFinancialData } from "@/lib/financial-mutations.functions";
 import { competenciaDate, dataBR, meses } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -380,6 +381,7 @@ function VisualizarPlanoDialog({ plano, children }: { plano: PlanoAcao; children
 function PlanoAcaoPage() {
   const { empresaId, ano, mes } = useApp();
   const queryClient = useQueryClient();
+  const mutateData = useServerFn(mutateFinancialData);
   const { data: planos = [], isLoading } = usePlanosAcao(empresaId);
   const [aberto, setAberto] = useState(false);
   const [form, setForm] = useState({
@@ -397,19 +399,7 @@ function PlanoAcaoPage() {
       if (!empresaId) throw new Error("Selecione uma empresa.");
       if (!form.problema.trim() || !form.acao.trim())
         throw new Error("Informe o problema identificado e a ação recomendada.");
-      const { error } = await supabase.from("planos_acao").insert({
-        empresa_id: empresaId,
-        competencia_origem: competenciaDate(ano, mes),
-        problema: form.problema.trim().slice(0, 1000),
-        acao: form.acao.trim().slice(0, 1000),
-        resultado_esperado: form.resultado_esperado.trim().slice(0, 1000) || null,
-        categoria: form.categoria.trim().slice(0, 120) || null,
-        responsavel: form.responsavel.trim().slice(0, 120) || null,
-        prioridade: form.prioridade,
-        prazo: form.prazo || null,
-        status: "pendente" as StatusAcao,
-      });
-      if (error) throw error;
+      await mutateData({ data: { action: "createPlano", empresaId, plano: { competencia: competenciaDate(ano, mes), problema: form.problema.trim().slice(0, 1000), acao: form.acao.trim().slice(0, 1000), resultado: form.resultado_esperado.trim().slice(0, 1000) || null, categoria: form.categoria.trim().slice(0, 120) || null, responsavel: form.responsavel.trim().slice(0, 120) || null, prioridade: form.prioridade, prazo: form.prazo || null } } });
     },
     onSuccess: () => {
       toast.success("Ação adicionada ao plano.");
@@ -430,14 +420,8 @@ function PlanoAcaoPage() {
 
   const atualizar = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: StatusAcao }) => {
-      const { error } = await supabase
-        .from("planos_acao")
-        .update({
-          status,
-          concluido_em: status === "concluido" ? new Date().toISOString() : null,
-        })
-        .eq("id", id);
-      if (error) throw error;
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+      await mutateData({ data: { action: "updatePlanoStatus", empresaId, id, status } });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["planos_acao"] }),
     onError: () => toast.error("Não foi possível atualizar o status."),
@@ -445,8 +429,8 @@ function PlanoAcaoPage() {
 
   const remover = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("planos_acao").delete().eq("id", id);
-      if (error) throw error;
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+      await mutateData({ data: { action: "deletePlano", empresaId, id } });
     },
     onSuccess: () => {
       toast.success("Ação removida.");
@@ -472,15 +456,8 @@ function PlanoAcaoPage() {
 
       gerarRelatorioPlanos(acoesParaRelatorio);
 
-      const { error } = await supabase
-        .from("planos_acao")
-        .update({ relatorio_gerado_em: new Date().toISOString() })
-        .in(
-          "id",
-          acoesParaRelatorio.map((plano) => plano.id),
-        );
-
-      if (error) throw error;
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+      await mutateData({ data: { action: "archivePlanos", empresaId, ids: acoesParaRelatorio.map((plano) => plano.id) } });
     },
     onSuccess: () => {
       toast.success("Relatório gerado e ações movidas para o histórico.");
