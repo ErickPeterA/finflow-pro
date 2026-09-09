@@ -1,0 +1,27 @@
+services:
+  drefinance-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: drefinance-app
+    restart: unless-stopped
+
+    env_file:
+      - .env.production
+
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+
+    ports:
+      - "127.0.0.1:3001:3000"
+
+    networks:
+      - infra_backend
+
+networks:
+  infra_backend:
+    external: true
+    name: infra_backend

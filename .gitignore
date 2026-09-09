@@ -36,3 +36,4 @@ storageState*.json
 *.njsproj
 *.sln
 *.sw?
+.env.production
