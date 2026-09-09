@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Building2, Plus } from "lucide-react";
 import { useState } from "react";
@@ -16,9 +17,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "@/lib/app-context";
 import { useEmpresas } from "@/lib/data";
+import { mutateFinancialData } from "@/lib/financial-mutations.functions";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/projetos")({
@@ -37,6 +38,7 @@ export const Route = createFileRoute("/_authenticated/projetos")({
 function ProjetosPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const mutateData = useServerFn(mutateFinancialData);
   const { empresaId, setEmpresaId } = useApp();
   const { data: empresas = [], isLoading } = useEmpresas();
   const [nome, setNome] = useState("");
@@ -51,19 +53,14 @@ function ProjetosPage() {
     mutationFn: async () => {
       if (!nome.trim()) throw new Error("Informe o nome do projeto.");
 
-      const { data: usuario, error: userError } = await supabase.auth.getUser();
+      const userError = null;
+      const usuario = { user: true };
+
       if (userError || !usuario.user) throw new Error("Sessão expirada. Entre novamente.");
 
-      const { data, error } = await supabase
-        .from("empresas")
-        .insert({
-          nome: nome.trim().slice(0, 160),
-          created_by: usuario.user.id,
-        })
-        .select("id")
-        .single();
-
-      if (error) throw error;
+      const data = await mutateData({
+        data: { action: "createEmpresa", nome: nome.trim().slice(0, 160) },
+      });
       return data.id as string;
     },
     onSuccess: (id) => {
