@@ -1,13 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { BarChart3, LogIn, Shield, TrendingUp, Wallet } from "lucide-react";
 import {
   AUTH_REMEMBER_EMAIL_KEY,
   AUTH_REMEMBER_KEY,
   AUTH_REMEMBER_UNTIL_KEY,
-  supabase,
-} from "@/integrations/supabase/client";
+} from "@/lib/auth-storage";
+import { getLocalSession, loginLocal } from "@/lib/auth.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,7 +42,7 @@ function mensagemErroAutenticacao(err: unknown) {
     erro.code === "over_email_send_rate_limit" ||
     mensagem.includes("email rate limit")
   ) {
-    return "Limite de envio de e-mails atingido. Aguarde um tempo antes de tentar novamente ou configure SMTP próprio no Supabase.";
+    return "Muitas tentativas de acesso. Aguarde um tempo antes de tentar novamente.";
   }
 
   return erro.message;
@@ -90,16 +91,18 @@ function emailSalvo() {
 
 function AuthPage() {
   const navigate = useNavigate();
+  const consultarSessao = useServerFn(getLocalSession);
+  const autenticar = useServerFn(loginLocal);
   const [email, setEmail] = useState(emailSalvo);
   const [senha, setSenha] = useState("");
   const [lembrar, setLembrar] = useState(lembrarSalvo);
   const [carregando, setCarregando] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/projetos", replace: true });
+    consultarSessao().then(({ user }) => {
+      if (user) navigate({ to: "/projetos", replace: true });
     });
-  }, [navigate]);
+  }, [consultarSessao, navigate]);
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
@@ -122,11 +125,7 @@ function AuthPage() {
         localStorage.removeItem(AUTH_REMEMBER_EMAIL_KEY);
       }
 
-      const { error } = await supabase.auth.signInWithPassword({
-        email: emailAutenticacao,
-        password: senha,
-      });
-      if (error) throw error;
+      await autenticar({ data: { email: emailAutenticacao, password: senha } });
       navigate({ to: "/projetos", replace: true });
     } catch (err) {
       toast.error(mensagemErroAutenticacao(err));
@@ -213,7 +212,7 @@ function AuthPage() {
                 id="senha"
                 type="password"
                 value={senha}
-                minLength={6}
+                minLength={8}
                 onChange={(e) => setSenha(e.target.value)}
                 placeholder="••••••••"
                 className="border-gray-200 focus:border-[#042558] focus:ring-[#042558]/20"

@@ -1,12 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAuthenticatedUser } from "./auth-middleware";
 import { assertEmpresaAccess } from "./authorization";
 import { query, withTransaction } from "./postgres";
 
 type Mutation = { action: string; empresaId?: string; [key: string]: unknown };
 const assertId = (value: unknown, label = "Registro") => { if (typeof value !== "string" || !value) throw new Error(`${label} inválido.`); return value; };
 
-export const mutateFinancialData = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
+export const mutateFinancialData = createServerFn({ method: "POST" }).middleware([requireAuthenticatedUser])
   .validator((data: Mutation) => { if (!data || (!data.empresaId && data.action !== "createEmpresa")) throw new Error("Empresa obrigatória."); return data; })
   .handler(async ({ context, data }) => {
     const userId = String(context.userId); if (data.empresaId) await assertEmpresaAccess(userId, data.empresaId);

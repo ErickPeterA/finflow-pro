@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAuthenticatedUser } from "./auth-middleware";
 import { assertEmpresaAccess } from "./authorization";
 import { query } from "./postgres";
 
@@ -41,7 +41,7 @@ const sql: Record<string, (d: RequestData, userId: string) => { text: string; va
 };
 
 export const getFinancialData = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuthenticatedUser])
   .validator((data: RequestData) => data)
   .handler(async ({ data, context }) => {
     if (!sql[data.resource]) throw new Error("Recurso de dados inválido.");

@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { supabase } from "@/integrations/supabase/client";
+import { getLocalSession } from "@/lib/auth.functions";
 
 export const Route = createFileRoute("/")({
   ssr: false,
@@ -20,8 +20,8 @@ export const Route = createFileRoute("/")({
     ],
   }),
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getSession();
-    throw redirect({ to: data.session ? "/projetos" : "/auth" });
+    const { user } = await getLocalSession();
+    throw redirect({ to: user ? "/projetos" : "/auth" });
   },
   component: Index,
 });

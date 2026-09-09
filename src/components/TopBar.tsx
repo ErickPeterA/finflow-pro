@@ -2,7 +2,8 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Check, ChevronsUpDown, LogOut } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useServerFn } from "@tanstack/react-start";
+import { logoutLocal } from "@/lib/auth.functions";
 import { useApp } from "@/lib/app-context";
 import { CENTRO_CUSTO_TODOS, opcoesCentroCusto } from "@/lib/centro-custo";
 import { useCentrosCusto, useEmpresaAtual } from "@/lib/data";
@@ -63,6 +64,7 @@ export function TopBar({
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const queryClient = useQueryClient();
+  const encerrarSessao = useServerFn(logoutLocal);
   const anoAtual = new Date().getFullYear();
   const estaNoProjeto = pathname !== "/projetos" && pathname !== "/gerenciamento";
   const todosCentrosSelecionados = centroCusto.includes(CENTRO_CUSTO_TODOS);
@@ -94,7 +96,7 @@ export function TopBar({
   async function sair() {
     await queryClient.cancelQueries();
     queryClient.clear();
-    await supabase.auth.signOut();
+    await encerrarSessao();
     navigate({ to: "/auth", replace: true });
   }
 

@@ -7,7 +7,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { getLocalSession } from "@/lib/auth.functions";
 import { AppProvider, useApp } from "@/lib/app-context";
 import { AppSidebar } from "@/components/AppSidebar";
 import { useMeuCargo, usePerfilProjetoAtual } from "@/lib/data";
@@ -15,9 +15,9 @@ import { useMeuCargo, usePerfilProjetoAtual } from "@/lib/data";
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/auth" });
-    return { user: data.user };
+    const { user } = await getLocalSession();
+    if (!user) throw redirect({ to: "/auth" });
+    return { user };
   },
   component: Layout,
   errorComponent: LayoutErro,
