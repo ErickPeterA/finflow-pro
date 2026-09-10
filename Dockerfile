@@ -27,7 +27,9 @@ ENV PORT=3000
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-COPY --from=builder /app/.output ./.output
+COPY --chown=node:node --from=builder /app/.output ./.output
+
+USER node
 
 EXPOSE 3000
 
