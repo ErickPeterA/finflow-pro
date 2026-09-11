@@ -33,7 +33,7 @@ import {
   type Categoria,
   type Lancamento,
 } from "@/lib/dre";
-import { calcularImpactos } from "@/lib/insights";
+import { calcularImpactos, calcularImpactosAno } from "@/lib/insights";
 import {
   mesesDoPeriodoFiltro,
   periodoFiltroLabel,
@@ -102,8 +102,11 @@ function HomePage() {
   const custosOperacionais = atual.deducoes + atual.custos;
 
   const impactos = useMemo(
-    () => calcularImpactos(lancamentosFiltrados, categorias, mesReferencia),
-    [lancamentosFiltrados, categorias, mesReferencia],
+    () =>
+      periodo === "ano"
+        ? calcularImpactosAno(lancamentosFiltrados, categorias)
+        : calcularImpactos(lancamentosFiltrados, categorias, mesReferencia),
+    [lancamentosFiltrados, categorias, mesReferencia, periodo],
   );
   const caminhoGastos = useMemo(
     () =>
@@ -405,10 +408,13 @@ function HomePage() {
             </div>
 
             <Bloco
-              titulo="Principais impactos do mês"
+              titulo={
+                periodo === "ano" ? "Principais impactos do ano" : "Principais impactos do mês"
+              }
               acoes={
                 <span className="text-xs text-muted-foreground">
-                  {pct(impactos.explicado)} da variação explicada pelos 10 principais fatores
+                  {pct(impactos.explicado)} {periodo === "ano" ? "do impacto anual" : "da variação"}{" "}
+                  explicado pelos 10 principais fatores
                 </span>
               }
             >

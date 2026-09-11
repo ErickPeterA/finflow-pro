@@ -16,11 +16,18 @@ export interface Impacto {
   efeito: number;
 }
 
+type ResumoImpactos = {
+  positivos: Impacto[];
+  negativos: Impacto[];
+  explicado: number;
+  liquido: number;
+};
+
 export function calcularImpactos(
   lancamentos: Lancamento[],
   categorias: Categoria[],
   mes: number,
-): { positivos: Impacto[]; negativos: Impacto[]; explicado: number; liquido: number } {
+): ResumoImpactos {
   const linhas = agregarPorCategoria(lancamentos, categorias);
   const impactos: Impacto[] = [];
 
@@ -35,6 +42,34 @@ export function calcularImpactos(
     impactos.push({ nome: l.nome, grupo: grupoLabels[l.grupo], delta, efeito });
   }
 
+  return resumirImpactos(impactos);
+}
+
+/** Maiores contribuições acumuladas para o resultado operacional do ano. */
+export function calcularImpactosAno(
+  lancamentos: Lancamento[],
+  categorias: Categoria[],
+): ResumoImpactos {
+  const impactos = agregarPorCategoria(lancamentos, categorias).flatMap((linha) => {
+    if (linha.grupo === "financeiro" || linha.grupo === "nao_operacional") return [];
+
+    const efeito = linha.valores.reduce((total, valor) => total + valor, 0);
+    if (Math.abs(efeito) < 0.01) return [];
+
+    return [
+      {
+        nome: linha.nome,
+        grupo: grupoLabels[linha.grupo],
+        delta: efeito,
+        efeito,
+      },
+    ];
+  });
+
+  return resumirImpactos(impactos);
+}
+
+function resumirImpactos(impactos: Impacto[]): ResumoImpactos {
   const positivos = impactos.filter((i) => i.efeito > 0).sort((a, b) => b.efeito - a.efeito);
   const negativos = impactos.filter((i) => i.efeito < 0).sort((a, b) => a.efeito - b.efeito);
   const liquido = impactos.reduce((s, i) => s + i.efeito, 0);

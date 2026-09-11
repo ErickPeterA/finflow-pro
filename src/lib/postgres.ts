@@ -1,4 +1,16 @@
-import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { Pool, types, type PoolClient, type QueryResultRow } from "pg";
+
+// O restante da aplicação segue o mesmo contrato da API do Supabase: campos
+// date/timestamp são strings ISO. Versões recentes do `pg` podem convertê-los
+// em objetos Date, quebrando operações de texto usadas nas telas (.slice,
+// .localeCompare etc.) e ainda aplicando fuso horário a datas sem horário.
+const POSTGRES_DATE_OID = 1082;
+const POSTGRES_TIMESTAMP_OID = 1114;
+const POSTGRES_TIMESTAMPTZ_OID = 1184;
+
+types.setTypeParser(POSTGRES_DATE_OID, (value) => value);
+types.setTypeParser(POSTGRES_TIMESTAMP_OID, (value) => value);
+types.setTypeParser(POSTGRES_TIMESTAMPTZ_OID, (value) => value);
 
 let pool: Pool | undefined;
 

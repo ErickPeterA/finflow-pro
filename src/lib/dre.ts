@@ -175,8 +175,17 @@ const vazio = (mes: number): ResultadoMes => ({
   temMovimento: false,
 });
 
-export function mesDaCompetencia(competencia: string): number {
-  return Number(competencia.slice(5, 7)) - 1;
+export function mesDaCompetencia(competencia: unknown): number {
+  // Dados importados podem chegar de fontes que serializam datas como objetos.
+  // A conversão mantém o cálculo atual para strings ISO e torna registros
+  // inválidos apenas inelegíveis para o agrupamento, sem interromper a tela.
+  const texto =
+    typeof competencia === "string"
+      ? competencia
+      : competencia instanceof Date
+        ? competencia.toISOString().slice(0, 10)
+        : "";
+  return Number(texto.slice(5, 7)) - 1;
 }
 
 /** Calcula o DRE gerencial (regime de caixa) para os 12 meses do ano. */
