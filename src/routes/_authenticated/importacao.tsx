@@ -28,7 +28,12 @@ import {
 } from "@/components/ui/select";
 import { useApp } from "@/lib/app-context";
 import { useImportacoes, useLancamentoHashes, useMapeamentos } from "@/lib/data";
-import { importarManual, removerImportacaoManual } from "@/lib/importacao/importer.functions";
+import {
+  finalizarImportacaoManual,
+  importarLoteManual,
+  iniciarImportacaoManual,
+  removerImportacaoManual,
+} from "@/lib/importacao/importer.functions";
 import {
   parseArquivoNibo,
   type DeteccaoImportacao,
@@ -63,7 +68,9 @@ type TipoLimpezaImportacao = "paga" | "recebida";
 function ImportacaoPage() {
   const { empresaId, ano, mes } = useApp();
   const queryClient = useQueryClient();
-  const importarServidor = useServerFn(importarManual);
+  const iniciarImportacaoServidor = useServerFn(iniciarImportacaoManual);
+  const importarLoteServidor = useServerFn(importarLoteManual);
+  const finalizarImportacaoServidor = useServerFn(finalizarImportacaoManual);
   const removerServidor = useServerFn(removerImportacaoManual);
   const { data: importacoes = [] } = useImportacoes(empresaId);
   const { data: mapeamentos = [] } = useMapeamentos(empresaId);
@@ -187,7 +194,52 @@ function ImportacaoPage() {
   const importar = useMutation({
     mutationFn: async () => {
       if (!empresaId) throw new Error("Selecione uma empresa.");
-      return importarServidor({ data: modoTitulos ? { empresaId, arquivoNome: nomeImportacao, modo: "titulos", titulos: previaTitulos } : { empresaId, arquivoNome: nomeImportacao, modo: "linhas", linhas: previa } });
+      const modo: "linhas" | "titulos" = modoTitulos ? "titulos" : "linhas";
+      const registros: Array<LinhaImportada | TituloImportado> = modoTitulos
+        ? previaTitulos
+        : previa;
+      const grupos = new Map<string, Array<LinhaImportada | TituloImportado>>();
+      for (const registro of registros) {
+        const chave = `${registro.tipo}|${registro.competencia}`;
+        const grupo = grupos.get(chave);
+        if (grupo) grupo.push(registro);
+        else grupos.set(chave, [registro]);
+      }
+      const resumos = Array.from(grupos.entries()).map(([chave, grupo]) => {
+        const [tipo, competencia] = chave.split("|") as ["paga" | "recebida", string];
+        return {
+          tipo,
+          competencia,
+          totalRegistros: grupo.length,
+          valorTotal: grupo.reduce((total, registro) => total + Number(registro.valor), 0),
+        };
+      });
+      const { importacoes } = await iniciarImportacaoServidor({
+        data: { empresaId, arquivoNome: nomeImportacao, modo, resumos },
+      });
+      let inseridos = 0;
+      let ignorados = 0;
+      // 100 registros deixa cada POST muito abaixo do limite do proxy, mesmo
+      // quando as descricoes da planilha sao longas.
+      for (const [chave, grupo] of grupos) {
+        const importacaoId = importacoes[chave];
+        if (!importacaoId) throw new Error("Nao foi possivel preparar a importacao.");
+        for (let inicio = 0; inicio < grupo.length; inicio += 100) {
+          const lote = grupo.slice(inicio, inicio + 100);
+          const resultado = await importarLoteServidor({
+            data:
+              modo === "titulos"
+                ? { empresaId, importacaoId, modo, titulos: lote as TituloImportado[] }
+                : { empresaId, importacaoId, modo, linhas: lote as LinhaImportada[] },
+          });
+          inseridos += resultado.inseridos;
+          ignorados += resultado.ignorados;
+        }
+      }
+      await finalizarImportacaoServidor({
+        data: { empresaId, modo, importacaoIds: Object.values(importacoes) },
+      });
+      return { inseridos, ignorados };
     },
     onSuccess: ({ inseridos, ignorados }) => {
       toast.success(

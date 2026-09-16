@@ -5,31 +5,213 @@ import type { Categoria, Lancamento } from "./dre";
 import { getFinancialData } from "./financial-data.functions";
 export type Cargo = Database["public"]["Enums"]["app_role"];
 export type PerfilProjeto = "interno" | "externo";
-export interface Empresa { id:string; nome:string; cnpj:string|null; cor_primaria:string; logo_url:string|null; ativo:boolean }
-export type FluxoContaBancaria=Database["public"]["Tables"]["fluxo_contas_bancarias"]["Row"]; export type FluxoSaldoBancario=Database["public"]["Tables"]["fluxo_saldos_bancarios"]["Row"]; export type FluxoAjusteLancamento=Database["public"]["Tables"]["fluxo_ajustes_lancamentos"]["Row"]; export type FluxoChecklistPagamento=Database["public"]["Tables"]["fluxo_checklist_pagamentos"]["Row"]; export type FluxoTituloNibo=Database["public"]["Tables"]["fluxo_titulos_nibo"]["Row"]; export type StatusChecklistFluxo=Database["public"]["Enums"]["status_checklist_fluxo"];
-function useData<T>(key:unknown[],resource:string,args:Record<string,unknown>={},enabled=true){const request=useServerFn(getFinancialData);return useQuery({queryKey:key,enabled,queryFn:()=>request({data:{resource,...args}}) as Promise<T>});}
-export const useEmpresas=()=>useData<Empresa[]>(["empresas"],"empresas");
-export const useEmpresaAtual=(empresaId:string|null)=>{const q=useData<Empresa[]>(["empresa",empresaId],"empresa",{empresaId},!!empresaId);return {...q,data:q.data?.[0]??null};};
-export const useMeuCargo=()=>{const q=useData<Array<{role:Cargo}>>(["meu-cargo"],"cargo");return {...q,data:q.data?.[0]?.role??null};};
-export const usePerfilProjetoAtual=(empresaId:string|null)=>{const q=useData<Array<{perfil:PerfilProjeto}>>(["perfil-projeto-atual",empresaId],"perfil",{empresaId},!!empresaId);return {...q,data:q.data?.[0]?.perfil??null};};
-export const useCategorias=(empresaId:string|null)=>useData<Categoria[]>(["categorias",empresaId],"categorias",{empresaId},!!empresaId);
-export const useLancamentos=(empresaId:string|null,ano:number)=>useData<Lancamento[]>(["lancamentos",empresaId,ano],"lancamentos",{empresaId,ano},!!empresaId);
-export const useLancamentoHashes=(empresaId:string|null,ano:number)=>{const q=useData<Array<{hash:string|null}>>(["lancamento-hashes",empresaId,ano],"hashes",{empresaId,ano},!!empresaId);return {...q,data:(q.data??[]).flatMap(x=>x.hash?[x.hash]:[])};};
-export const useAnosLancamentos=(empresaId:string|null)=>{const q=useData<Array<{ano:number}>>(["lancamento-anos",empresaId],"anos",{empresaId},!!empresaId);return {...q,data:(q.data??[]).map(x=>x.ano)};};
-export const useCentrosCusto=(empresaId:string|null,ano:number|null)=>useData<Array<{centro_custo:string|null}>>(["centros-custo",empresaId,ano],"centros",{empresaId,ano},!!empresaId);
-export const useLancamentosFluxo=(empresaId:string|null,inicio:string,fim:string)=>useData<Lancamento[]>(["lancamentos-fluxo",empresaId,inicio,fim],"lancamentosFluxo",{empresaId,inicio,fim},!!empresaId);
-export const useLancamentosReceberVencidos=(empresaId:string|null,hoje:string)=>useData<Lancamento[]>(["lancamentos-receber-vencidos",empresaId,hoje],"lancamentosReceberVencidos",{empresaId,hoje},!!empresaId);
-export const useFluxoContasBancarias=(empresaId:string|null)=>useData<FluxoContaBancaria[]>(["fluxo-contas-bancarias",empresaId],"contas",{empresaId},!!empresaId);
-export const useFluxoSaldosBancarios=(empresaId:string|null)=>useData<FluxoSaldoBancario[]>(["fluxo-saldos-bancarios",empresaId],"saldos",{empresaId},!!empresaId);
-export const useFluxoAjustesLancamentos=(empresaId:string|null)=>useData<FluxoAjusteLancamento[]>(["fluxo-ajustes-lancamentos",empresaId],"ajustes",{empresaId},!!empresaId);
-export const useFluxoChecklistPagamentos=(empresaId:string|null)=>useData<FluxoChecklistPagamento[]>(["fluxo-checklist-pagamentos",empresaId],"checklist",{empresaId},!!empresaId);
-export const useFluxoTitulosNibo=(empresaId:string|null,inicio:string,fim:string)=>useData<FluxoTituloNibo[]>(["fluxo-titulos-nibo",empresaId,inicio,fim],"titulos",{empresaId,inicio,fim},!!empresaId);
-export const useFluxoTitulosReceberVencidos=(empresaId:string|null,hoje:string)=>useData<FluxoTituloNibo[]>(["fluxo-titulos-receber-vencidos",empresaId,hoje],"titulosReceberVencidos",{empresaId,hoje},!!empresaId);
-export const useFluxoTitulosPagarVencidos=(empresaId:string|null,hoje:string)=>useData<FluxoTituloNibo[]>(["fluxo-titulos-pagar-vencidos",empresaId,hoje],"titulosPagarVencidos",{empresaId,hoje},!!empresaId);
-export const useMetas=(empresaId:string|null,ano:number)=>useData<Database["public"]["Tables"]["metas"]["Row"][]>(["metas",empresaId,ano],"metas",{empresaId,ano},!!empresaId);
-export const useConfiguracao=(empresaId:string|null)=>{const q=useData<Database["public"]["Tables"]["configuracoes"]["Row"][]>(["configuracoes",empresaId],"configuracao",{empresaId},!!empresaId);return {...q,data:q.data?.[0]??null};};
-export const useImportacoes=(empresaId:string|null)=>useData<Database["public"]["Tables"]["importacoes"]["Row"][]>(["importacoes",empresaId],"importacoes",{empresaId},!!empresaId);
-export const usePlanosAcao=(empresaId:string|null)=>useData<Database["public"]["Tables"]["planos_acao"]["Row"][]>(["planos_acao",empresaId],"planos",{empresaId},!!empresaId);
-export const usePeriodos=(empresaId:string|null)=>useData<Database["public"]["Tables"]["periodos_fechados"]["Row"][]>(["periodos",empresaId],"periodos",{empresaId},!!empresaId);
-export const useMapeamentos=(empresaId:string|null)=>useData<Database["public"]["Tables"]["mapeamentos"]["Row"][]>(["mapeamentos",empresaId],"mapeamentos",{empresaId},!!empresaId);
-export const useRelatorios=(empresaId:string|null)=>useData<Database["public"]["Tables"]["relatorios"]["Row"][]>(["relatorios",empresaId],"relatorios",{empresaId},!!empresaId);
+export interface Empresa {
+  id: string;
+  nome: string;
+  cnpj: string | null;
+  cor_primaria: string;
+  logo_url: string | null;
+  ativo: boolean;
+}
+export type FluxoContaBancaria = Database["public"]["Tables"]["fluxo_contas_bancarias"]["Row"];
+export type FluxoSaldoBancario = Database["public"]["Tables"]["fluxo_saldos_bancarios"]["Row"];
+export type FluxoAjusteLancamento =
+  Database["public"]["Tables"]["fluxo_ajustes_lancamentos"]["Row"];
+export type FluxoChecklistPagamento =
+  Database["public"]["Tables"]["fluxo_checklist_pagamentos"]["Row"];
+export type FluxoTituloNibo = Database["public"]["Tables"]["fluxo_titulos_nibo"]["Row"];
+export type StatusChecklistFluxo = Database["public"]["Enums"]["status_checklist_fluxo"];
+function useData<T>(
+  key: unknown[],
+  resource: string,
+  args: Record<string, unknown> = {},
+  enabled = true,
+) {
+  const request = useServerFn(getFinancialData);
+  return useQuery({
+    queryKey: key,
+    enabled,
+    queryFn: () => request({ data: { resource, ...args } }) as Promise<T>,
+  });
+}
+export const useEmpresas = () => useData<Empresa[]>(["empresas"], "empresas");
+export const useEmpresaAtual = (empresaId: string | null) => {
+  const q = useData<Empresa[]>(["empresa", empresaId], "empresa", { empresaId }, !!empresaId);
+  return { ...q, data: q.data?.[0] ?? null };
+};
+export const useMeuCargo = () => {
+  const q = useData<Array<{ role: Cargo }>>(["meu-cargo"], "cargo");
+  return { ...q, data: q.data?.[0]?.role ?? null };
+};
+export const usePerfilProjetoAtual = (empresaId: string | null) => {
+  const q = useData<Array<{ perfil: PerfilProjeto }>>(
+    ["perfil-projeto-atual", empresaId],
+    "perfil",
+    { empresaId },
+    !!empresaId,
+  );
+  return { ...q, data: q.data?.[0]?.perfil ?? null };
+};
+export const useCategorias = (empresaId: string | null) =>
+  useData<Categoria[]>(["categorias", empresaId], "categorias", { empresaId }, !!empresaId);
+export interface CategoriaAuditoria {
+  id: string;
+  empresa_id: string;
+  nome: string;
+  dados: Record<string, string | number | boolean | null>;
+  origem: "manual" | "planilha";
+  aba_origem: string | null;
+}
+export const useCategoriasAuditoria = (empresaId: string | null) =>
+  useData<CategoriaAuditoria[]>(
+    ["auditoria-categorias", empresaId],
+    "auditoriaCategorias",
+    { empresaId },
+    !!empresaId,
+  );
+export const useLancamentos = (empresaId: string | null, ano: number) =>
+  useData<Lancamento[]>(
+    ["lancamentos", empresaId, ano],
+    "lancamentos",
+    { empresaId, ano },
+    !!empresaId,
+  );
+export const useLancamentoHashes = (empresaId: string | null, ano: number) => {
+  const q = useData<Array<{ hash: string | null }>>(
+    ["lancamento-hashes", empresaId, ano],
+    "hashes",
+    { empresaId, ano },
+    !!empresaId,
+  );
+  return { ...q, data: (q.data ?? []).flatMap((x) => (x.hash ? [x.hash] : [])) };
+};
+export const useAnosLancamentos = (empresaId: string | null) => {
+  const q = useData<Array<{ ano: number }>>(
+    ["lancamento-anos", empresaId],
+    "anos",
+    { empresaId },
+    !!empresaId,
+  );
+  return { ...q, data: (q.data ?? []).map((x) => x.ano) };
+};
+export const useCentrosCusto = (empresaId: string | null, ano: number | null) =>
+  useData<Array<{ centro_custo: string | null }>>(
+    ["centros-custo", empresaId, ano],
+    "centros",
+    { empresaId, ano },
+    !!empresaId,
+  );
+export const useLancamentosFluxo = (empresaId: string | null, inicio: string, fim: string) =>
+  useData<Lancamento[]>(
+    ["lancamentos-fluxo", empresaId, inicio, fim],
+    "lancamentosFluxo",
+    { empresaId, inicio, fim },
+    !!empresaId,
+  );
+export const useLancamentosReceberVencidos = (empresaId: string | null, hoje: string) =>
+  useData<Lancamento[]>(
+    ["lancamentos-receber-vencidos", empresaId, hoje],
+    "lancamentosReceberVencidos",
+    { empresaId, hoje },
+    !!empresaId,
+  );
+export const useFluxoContasBancarias = (empresaId: string | null) =>
+  useData<FluxoContaBancaria[]>(
+    ["fluxo-contas-bancarias", empresaId],
+    "contas",
+    { empresaId },
+    !!empresaId,
+  );
+export const useFluxoSaldosBancarios = (empresaId: string | null) =>
+  useData<FluxoSaldoBancario[]>(
+    ["fluxo-saldos-bancarios", empresaId],
+    "saldos",
+    { empresaId },
+    !!empresaId,
+  );
+export const useFluxoAjustesLancamentos = (empresaId: string | null) =>
+  useData<FluxoAjusteLancamento[]>(
+    ["fluxo-ajustes-lancamentos", empresaId],
+    "ajustes",
+    { empresaId },
+    !!empresaId,
+  );
+export const useFluxoChecklistPagamentos = (empresaId: string | null) =>
+  useData<FluxoChecklistPagamento[]>(
+    ["fluxo-checklist-pagamentos", empresaId],
+    "checklist",
+    { empresaId },
+    !!empresaId,
+  );
+export const useFluxoTitulosNibo = (empresaId: string | null, inicio: string, fim: string) =>
+  useData<FluxoTituloNibo[]>(
+    ["fluxo-titulos-nibo", empresaId, inicio, fim],
+    "titulos",
+    { empresaId, inicio, fim },
+    !!empresaId,
+  );
+export const useFluxoTitulosReceberVencidos = (empresaId: string | null, hoje: string) =>
+  useData<FluxoTituloNibo[]>(
+    ["fluxo-titulos-receber-vencidos", empresaId, hoje],
+    "titulosReceberVencidos",
+    { empresaId, hoje },
+    !!empresaId,
+  );
+export const useFluxoTitulosPagarVencidos = (empresaId: string | null, hoje: string) =>
+  useData<FluxoTituloNibo[]>(
+    ["fluxo-titulos-pagar-vencidos", empresaId, hoje],
+    "titulosPagarVencidos",
+    { empresaId, hoje },
+    !!empresaId,
+  );
+export const useMetas = (empresaId: string | null, ano: number) =>
+  useData<Database["public"]["Tables"]["metas"]["Row"][]>(
+    ["metas", empresaId, ano],
+    "metas",
+    { empresaId, ano },
+    !!empresaId,
+  );
+export const useConfiguracao = (empresaId: string | null) => {
+  const q = useData<Database["public"]["Tables"]["configuracoes"]["Row"][]>(
+    ["configuracoes", empresaId],
+    "configuracao",
+    { empresaId },
+    !!empresaId,
+  );
+  return { ...q, data: q.data?.[0] ?? null };
+};
+export const useImportacoes = (empresaId: string | null) =>
+  useData<Database["public"]["Tables"]["importacoes"]["Row"][]>(
+    ["importacoes", empresaId],
+    "importacoes",
+    { empresaId },
+    !!empresaId,
+  );
+export const usePlanosAcao = (empresaId: string | null) =>
+  useData<Database["public"]["Tables"]["planos_acao"]["Row"][]>(
+    ["planos_acao", empresaId],
+    "planos",
+    { empresaId },
+    !!empresaId,
+  );
+export const usePeriodos = (empresaId: string | null) =>
+  useData<Database["public"]["Tables"]["periodos_fechados"]["Row"][]>(
+    ["periodos", empresaId],
+    "periodos",
+    { empresaId },
+    !!empresaId,
+  );
+export const useMapeamentos = (empresaId: string | null) =>
+  useData<Database["public"]["Tables"]["mapeamentos"]["Row"][]>(
+    ["mapeamentos", empresaId],
+    "mapeamentos",
+    { empresaId },
+    !!empresaId,
+  );
+export const useRelatorios = (empresaId: string | null) =>
+  useData<Database["public"]["Tables"]["relatorios"]["Row"][]>(
+    ["relatorios", empresaId],
+    "relatorios",
+    { empresaId },
+    !!empresaId,
+  );

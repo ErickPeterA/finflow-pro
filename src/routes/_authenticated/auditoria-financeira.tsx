@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createServerFn, createServerOnlyFn, useServerFn } from "@tanstack/react-start";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -50,11 +52,66 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { filtrarLancamentosPorCentroCusto } from "@/lib/centro-custo";
 import { useApp } from "@/lib/app-context";
-import { useCategorias, useLancamentos } from "@/lib/data";
+import { useCategoriasAuditoria, useLancamentos } from "@/lib/data";
 import { mesDaCompetencia, nomeCategoria, type Categoria, type Lancamento } from "@/lib/dre";
 import { brl, dataBR, mesesCurtos, pct } from "@/lib/format";
 import { mesesDoPeriodoFiltro } from "@/lib/periodo";
 import { cn } from "@/lib/utils";
+import { requireAuthenticatedUser } from "@/lib/auth-middleware";
+import { toast } from "sonner";
+
+const carregarServidorAuditoria = createServerOnlyFn(async () => {
+  const [{ query }, { assertEmpresaAccess }] = await Promise.all([
+    import("@/lib/postgres"),
+    import("@/lib/authorization"),
+  ]);
+  return { query, assertEmpresaAccess };
+});
+
+type DecisaoPersistida = { chave_auditoria: string; acao: string };
+
+const listarDecisoesAuditoria = createServerFn({ method: "GET" })
+  .middleware([requireAuthenticatedUser])
+  .validator((data: { empresaId: string }) => data)
+  .handler(async ({ context, data }) => {
+    const { query, assertEmpresaAccess } = await carregarServidorAuditoria();
+    await assertEmpresaAccess(String(context.userId), data.empresaId);
+    const resultado = await query<DecisaoPersistida>(
+      "select chave_auditoria,acao from auditoria_decisoes where empresa_id=$1::uuid",
+      [data.empresaId],
+    );
+    return resultado.rows;
+  });
+
+const salvarDecisaoAuditoria = createServerFn({ method: "POST" })
+  .middleware([requireAuthenticatedUser])
+  .validator(
+    (data: {
+      empresaId: string;
+      chave: string;
+      tipo: string;
+      lancamentoId?: string | null;
+      acao: string;
+      sugestao?: string;
+    }) => data,
+  )
+  .handler(async ({ context, data }) => {
+    const { query, assertEmpresaAccess } = await carregarServidorAuditoria();
+    await assertEmpresaAccess(String(context.userId), data.empresaId);
+    await query(
+      "insert into auditoria_decisoes (empresa_id,chave_auditoria,tipo_auditoria,lancamento_id,acao,sugestao,created_by) values ($1,$2,$3,$4::uuid,$5,$6,$7::uuid) on conflict (empresa_id,chave_auditoria) do update set acao=excluded.acao,sugestao=excluded.sugestao,lancamento_id=excluded.lancamento_id,tipo_auditoria=excluded.tipo_auditoria,created_by=excluded.created_by,updated_at=now()",
+      [
+        data.empresaId,
+        data.chave,
+        data.tipo,
+        data.lancamentoId ?? null,
+        data.acao,
+        data.sugestao ?? null,
+        String(context.userId),
+      ],
+    );
+    return { ok: true };
+  });
 
 export const Route = createFileRoute("/_authenticated/auditoria-financeira")({
   head: () => ({
@@ -117,6 +174,10 @@ interface PerfilFornecedor {
   descricoes: string[];
 }
 
+interface CategoriaBaseAuditoria extends Categoria {
+  descricaoAuditoria?: string;
+}
+
 const labelsTipo: Record<TipoAuditoria, string> = {
   classificacao: "Classificação",
   conta_agrupadora: "Conta agrupadora",
@@ -145,8 +206,32 @@ const quickFilters: Array<{ value: AbaFiltro; label: string }> = [
 
 function AuditoriaFinanceiraPage() {
   const { empresaId, ano, mes, periodo, centroCusto } = useApp();
+  const queryClient = useQueryClient();
+  const listarDecisoes = useServerFn(listarDecisoesAuditoria);
+  const salvarDecisao = useServerFn(salvarDecisaoAuditoria);
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
-  const { data: categorias = [] } = useCategorias(empresaId);
+  const { data: categoriasConfiguradas = [], isLoading: configuracaoCarregando } =
+    useCategoriasAuditoria(empresaId);
+  const categorias = useMemo<CategoriaBaseAuditoria[]>(
+    () =>
+      categoriasConfiguradas.map((categoria, ordem) => {
+        const descricao = String(
+          categoria.dados["Descrição"] ?? categoria.dados["Descricao"] ?? "",
+        ).trim();
+        return {
+          id: categoria.id,
+          empresa_id: categoria.empresa_id,
+          nome: categoria.nome,
+          grupo: "despesas" as const,
+          classificacao: "variavel" as const,
+          recorrente: true,
+          ordem,
+          ativo: true,
+          ...(descricao ? { descricaoAuditoria: descricao } : {}),
+        };
+      }),
+    [categoriasConfiguradas],
+  );
   const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
   const lancamentosCentro = useMemo(
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
@@ -169,9 +254,42 @@ function AuditoriaFinanceiraPage() {
   const [somentePendentes, setSomentePendentes] = useState(false);
   const [somenteRevisados, setSomenteRevisados] = useState(false);
   const [aba, setAba] = useState<AbaFiltro>("todas");
-  const [decisoes, setDecisoes] = useState<Record<string, string>>({});
+  const [decisoesLocais, setDecisoesLocais] = useState<Record<string, string>>({});
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
   const [execucaoManual, setExecucaoManual] = useState(0);
+  const decisoesQuery = useQuery({
+    queryKey: ["auditoria-decisoes", empresaId],
+    queryFn: () => listarDecisoes({ data: { empresaId: empresaId! } }),
+    enabled: Boolean(empresaId),
+  });
+  const decisoes = useMemo(
+    () => ({
+      ...Object.fromEntries(
+        (decisoesQuery.data ?? []).map((decisao) => [decisao.chave_auditoria, decisao.acao]),
+      ),
+      ...decisoesLocais,
+    }),
+    [decisoesLocais, decisoesQuery.data],
+  );
+  const salvarDecisaoMut = useMutation({
+    mutationFn: (item: AuditoriaItem & { acao: string }) =>
+      salvarDecisao({
+        data: {
+          empresaId: empresaId!,
+          chave: item.id,
+          tipo: item.tipo,
+          lancamentoId: item.lancamento?.id ?? null,
+          acao: item.acao,
+          sugestao: item.sugestao,
+        },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["auditoria-decisoes", empresaId] });
+      toast.success("Decisão registrada na auditoria.");
+    },
+    onError: (erro) =>
+      toast.error(erro instanceof Error ? erro.message : "Não foi possível salvar a decisão."),
+  });
 
   const auditoriasBase = useMemo(
     () => gerarAuditorias(lancamentosCentro, lancamentosPeriodo, categorias, mesesPeriodo),
@@ -256,7 +374,8 @@ function AuditoriaFinanceiraPage() {
   );
 
   function registrarDecisao(item: AuditoriaItem, decisao: string) {
-    setDecisoes((atuais) => ({ ...atuais, [item.id]: decisao }));
+    setDecisoesLocais((atuais) => ({ ...atuais, [item.id]: decisao }));
+    if (empresaId) salvarDecisaoMut.mutate({ ...item, acao: decisao });
   }
 
   return (
@@ -268,7 +387,12 @@ function AuditoriaFinanceiraPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setExecucaoManual((valor) => valor + 1)}
+            onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ["lancamentos", empresaId, ano] });
+              queryClient.invalidateQueries({ queryKey: ["auditoria-categorias", empresaId] });
+              setExecucaoManual((valor) => valor + 1);
+              toast.success("Base atualizada. A auditoria foi recalculada.");
+            }}
           >
             <Sparkles className="h-4 w-4" />
             {execucaoManual ? "Auditoria atualizada" : "Executar auditoria"}
@@ -278,12 +402,23 @@ function AuditoriaFinanceiraPage() {
       <main className="space-y-5 p-6">
         {!empresaId ? (
           <SemEmpresa />
-        ) : isLoading ? (
+        ) : isLoading || configuracaoCarregando ? (
           <SemDados mensagem="Carregando base financeira do cliente..." />
         ) : lancamentosPeriodo.length === 0 ? (
           <SemDados mensagem="Ainda não há lançamentos importados para o período selecionado." />
         ) : (
           <>
+            {categorias.length === 0 && (
+              <section className="rounded-xl border border-warning/40 bg-warning-soft p-4 text-sm">
+                <p className="font-semibold text-warning">
+                  Base de categorias ainda não configurada
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  Importe as categorias analíticas desta empresa na aba Configuração para que a
+                  auditoria consiga validar e sugerir classificações.
+                </p>
+              </section>
+            )}
             <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
               <KpiAuditoria
                 titulo="Analisados"
@@ -475,7 +610,7 @@ function AuditoriaFinanceiraPage() {
             <PainelRevisao
               item={selecionado}
               perfilFornecedor={perfilFornecedor}
-              decisao={decisoes[selecionado.id]}
+              {...(decisoes[selecionado.id] ? { decisao: decisoes[selecionado.id] } : {})}
               onRegistrarDecisao={(decisao) => registrarDecisao(selecionado, decisao)}
             />
           )}
@@ -655,9 +790,9 @@ function PainelRevisao({
           <h3 className="text-sm font-semibold">Ações</h3>
         </div>
         <div className="grid gap-2 p-4 sm:grid-cols-2">
-          <Button onClick={() => onRegistrarDecisao(`Corrigido para ${item.sugestao}`)}>
+          <Button onClick={() => onRegistrarDecisao(`Sugestão confirmada: ${item.sugestao}`)}>
             <CheckCircle2 className="h-4 w-4" />
-            Corrigir categoria
+            Confirmar sugestão
           </Button>
           <Button
             variant="outline"
@@ -668,23 +803,26 @@ function PainelRevisao({
           </Button>
           <Button
             variant="outline"
-            onClick={() => onRegistrarDecisao("Lançamento ignorado nesta auditoria")}
+            onClick={() => onRegistrarDecisao("Alerta ignorado nesta auditoria")}
           >
             <X className="h-4 w-4" />
-            Ignorar lançamento
+            Ignorar alerta
           </Button>
           <Button
             variant="outline"
             onClick={() => onRegistrarDecisao("Exceção cadastrada para recorrências semelhantes")}
           >
             <Lightbulb className="h-4 w-4" />
-            Criar exceção
+            Marcar exceção
           </Button>
-          <Button variant="outline" onClick={() => onRegistrarDecisao("Regra de auditoria criada")}>
+          <Button variant="outline" onClick={() => onRegistrarDecisao("Nova regra solicitada")}>
             <BookOpen className="h-4 w-4" />
-            Criar regra
+            Solicitar regra
           </Button>
-          <Button variant="outline" onClick={() => onRegistrarDecisao("Regra aberta para edição")}>
+          <Button
+            variant="outline"
+            onClick={() => onRegistrarDecisao("Edição de regra solicitada")}
+          >
             <History className="h-4 w-4" />
             Editar regra
           </Button>
@@ -705,7 +843,7 @@ function PainelRevisao({
         </div>
         {decisao && (
           <div className="border-t bg-positive-soft px-4 py-3 text-sm text-positive">
-            Decisão registrada nesta sessão: {decisao}
+            Decisão salva para esta auditoria: {decisao}
           </div>
         )}
       </section>
@@ -999,6 +1137,36 @@ function gerarAuditorias(
     const categoriaKey = lancamento.categoria_id ?? categoriaAtual;
     const movimento = lancamento.tipo === "recebida" ? "receita" : "pagamento";
 
+    const categoriaConfigurada = categorias.some(
+      (item) => normalizarNomeCategoria(item.nome) === normalizarNomeCategoria(categoriaAtual),
+    );
+    if (categorias.length && categoriaAtual !== "—" && !categoriaConfigurada) {
+      const sugestao = sugerirCategoriaPorTexto(lancamento, categorias, categoriaAtual);
+      itens.push({
+        id: `categoria-nao-configurada-${lancamento.id}`,
+        status: "pendente",
+        criticidade: "critico",
+        tipo: "classificacao",
+        lancamento,
+        lancamentoLabel: lancamento.descricao || lancamento.pessoa || "Lançamento sem descrição",
+        categoriaAtual,
+        sugestao: sugestao?.sugestao ?? "Conferir categoria configurada",
+        confianca: sugestao?.confianca ?? 70,
+        valor: valorAbs,
+        motivo:
+          "A categoria usada no lançamento não foi encontrada na base de categorias analíticas configurada para esta empresa.",
+        evidencias: [
+          "A validação foi feita contra a aba Configuração deste projeto.",
+          sugestao
+            ? `Base esperada: ${sugestao.descricaoBase || sugestao.sugestao}. Termos coincidentes: ${sugestao.termos.join(", ")}.`
+            : "Sem sugestão semântica suficiente.",
+        ],
+        categoriaId: lancamento.categoria_id,
+        movimento,
+      });
+      porId.add(lancamento.id);
+    }
+
     if (categoria && agrupadoras.has(categoria.id)) {
       const sugestao =
         primeiraCategoriaFilha(categoria, categorias)?.nome ??
@@ -1050,8 +1218,8 @@ function gerarAuditorias(
         valor: valorAbs,
         motivo: `O histórico deste cliente associa ${lancamento.pessoa ?? "este fornecedor"} a ${categoriaPredominante.nome} em ${categoriaPredominante.count} de ${fornecedorStats.total} ocorrências.`,
         evidencias: [
-          "Histórico consistente de fornecedor para categoria dentro do mesmo cliente.",
-          "A sugestão considera também descrição, valor e recorrência antes de gerar a exceção.",
+          `No histórico desta empresa, ${lancamento.pessoa ?? "o fornecedor"} foi classificado como ${categoriaPredominante.nome} em ${categoriaPredominante.count} de ${fornecedorStats.total} lançamentos.`,
+          "Fornecedor conhecido com padrão consistente: a divergência precisa ser confirmada antes de corrigir.",
         ],
         categoriaId: lancamento.categoria_id,
         movimento,
@@ -1079,8 +1247,8 @@ function gerarAuditorias(
         motivo:
           "A descrição do lançamento tem maior aderência ao significado da categoria sugerida do que à categoria atual.",
         evidencias: [
-          `Termos relevantes: ${sugestaoSemantica.termos.join(", ")}`,
-          "A análise usa descrição e plano de contas, não apenas o nome do fornecedor.",
+          `Descrição esperada da categoria: ${sugestaoSemantica.descricaoBase || sugestaoSemantica.sugestao}.`,
+          `Termos coincidentes entre o lançamento e a regra configurada: ${sugestaoSemantica.termos.join(", ")}.`,
         ],
         categoriaId: lancamento.categoria_id,
         movimento,
@@ -1139,8 +1307,10 @@ function gerarAuditorias(
         motivo:
           "Fornecedor sem histórico para este cliente; a classificação foi comparada com descrição, categoria e valor.",
         evidencias: [
-          "Fornecedor novo tem peso baixo na hierarquia de evidências.",
-          "A auditoria marca para conferência sem tratar automaticamente como erro.",
+          "Não há ocorrências anteriores deste fornecedor no histórico da empresa.",
+          coerencia
+            ? `A descrição foi comparada à configuração e aponta para: ${coerencia.sugestao}.`
+            : "Como o fornecedor é novo, a auditoria não assume erro sem outra evidência.",
         ],
         categoriaId: lancamento.categoria_id,
         movimento,
@@ -1168,8 +1338,8 @@ function gerarAuditorias(
         motivo:
           "Fornecedor atípico para uma categoria com histórico concentrado em outros fornecedores.",
         evidencias: [
-          `${categoriaStats.total} ocorrências históricas existem para esta categoria.`,
-          "O fornecedor não apareceu anteriormente nesta categoria para o cliente selecionado.",
+          `A categoria tem ${categoriaStats.total} ocorrências históricas, mas este fornecedor ainda não apareceu nela.`,
+          "O fornecedor já existe no sistema; a divergência é avaliada pelo padrão histórico, não como fornecedor novo.",
         ],
         categoriaId: lancamento.categoria_id,
         movimento,
@@ -1306,11 +1476,22 @@ function sugerirCategoriaPorTexto(
   const scores = categorias
     .filter((categoria) => categoria.ativo)
     .map((categoria) => {
-      const termos = termosCategoria(categoria.nome);
-      const encontrados = termos.filter((termo) => texto.includes(termo));
+      const descricao = (categoria as CategoriaBaseAuditoria).descricaoAuditoria ?? "";
+      const termosNome = termosCategoria(categoria.nome);
+      const termosDescricao = palavrasSignificativas(descricao);
+      const encontradosNome = termosNome.filter((termo) => texto.includes(termo));
+      const encontradosDescricao = termosDescricao.filter((termo) => texto.includes(termo));
+      const encontrados = [...new Set([...encontradosDescricao, ...encontradosNome])];
+      const aderenciaNome = termosNome.length
+        ? encontradosNome.length / Math.min(termosNome.length, 5)
+        : 0;
+      const aderenciaDescricao = termosDescricao.length
+        ? encontradosDescricao.length / Math.min(termosDescricao.length, 6)
+        : 0;
       return {
         nome: categoria.nome,
-        score: termos.length ? encontrados.length / Math.min(termos.length, 5) : 0,
+        descricaoBase: descricao,
+        score: descricao ? aderenciaDescricao * 0.7 + aderenciaNome * 0.3 : aderenciaNome,
         encontrados,
       };
     })
@@ -1319,12 +1500,25 @@ function sugerirCategoriaPorTexto(
 
   const melhor = scores[0];
   if (!melhor) return null;
-  const atual = scores.find((score) => score.nome === categoriaAtual)?.score ?? 0;
+  const atual =
+    scores.find(
+      (score) => normalizarNomeCategoria(score.nome) === normalizarNomeCategoria(categoriaAtual),
+    )?.score ?? 0;
   const confianca = Math.min(94, Math.round(68 + melhor.score * 26));
   if (melhor.nome === categoriaAtual)
-    return { sugestao: melhor.nome, confianca, termos: melhor.encontrados };
+    return {
+      sugestao: melhor.nome,
+      confianca,
+      termos: melhor.encontrados,
+      descricaoBase: melhor.descricaoBase,
+    };
   if (melhor.score - atual < 0.22) return null;
-  return { sugestao: melhor.nome, confianca, termos: melhor.encontrados };
+  return {
+    sugestao: melhor.nome,
+    confianca,
+    termos: melhor.encontrados,
+    descricaoBase: melhor.descricaoBase,
+  };
 }
 
 function termosCategoria(nome: string) {
@@ -1396,6 +1590,24 @@ function palavrasSignificativas(texto: string) {
     "por",
     "a",
     "o",
+    "usar",
+    "uso",
+    "categoria",
+    "categorias",
+    "pagamento",
+    "pagamentos",
+    "recebimento",
+    "recebimentos",
+    "referente",
+    "referentes",
+    "geralmente",
+    "alguma",
+    "outras",
+    "outros",
+    "ser",
+    "seja",
+    "ter",
+    "tiverem",
   ]);
   return normalizar(texto)
     .split(/[^a-z0-9]+/)
@@ -1584,6 +1796,10 @@ function normalizarFornecedor(valor: string | null | undefined) {
   return normalizar(valor ?? "")
     .replace(/\b(ltda|me|eireli|sa|s\/a|mei)\b/g, "")
     .trim();
+}
+
+function normalizarNomeCategoria(valor: string) {
+  return normalizar(valor).replace(/^\d+(?:\d+)*/, "");
 }
 
 function normalizar(valor: string) {
