@@ -17,6 +17,7 @@ import {
   Wallet,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings,
 } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,12 @@ const itemGerenciamento = {
   icon: Menu,
 } as const;
 
+const itemConfiguracao = {
+  to: "/configuracao",
+  label: "Configuração",
+  icon: Settings,
+} as const;
+
 const subItensGerenciamento = [
   { label: "Criar login", aba: "criar-login" },
   { label: "Gerenciar usuários", aba: "gerenciar-usuarios" },
@@ -66,13 +73,16 @@ export function AppSidebar({ colapsado, onToggle }: { colapsado: boolean; onTogg
   });
   const { data: cargo } = useMeuCargo();
   const { data: perfilProjeto } = usePerfilProjetoAtual(empresaId);
-  const estaNoProjeto = pathname !== "/projetos" && pathname !== "/gerenciamento";
+  const estaNoProjeto =
+    pathname !== "/projetos" && pathname !== "/gerenciamento" && pathname !== "/configuracao";
   const usuarioExterno = cargo !== "admin" && perfilProjeto === "externo";
   const itensBase = estaNoProjeto
     ? itensProjeto.filter((item) => !usuarioExterno || !rotasRestritasUsuarioExterno.has(item.to))
     : itensEntrada;
   const itensVisiveis =
-    cargo === "admin" && !estaNoProjeto ? [...itensBase, itemGerenciamento] : itensBase;
+    cargo === "admin" && !estaNoProjeto
+      ? [...itensBase, itemGerenciamento, itemConfiguracao]
+      : itensBase;
   const gerenciamentoAberto = cargo === "admin" && pathname === "/gerenciamento";
 
   return (

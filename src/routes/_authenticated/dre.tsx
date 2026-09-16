@@ -72,6 +72,7 @@ function DrePage() {
   const { data: categorias = [] } = useCategorias(empresaId);
   const { data: config } = useConfiguracao(empresaId);
   const [abertos, setAbertos] = useState<Record<string, boolean>>({});
+  const [centrosAbertos, setCentrosAbertos] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setMesFiltro(mes);
@@ -255,6 +256,10 @@ function DrePage() {
 
   function alternar(k: string) {
     setAbertos((a) => ({ ...a, [k]: !a[k] }));
+  }
+
+  function alternarCentro(k: string) {
+    setCentrosAbertos((atuais) => ({ ...atuais, [k]: !atuais[k] }));
   }
 
   return (
@@ -541,6 +546,8 @@ function DrePage() {
                           linhas={linhas}
                           aberto={!!abertos["receita_operacional"]}
                           onToggle={() => alternar("receita_operacional")}
+                          centrosAbertos={centrosAbertos}
+                          onToggleCentro={alternarCentro}
                         />
                         <LinhaTotal
                           nome="(-) Custos Operacionais"
@@ -551,6 +558,8 @@ function DrePage() {
                           linhas={linhas}
                           aberto={!!abertos["custos"]}
                           onToggle={() => alternar("custos")}
+                          centrosAbertos={centrosAbertos}
+                          onToggleCentro={alternarCentro}
                         />
                         <LinhaResumo
                           nome="= Resultado Bruto"
@@ -567,6 +576,8 @@ function DrePage() {
                           linhas={linhas}
                           aberto={!!abertos["despesas"]}
                           onToggle={() => alternar("despesas")}
+                          centrosAbertos={centrosAbertos}
+                          onToggleCentro={alternarCentro}
                         />
                         <LinhaResumo
                           nome="= Resultado Operacional"
@@ -584,6 +595,8 @@ function DrePage() {
                           linhas={linhas}
                           aberto={!!abertos["financeiro"]}
                           onToggle={() => alternar("financeiro")}
+                          centrosAbertos={centrosAbertos}
+                          onToggleCentro={alternarCentro}
                         />
                         <LinhaResumo
                           nome="= Operacional + Financeiro"
@@ -600,6 +613,8 @@ function DrePage() {
                           linhas={linhas}
                           aberto={!!abertos["nao_operacional"]}
                           onToggle={() => alternar("nao_operacional")}
+                          centrosAbertos={centrosAbertos}
+                          onToggleCentro={alternarCentro}
                         />
                         <LinhaResumo
                           nome="= Resultado Líquido"
@@ -1457,6 +1472,8 @@ function LinhaTotal({
   linhas,
   aberto,
   onToggle,
+  centrosAbertos,
+  onToggleCentro,
 }: {
   nome: string;
   resultados: ResultadoMes[];
@@ -1466,6 +1483,8 @@ function LinhaTotal({
   linhas: LinhaCentroCategoria[];
   aberto: boolean;
   onToggle: () => void;
+  centrosAbertos: Record<string, boolean>;
+  onToggleCentro: (chave: string) => void;
 }) {
   const mesesDaLinha = mesesVisiveis.map((i) => resultados[i]!);
   const vals = mesesDaLinha.map(pick);
@@ -1526,12 +1545,24 @@ function LinhaTotal({
           const totalCentro = centro.valores.reduce((s, v) => s + v, 0);
           const mesesComValorCentro = centro.valores.filter((v) => v !== 0).length || 1;
           const mediaCentro = totalCentro / mesesComValorCentro;
+          const chaveCentro = `${grupos.join("|")}::${centro.centroCusto}`;
+          const centroAberto = !!centrosAbertos[chaveCentro];
 
           return (
             <Fragment key={centro.centroCusto}>
               <tr className="border-b bg-muted/30 text-xs font-semibold">
                 <td className="sticky left-0 z-10 bg-muted/30 py-1.5 pl-8 pr-4">
-                  <span className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onToggleCentro(chaveCentro)}
+                    className="flex w-full items-center gap-1.5 text-left hover:text-info"
+                    aria-expanded={centroAberto}
+                  >
+                    {centroAberto ? (
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                    )}
                     <span className="truncate">{centro.centroCusto}</span>
                     <span className="shrink-0 rounded bg-info-soft px-1.5 py-0.5 text-[10px] font-medium text-info">
                       Centro
@@ -1539,7 +1570,7 @@ function LinhaTotal({
                     <span className="shrink-0 text-[10px] text-muted-foreground">
                       {centro.itens.length}
                     </span>
-                  </span>
+                  </button>
                 </td>
                 {centro.valores.map((v, index) => {
                   const mesLinha = mesesVisiveis[index]!;
@@ -1566,7 +1597,7 @@ function LinhaTotal({
                   <ValorComPercentual valor={mediaCentro} base={mediaReceita} />
                 </td>
               </tr>
-              {centro.itens.map((f) => {
+              {centroAberto && centro.itens.map((f) => {
                 const somaFilho = mesesVisiveis.reduce((s, i) => s + (f.valores[i] ?? 0), 0);
                 const mesesComValor =
                   mesesVisiveis.filter((i) => (f.valores[i] ?? 0) !== 0).length || 1;

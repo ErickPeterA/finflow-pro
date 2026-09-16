@@ -14,6 +14,7 @@ export interface LinhaImportada {
   valor: number;
   hash: string;
   nibo_id?: string;
+  agendamento_id?: string;
   external_id?: string;
   external_source?: string;
   source_content_hash?: string;
@@ -35,6 +36,7 @@ export interface TituloImportado {
   status: string;
   hash: string;
   nibo_id?: string;
+  agendamento_id?: string;
   external_id?: string;
   external_source?: string;
   source_content_hash?: string;
@@ -126,6 +128,8 @@ const ALIASES: Record<ChaveColuna, string[]> = {
   descricao: [
     "descricao",
     "descrição",
+    "titulo",
+    "título",
     "historico",
     "histórico",
     "observacao",
@@ -449,6 +453,8 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
     const colCentro = acharColuna(colunas, "centro");
     const colBanco = acharColuna(colunas, "banco");
     const colStatus = acharColuna(colunas, "status");
+    const colAgendamento =
+      colunas.find((coluna) => /^(agendamento)(\/s|s)?$/.test(normalizar(coluna))) ?? null;
     const colNiboId =
       colunas.find((coluna) => normalizar(coluna) === "id") ??
       colunas.find((coluna) => normalizar(coluna) === "codigo nibo") ??
@@ -478,6 +484,9 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
       if (!valorAssinado) return;
       const codigo_nibo = colCodigo ? textoCelula(rowFormatada[colCodigo], row[colCodigo]) : "";
       const nibo_id = colNiboId ? textoCelula(rowFormatada[colNiboId], row[colNiboId]) : "";
+      const agendamento_id = colAgendamento
+        ? textoCelula(rowFormatada[colAgendamento], row[colAgendamento])
+        : "";
       const categoria = colCat ? textoCelula(rowFormatada[colCat], row[colCat]) : "";
       const status = colStatus ? textoCelula(rowFormatada[colStatus], row[colStatus]) : "";
       const dataEfetiva = colData
@@ -499,6 +508,7 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
         centro_custo: colCentro ? textoCelula(rowFormatada[colCentro], row[colCentro]) : "",
         conta_bancaria: colBanco ? textoCelula(rowFormatada[colBanco], row[colBanco]) : "",
         nibo_id,
+        agendamento_id,
         vencimento: vencimento ?? dataEfetiva ?? dataPadrao,
         status,
         valorAssinado,
@@ -567,6 +577,7 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
       valor: valorLinha,
     };
     if (linha.nibo_id) normalizada.nibo_id = linha.nibo_id;
+    if (linha.agendamento_id) normalizada.agendamento_id = linha.agendamento_id;
 
     return { ...normalizada, hash: gerarHash(normalizada, linha.origem) };
   });
@@ -578,9 +589,10 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
   }
 
   const titulos = candidatas.map((linha, index) => {
-    const tipoPorCodigo = inferirTipoPorCodigo(linha.codigo_nibo, linha.categoria_nibo);
     const tipoPorSinal: TipoLancamento = linha.valorAssinado < 0 ? "paga" : "recebida";
-    const tipoTitulo = tipoPorCodigo ?? linha.tipoContexto ?? tipoPorSinal;
+    // No fluxo de caixa, o sinal financeiro e a fonte mais confiavel: saidas
+    // negativas sao contas a pagar e entradas positivas sao contas a receber.
+    const tipoTitulo = tipoPorSinal;
     const normalizada: Omit<TituloImportado, "hash"> = {
       tipo: tipoTitulo,
       vencimento: linha.vencimento,
@@ -594,6 +606,7 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
       status: normalizarStatusTitulo(linha.status, linha.vencimento, tipoTitulo),
     };
     if (linha.nibo_id) normalizada.nibo_id = linha.nibo_id;
+    if (linha.agendamento_id) normalizada.agendamento_id = linha.agendamento_id;
     return {
       ...normalizada,
       hash: gerarHashTitulo(normalizada, `${linha.origem}:${index}`),
@@ -639,6 +652,7 @@ function linhaParaTitulo(linha: LinhaImportada): TituloImportado {
     status: linha.data_efetiva < new Date().toISOString().slice(0, 10) ? "vencido" : "aberto",
     hash: ["titulo", linha.hash].join("|"),
     nibo_id: linha.nibo_id,
+    agendamento_id: linha.agendamento_id,
     external_id: linha.external_id,
     external_source: linha.external_source,
     source_content_hash: linha.source_content_hash,

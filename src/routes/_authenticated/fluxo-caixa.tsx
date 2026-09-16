@@ -25,6 +25,8 @@ import {
   Plus,
   Printer,
   Search,
+  Trash2,
+  Upload,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -70,15 +72,15 @@ import {
   useFluxoTitulosNibo,
   useFluxoTitulosPagarVencidos,
   useFluxoTitulosReceberVencidos,
-  useLancamentosFluxo,
-  useLancamentosReceberVencidos,
   type FluxoContaBancaria,
   type FluxoTituloNibo,
   type StatusChecklistFluxo,
 } from "@/lib/data";
 import { mutateFinancialData } from "@/lib/financial-mutations.functions";
-import type { Lancamento } from "@/lib/dre";
-import { brl, dataBR } from "@/lib/format";
+import { importarManual } from "@/lib/importacao/importer.functions";
+import { brl, competenciaDate, dataBR } from "@/lib/format";
+import { parseArquivoNibo, type TituloImportado } from "@/lib/nibo";
+import type { Json } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/fluxo-caixa")({
@@ -104,19 +106,112 @@ type TipoFiltro = "todos" | "recebimentos" | "pagamentos";
 
 type LinhaFluxo = {
   id: string;
-  origem: "lancamento" | "titulo" | "manual";
-  lancamento?: Lancamento;
+  origem: "titulo" | "manual";
   titulo?: FluxoTituloNibo;
   dataProjetada: string;
   vencimento: string;
   nome: string;
   descricao: string;
+  subdescricao: string;
   categoria: string;
   identificadorNibo: string;
+  centrosCusto: CentroCustoFluxo[];
   recebimento: number;
   pagamento: number;
   saldoProjetado: number;
 };
+
+type CentroCustoFluxo = {
+  nome: string;
+  valor: number;
+};
+
+type TituloFluxoConsolidado = FluxoTituloNibo & {
+  centrosCusto: CentroCustoFluxo[];
+};
+
+function consolidarTitulosPorAgendamento(titulos: TituloImportado[]) {
+  const consolidados = new Map<string, TituloImportado>();
+
+  for (const titulo of titulos) {
+    const agendamento = titulo.agendamento_id?.trim();
+    const identidade = agendamento
+      ? `agendamento|${normalizar(agendamento)}`
+      : [
+          "conta",
+          titulo.tipo,
+          titulo.vencimento,
+          normalizar(titulo.pessoa ?? ""),
+          normalizar(titulo.descricao ?? ""),
+          normalizar(titulo.categoria_nibo ?? ""),
+        ].join("|");
+    const chave = `${titulo.tipo}|${identidade}`;
+    const atual = consolidados.get(chave);
+    if (!atual) {
+      consolidados.set(chave, {
+        ...titulo,
+        valor: Math.abs(titulo.valor),
+        hash: `titulo|consolidado|${identidade}|tipo:${titulo.tipo}`,
+      });
+      continue;
+    }
+
+    const centros = new Set(
+      [atual.centro_custo, titulo.centro_custo]
+        .flatMap((centro) => centro.split(" • "))
+        .map((centro) => centro.trim())
+        .filter(Boolean),
+    );
+    atual.valor = Math.round((atual.valor + Math.abs(titulo.valor)) * 100) / 100;
+    atual.centro_custo = [...centros].join(" • ");
+  }
+
+  return [...consolidados.values()];
+}
+
+function consolidarTitulosParaExibicao(titulos: FluxoTituloNibo[]) {
+  const consolidados = new Map<string, TituloFluxoConsolidado>();
+
+  for (const titulo of titulos) {
+    const manual = titulo.external_source === "manual_fluxo_caixa";
+    const chave = manual
+      ? `manual|${titulo.id}`
+      : [
+          titulo.tipo,
+          titulo.vencimento.slice(0, 10),
+          normalizar(titulo.pessoa ?? ""),
+          normalizar(titulo.descricao ?? ""),
+          normalizar(titulo.categoria_nibo ?? ""),
+        ].join("|");
+    const atual = consolidados.get(chave);
+    if (!atual) {
+      const valor = Math.abs(Number(titulo.valor) || 0);
+      consolidados.set(chave, {
+        ...titulo,
+        valor,
+        centrosCusto: [{ nome: titulo.centro_custo?.trim() || "Sem centro de custo", valor }],
+      });
+      continue;
+    }
+
+    const centros = new Set(
+      [atual.centro_custo ?? "", titulo.centro_custo ?? ""]
+        .flatMap((centro) => centro.split(" • "))
+        .map((centro) => centro.trim())
+        .filter(Boolean),
+    );
+    atual.valor =
+      Math.round((Number(atual.valor) + Math.abs(Number(titulo.valor) || 0)) * 100) / 100;
+    adicionarValorCentroCusto(
+      atual.centrosCusto,
+      titulo.centro_custo?.trim() || "Sem centro de custo",
+      Math.abs(Number(titulo.valor) || 0),
+    );
+    atual.centro_custo = [...centros].join(" • ");
+  }
+
+  return [...consolidados.values()];
+}
 
 type FormularioLancamentoManual = {
   vencimento: string;
@@ -129,7 +224,7 @@ type FormularioLancamentoManual = {
 type BancoPreConfigurado = {
   id: string;
   nome: string;
-  imagemUrl: string;
+  imagemUrl: string | undefined;
 };
 
 const bancosPreConfigurados: BancoPreConfigurado[] = [
@@ -213,7 +308,8 @@ const bancosPreConfigurados: BancoPreConfigurado[] = [
 function FluxoCaixaPage() {
   const queryClient = useQueryClient();
   const mutateData = useServerFn(mutateFinancialData);
-  const { empresaId, centroCusto } = useApp();
+  const importarServidor = useServerFn(importarManual);
+  const { empresaId, centroCusto, ano, mes } = useApp();
   const { data: empresa } = useEmpresaAtual(empresaId);
   const hoje = hojeISO();
   const semana = semanaAtual(hoje);
@@ -228,35 +324,175 @@ function FluxoCaixaPage() {
   const [saldosPendentes, setSaldosPendentes] = useState<Record<string, true>>({});
   const [saldosSalvando, setSaldosSalvando] = useState<Record<string, true>>({});
   const [seletorBancosAberto, setSeletorBancosAberto] = useState(false);
+  const [outroBancoAberto, setOutroBancoAberto] = useState(false);
+  const [nomeOutroBanco, setNomeOutroBanco] = useState("");
   const [lancamentoManualAberto, setLancamentoManualAberto] = useState(false);
   const [lancamentoManual, setLancamentoManual] = useState<FormularioLancamentoManual>(() =>
     criarFormularioLancamentoManual(hoje),
   );
   const lateralFluxoRef = useRef<HTMLElement | null>(null);
+  const inputImportacaoFluxoRef = useRef<HTMLInputElement | null>(null);
   const saldosPersistidosRef = useRef<Record<string, number>>({});
   const [alturaLateralFluxo, setAlturaLateralFluxo] = useState(0);
+  const [arquivosFluxo, setArquivosFluxo] = useState<File[]>([]);
+  const [titulosImportacaoFluxo, setTitulosImportacaoFluxo] = useState<TituloImportado[]>([]);
+  const [lendoImportacaoFluxo, setLendoImportacaoFluxo] = useState(false);
+  const [arrastandoImportacaoFluxo, setArrastandoImportacaoFluxo] = useState(false);
+  const [exclusaoFluxoAberta, setExclusaoFluxoAberta] = useState(false);
+  const [titulosSelecionados, setTitulosSelecionados] = useState<string[]>([]);
 
   const range = useMemo(
     () => rangePeriodo(periodo, hoje, inicioPersonalizado, fimPersonalizado),
     [periodo, hoje, inicioPersonalizado, fimPersonalizado],
-  );
-  const { data: lancamentos = [], isLoading: carregandoLancamentos } = useLancamentosFluxo(
-    empresaId,
-    range.inicio,
-    range.fim,
   );
   const { data: titulos = [], isLoading: carregandoTitulos } = useFluxoTitulosNibo(
     empresaId,
     range.inicio,
     range.fim,
   );
-  const { data: vencidos = [] } = useLancamentosReceberVencidos(empresaId, hoje);
   const { data: titulosVencidos = [] } = useFluxoTitulosReceberVencidos(empresaId, hoje);
   const { data: titulosPagarVencidos = [] } = useFluxoTitulosPagarVencidos(empresaId, hoje);
   const { data: contas = [], isLoading: carregandoContas } = useFluxoContasBancarias(empresaId);
   const { data: saldos = [] } = useFluxoSaldosBancarios(empresaId);
   const { data: checklist = [] } = useFluxoChecklistPagamentos(empresaId);
-  const carregando = carregandoLancamentos || carregandoTitulos || carregandoContas;
+  const carregando = carregandoTitulos || carregandoContas;
+
+  const importarTitulosFluxo = useMutation({
+    mutationFn: async () => {
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+      if (!titulosImportacaoFluxo.length)
+        throw new Error("Selecione uma planilha de contas a pagar ou a receber.");
+      return importarServidor({
+        data: {
+          empresaId,
+          arquivoNome: arquivosFluxo.map((arquivo) => arquivo.name).join(", ") || "arquivo",
+          modo: "titulos",
+          titulos: titulosImportacaoFluxo,
+        },
+      });
+    },
+    onSuccess: ({ inseridos, ignorados }) => {
+      toast.success(
+        `${inseridos} título(s) em aberto importado(s).${ignorados ? ` ${ignorados} duplicado(s) ignorado(s).` : ""}`,
+      );
+      setArquivosFluxo([]);
+      setTitulosImportacaoFluxo([]);
+      queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-nibo"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-pagar-vencidos"] });
+      queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-receber-vencidos"] });
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Falha ao importar títulos."),
+  });
+
+  const excluirTitulosFluxo = useMutation({
+    mutationFn: async (filtro: { ids?: string[]; tipo?: "paga" | "recebida" }) => {
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+      return mutateData({
+        data: { action: "deleteFluxoTitulos", empresaId, ...filtro },
+      });
+    },
+    onSuccess: async () => {
+      toast.success("Títulos excluídos do Fluxo de Caixa.");
+      setTitulosSelecionados([]);
+      setExclusaoFluxoAberta(false);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-nibo"] }),
+        queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-pagar-vencidos"] }),
+        queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-receber-vencidos"] }),
+        queryClient.invalidateQueries({ queryKey: ["fluxo-checklist-pagamentos"] }),
+      ]);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Não foi possível excluir os títulos."),
+  });
+
+  const criarOutroBanco = useMutation({
+    mutationFn: async () => {
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+      const nome = nomeOutroBanco.trim();
+      if (!nome) throw new Error("Informe o nome do banco ou da conta.");
+
+      const existente = contasPorNome.get(normalizar(nome));
+      if (existente) return existente;
+
+      return mutateData({
+        data: { action: "createConta", empresaId, nome, imagemUrl: null },
+      });
+    },
+    onSuccess: async (conta) => {
+      if (conta?.["id"]) {
+        const contaId = String(conta["id"]);
+        setContasSelecionadas((atuais) => [...new Set([...atuais, contaId])]);
+        setSaldosEditados((atuais) => ({
+          ...atuais,
+          [contaId]: atuais[contaId] ?? formatarCampoMonetario(0),
+        }));
+      }
+      setNomeOutroBanco("");
+      setOutroBancoAberto(false);
+      await queryClient.invalidateQueries({
+        queryKey: ["fluxo-contas-bancarias", empresaId],
+      });
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Nao foi possivel criar o banco."),
+  });
+
+  async function selecionarPlanilhasFluxo(files: File[]) {
+    const validos = files.filter((file) => /\.(xlsx|xls|csv)$/i.test(file.name));
+    setArquivosFluxo(validos);
+    setTitulosImportacaoFluxo([]);
+    if (!validos.length) {
+      if (files.length) toast.error("Use apenas planilhas Excel ou CSV do NIBO.");
+      return;
+    }
+
+    setLendoImportacaoFluxo(true);
+    try {
+      const resultados = await Promise.all(
+        validos.map(async (file) => ({
+          file,
+          resultado: await parseArquivoNibo(file, competenciaDate(ano, mes)),
+        })),
+      );
+      const erros = resultados.flatMap(({ file, resultado }) =>
+        resultado.erros.map((erro) => `${file.name}: ${erro}`),
+      );
+      const titulos = consolidarTitulosPorAgendamento(
+        resultados.flatMap(({ resultado }) =>
+          resultado.titulos
+            .filter(
+              (titulo) =>
+                titulo.tipo === "paga" ||
+                !["pago", "recebido", "cancelado"].includes(titulo.status),
+            )
+            .map((titulo) =>
+              titulo.tipo === "paga"
+                ? {
+                    ...titulo,
+                    status: titulo.vencimento < hoje ? "vencido" : "aberto",
+                  }
+                : titulo,
+            ),
+        ),
+      ).map((titulo) => ({
+        ...titulo,
+        hash: `fluxo_caixa|${titulo.hash}`,
+        external_source: "fluxo_caixa",
+      }));
+      setTitulosImportacaoFluxo(titulos);
+      if (erros.length) toast.error(erros[0]);
+      else if (titulos.length)
+        toast.success(`${titulos.length} título(s) em aberto pronto(s) para importar.`);
+      else if (!erros.length)
+        toast.error("A planilha não possui títulos em aberto para importar.");
+    } catch {
+      toast.error("Não foi possível ler a planilha. Verifique se é uma exportação do NIBO.");
+    } finally {
+      setLendoImportacaoFluxo(false);
+    }
+  }
 
   const saldosPorConta = useMemo(
     () => new Map(saldos.map((saldo) => [saldo.conta_id, saldo])),
@@ -266,10 +502,19 @@ function FluxoCaixaPage() {
     () => new Map(contas.map((conta) => [normalizar(conta.nome), conta])),
     [contas],
   );
-  const checklistPorLancamento = useMemo(
-    () => new Map(checklist.map((item) => [item.lancamento_id, item])),
-    [checklist],
-  );
+  const bancosDisponiveis = useMemo(() => {
+    const preConfigurados = new Set(
+      bancosPreConfigurados.map((banco) => normalizar(banco.nome)),
+    );
+    const personalizados = contas
+      .filter((conta) => !preConfigurados.has(normalizar(conta.nome)))
+      .map((conta) => ({
+        id: `personalizado-${conta.id}`,
+        nome: conta.nome,
+        imagemUrl: conta.imagem_url ?? undefined,
+      }));
+    return [...bancosPreConfigurados, ...personalizados];
+  }, [contas]);
   const checklistPorTitulo = useMemo(
     () => new Map(checklist.map((item) => [item.titulo_id, item])),
     [checklist],
@@ -350,7 +595,13 @@ function FluxoCaixaPage() {
       }));
 
       try {
-        await mutateData({ data: { action: "saveSaldos", empresaId, saldos: linhasSaldo.map((linha) => ({ contaId: linha.conta_id, saldo: linha.saldo })) } });
+        await mutateData({
+          data: {
+            action: "saveSaldos",
+            empresaId,
+            saldos: linhasSaldo.map((linha) => ({ contaId: linha.conta_id, saldo: linha.saldo })),
+          },
+        });
       } catch {
         toast.error("Nao foi possivel salvar os saldos automaticamente.");
         setSaldosSalvando((atuais) => {
@@ -422,30 +673,9 @@ function FluxoCaixaPage() {
 
   const linhas = useMemo(() => {
     const textoBusca = normalizar(busca);
-    const lancamentosCentro = filtrarLancamentosPorCentroCusto(lancamentos, centroCusto);
-    const titulosCentro = filtrarLancamentosPorCentroCusto(titulos, centroCusto);
-    const linhasLancamentos: LinhaFluxo[] = lancamentosCentro.map((lancamento) => {
-      const vencimento = lancamento.data_efetiva.slice(0, 10);
-      const tipoLancamento = tipoProjetadoLancamento(lancamento);
-      const valor = Math.abs(Number(lancamento.valor) || 0);
-      const pagamento = tipoLancamento === "paga" ? valor : 0;
-      const recebimento = tipoLancamento === "recebida" ? valor : 0;
-
-      return {
-        id: lancamento.id,
-        origem: "lancamento",
-        lancamento,
-        dataProjetada: vencimento,
-        vencimento,
-        nome: lancamento.pessoa?.trim() || "Sem nome",
-        descricao: formatarDescricao(lancamento.descricao),
-        categoria: lancamento.categoria_nibo?.trim() || "Nao classificado",
-        identificadorNibo: lancamento.external_id || lancamento.hash || lancamento.id,
-        recebimento,
-        pagamento,
-        saldoProjetado: 0,
-      };
-    });
+    const titulosCentro = consolidarTitulosParaExibicao(
+      filtrarLancamentosPorCentroCusto(titulos, centroCusto),
+    );
     const linhasTitulos: LinhaFluxo[] = titulosCentro.map((titulo) => {
       const tipoTitulo = tipoProjetadoTitulo(titulo);
       const valor = Math.abs(Number(titulo.valor) || 0);
@@ -459,14 +689,18 @@ function FluxoCaixaPage() {
         vencimento,
         nome: titulo.pessoa?.trim() || "Sem nome",
         descricao: formatarDescricao(titulo.descricao),
+        subdescricao: titulo.centro_custo?.trim()
+          ? `Centros: ${titulo.centro_custo.trim()}`
+          : titulo.categoria_nibo?.trim() || "Nao classificado",
         categoria: titulo.categoria_nibo?.trim() || "Nao classificado",
         identificadorNibo: titulo.external_id || titulo.hash || titulo.id,
+        centrosCusto: titulo.centrosCusto,
         recebimento: tipoTitulo === "recebida" ? valor : 0,
         pagamento: tipoTitulo === "paga" ? valor : 0,
         saldoProjetado: 0,
       };
     });
-    const base = [...linhasLancamentos, ...linhasTitulos]
+    const base = linhasTitulos
       .filter((linha) => linha.dataProjetada >= range.inicio && linha.dataProjetada <= range.fim)
       .filter((linha) => {
         if (tipoFiltro === "recebimentos") return linha.recebimento > 0;
@@ -490,7 +724,7 @@ function FluxoCaixaPage() {
       saldo += linha.recebimento - linha.pagamento;
       return { ...linha, saldoProjetado: saldo };
     });
-  }, [busca, centroCusto, lancamentos, range, saldoDisponivel, tipoFiltro, titulos]);
+  }, [busca, centroCusto, range, saldoDisponivel, tipoFiltro, titulos]);
 
   const resumo = useMemo(() => resumirFluxo(linhas, saldoDisponivel), [linhas, saldoDisponivel]);
   const alertas = useMemo(() => calcularAlertas(linhas), [linhas]);
@@ -502,11 +736,10 @@ function FluxoCaixaPage() {
   const inadimplentes = useMemo(
     () =>
       montarInadimplentes(
-        filtrarLancamentosPorCentroCusto(vencidos, centroCusto),
         filtrarLancamentosPorCentroCusto(titulosVencidos, centroCusto),
         hoje,
       ),
-    [centroCusto, vencidos, titulosVencidos, hoje],
+    [centroCusto, titulosVencidos, hoje],
   );
   const pagamentosAtrasados = useMemo(
     () =>
@@ -543,7 +776,27 @@ function FluxoCaixaPage() {
       const criadoEm = new Date().toISOString();
       const externalId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-      await mutateData({ data: { action: "createTituloManual", empresaId, titulo: { tipo: lancamentoManual.tipo, vencimento, competencia: competenciaDoVencimento(vencimento), descricao: descricao.slice(0,500), categoria: lancamentoManual.tipo === "paga" ? "Manual - Contas a pagar" : "Manual - Contas a receber", pessoa: nome.slice(0,180), valor, hash: `manual|${empresaId}|${externalId}`, externalId, payload: { origem: "manual_fluxo_caixa", criado_em: criadoEm } } } });
+      await mutateData({
+        data: {
+          action: "createTituloManual",
+          empresaId,
+          titulo: {
+            tipo: lancamentoManual.tipo,
+            vencimento,
+            competencia: competenciaDoVencimento(vencimento),
+            descricao: descricao.slice(0, 500),
+            categoria:
+              lancamentoManual.tipo === "paga"
+                ? "Manual - Contas a pagar"
+                : "Manual - Contas a receber",
+            pessoa: nome.slice(0, 180),
+            valor,
+            hash: `manual|${empresaId}|${externalId}`,
+            externalId,
+            payload: { origem: "manual_fluxo_caixa", criado_em: criadoEm },
+          },
+        },
+      });
     },
     onSuccess: async () => {
       toast.success("Lancamento manual incluido.");
@@ -575,6 +828,26 @@ function FluxoCaixaPage() {
     setLancamentoManual((atual) => ({ ...atual, [campo]: valor }));
   }
 
+  function alterarPeriodo(novoPeriodo: PeriodoFluxo) {
+    if (novoPeriodo === "personalizado" && periodo !== "personalizado") {
+      setInicioPersonalizado(range.inicio);
+      setFimPersonalizado(range.fim);
+    }
+    setPeriodo(novoPeriodo);
+  }
+
+  function alterarInicioPersonalizado(novoInicio: string) {
+    if (!novoInicio) return;
+    setInicioPersonalizado(novoInicio);
+    if (novoInicio > fimPersonalizado) setFimPersonalizado(novoInicio);
+  }
+
+  function alterarFimPersonalizado(novoFim: string) {
+    if (!novoFim) return;
+    setFimPersonalizado(novoFim);
+    if (novoFim < inicioPersonalizado) setInicioPersonalizado(novoFim);
+  }
+
   async function selecionarBanco(banco: BancoPreConfigurado) {
     if (!empresaId) return;
     const existente = contasPorNome.get(normalizar(banco.nome));
@@ -587,10 +860,13 @@ function FluxoCaixaPage() {
       return;
     }
 
-    const data = await mutateData({ data: { action: "createConta", empresaId, nome: banco.nome, imagemUrl: banco.imagemUrl } });
-    if (data?.id) {
-      setContasSelecionadas((atuais) => [...new Set([...atuais, data.id])]);
-      setSaldosEditados((atuais) => ({ ...atuais, [data.id]: formatarCampoMonetario(0) }));
+    const data = await mutateData({
+      data: { action: "createConta", empresaId, nome: banco.nome, imagemUrl: banco.imagemUrl },
+    });
+    if (data?.["id"]) {
+      const contaId = String(data["id"]);
+      setContasSelecionadas((atuais) => [...new Set([...atuais, contaId])]);
+      setSaldosEditados((atuais) => ({ ...atuais, [contaId]: formatarCampoMonetario(0) }));
     }
     await queryClient.invalidateQueries({ queryKey: ["fluxo-contas-bancarias", empresaId] });
   }
@@ -605,8 +881,7 @@ function FluxoCaixaPage() {
     const pagamentosSelecionados = pagamentosSemana
       .filter(
         (linha) =>
-          statusChecklistLinha(linha, checklistPorLancamento, checklistPorTitulo) ===
-          "selecionado_pagamento",
+          statusChecklistLinha(linha, checklistPorTitulo) === "selecionado_pagamento",
       )
       .map((linha) => ({
         origem: linha.origem,
@@ -615,40 +890,51 @@ function FluxoCaixaPage() {
         valor: linha.pagamento,
       }));
 
-    await mutateData({ data: { action: "createHistorico", empresaId, historico: {
-      inicio: range.inicio, fim: range.fim, saldoInicial: saldoDisponivel, recebimentos: resumo.recebimentos, pagamentos: resumo.pagamentos, saldoFinal: resumo.saldoFinal,
-      empresa_id: empresaId,
-      periodo_inicio: range.inicio,
-      periodo_fim: range.fim,
-      saldo_inicial: saldoDisponivel,
-      recebimentos_previstos: resumo.recebimentos,
-      pagamentos_previstos: resumo.pagamentos,
-      saldo_final_previsto: resumo.saldoFinal,
-      contas_consideradas: contas
-        .filter((conta) => contasSelecionadas.includes(conta.id))
-        .map((conta) => ({
-          id: conta.id,
-          nome: conta.nome,
-          saldo: numeroDoCampo(saldosEditados[conta.id] ?? "0"),
-        })) as Json,
-      pagamentos_selecionados: pagamentosSelecionados as Json,
-      payload: {
-        linhas: linhas.map(linhaParaExportacao),
-        alertas: {
-          menorSaldo: alertas.menorSaldo,
-          dataMenorSaldo: alertas.dataMenorSaldo,
-          primeiroNegativo: alertas.primeiroNegativo,
-          maiorPagamento: alertas.maiorPagamento
-            ? {
-                descricao: alertas.maiorPagamento.descricao,
-                valor: alertas.maiorPagamento.pagamento,
-              }
-            : null,
-          diaMaiorPagamento: alertas.diaMaiorPagamento ?? null,
-          necessidadeCaixa: alertas.necessidadeCaixa,
+    await mutateData({
+      data: {
+        action: "createHistorico",
+        empresaId,
+        historico: {
+          inicio: range.inicio,
+          fim: range.fim,
+          saldoInicial: saldoDisponivel,
+          recebimentos: resumo.recebimentos,
+          pagamentos: resumo.pagamentos,
+          saldoFinal: resumo.saldoFinal,
+          empresa_id: empresaId,
+          periodo_inicio: range.inicio,
+          periodo_fim: range.fim,
+          saldo_inicial: saldoDisponivel,
+          recebimentos_previstos: resumo.recebimentos,
+          pagamentos_previstos: resumo.pagamentos,
+          saldo_final_previsto: resumo.saldoFinal,
+          contas_consideradas: contas
+            .filter((conta) => contasSelecionadas.includes(conta.id))
+            .map((conta) => ({
+              id: conta.id,
+              nome: conta.nome,
+              saldo: numeroDoCampo(saldosEditados[conta.id] ?? "0"),
+            })) as Json,
+          pagamentos_selecionados: pagamentosSelecionados as Json,
+          payload: {
+            linhas: linhas.map(linhaParaExportacao),
+            alertas: {
+              menorSaldo: alertas.menorSaldo,
+              dataMenorSaldo: alertas.dataMenorSaldo,
+              primeiroNegativo: alertas.primeiroNegativo,
+              maiorPagamento: alertas.maiorPagamento
+                ? {
+                    descricao: alertas.maiorPagamento.descricao,
+                    valor: alertas.maiorPagamento.pagamento,
+                  }
+                : null,
+              diaMaiorPagamento: alertas.diaMaiorPagamento ?? null,
+              necessidadeCaixa: alertas.necessidadeCaixa,
+            },
+          },
         },
       },
-    } } });
+    });
   }
 
   function exportarExcel() {
@@ -670,9 +956,7 @@ function FluxoCaixaPage() {
           pagamento: linha.descricao,
           fornecedor: linha.nome,
           valor: linha.pagamento,
-          status: labelStatus(
-            statusChecklistLinha(linha, checklistPorLancamento, checklistPorTitulo),
-          ),
+          status: labelStatus(statusChecklistLinha(linha, checklistPorTitulo)),
         })),
       ),
       "Checklist",
@@ -698,12 +982,115 @@ function FluxoCaixaPage() {
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <SeletorBancos
                   aberto={seletorBancosAberto}
-                  bancos={bancosPreConfigurados}
+                  bancos={bancosDisponiveis}
                   contasPorNome={contasPorNome}
                   contasSelecionadas={contasSelecionadas}
                   onAberto={setSeletorBancosAberto}
                   onSelecionar={selecionarBanco}
+                  onOutro={() => {
+                    setSeletorBancosAberto(false);
+                    setOutroBancoAberto(true);
+                  }}
                 />
+                <Dialog open={outroBancoAberto} onOpenChange={setOutroBancoAberto}>
+                  <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                      <DialogTitle>Adicionar outro banco</DialogTitle>
+                    </DialogHeader>
+                    <form
+                      className="space-y-4"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        criarOutroBanco.mutate();
+                      }}
+                    >
+                      <div className="space-y-1.5">
+                        <Label htmlFor="nome-outro-banco">Nome do banco ou da conta</Label>
+                        <Input
+                          id="nome-outro-banco"
+                          value={nomeOutroBanco}
+                          onChange={(event) => setNomeOutroBanco(event.target.value)}
+                          placeholder="Ex.: Sicredi de Pelotas"
+                          maxLength={160}
+                          autoFocus
+                        />
+                      </div>
+                      <DialogFooter>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setOutroBancoAberto(false)}
+                        >
+                          Cancelar
+                        </Button>
+                        <Button
+                          type="submit"
+                          disabled={criarOutroBanco.isPending || !nomeOutroBanco.trim()}
+                        >
+                          {criarOutroBanco.isPending && (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          )}
+                          Adicionar
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={inputImportacaoFluxoRef}
+                    className="sr-only"
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    multiple
+                    onChange={(event) => {
+                      selecionarPlanilhasFluxo(Array.from(event.target.files ?? []));
+                      event.target.value = "";
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    variant={arrastandoImportacaoFluxo ? "default" : "outline"}
+                    className="min-w-44"
+                    onClick={() => inputImportacaoFluxoRef.current?.click()}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setArrastandoImportacaoFluxo(true);
+                    }}
+                    onDragLeave={() => setArrastandoImportacaoFluxo(false)}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setArrastandoImportacaoFluxo(false);
+                      selecionarPlanilhasFluxo(Array.from(event.dataTransfer.files));
+                    }}
+                    disabled={lendoImportacaoFluxo || importarTitulosFluxo.isPending}
+                  >
+                    {lendoImportacaoFluxo ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    {lendoImportacaoFluxo
+                      ? "Lendo planilha..."
+                      : arrastandoImportacaoFluxo
+                        ? "Solte para importar"
+                        : "Importar NIBO"}
+                  </Button>
+                  {titulosImportacaoFluxo.length > 0 && (
+                    <Button
+                      size="sm"
+                      onClick={() => importarTitulosFluxo.mutate()}
+                      disabled={importarTitulosFluxo.isPending}
+                    >
+                      {importarTitulosFluxo.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <FileSpreadsheet className="h-4 w-4" />
+                      )}
+                      Confirmar {titulosImportacaoFluxo.length}
+                    </Button>
+                  )}
+                </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 {contasExibidas.map((conta) => (
@@ -880,31 +1267,152 @@ function FluxoCaixaPage() {
                         <Download className="h-4 w-4" />
                         Historico
                       </Button>
+                      <Dialog open={exclusaoFluxoAberta} onOpenChange={setExclusaoFluxoAberta}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            <Trash2 className="h-4 w-4" />
+                            Excluir
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-2xl">
+                          <DialogHeader>
+                            <DialogTitle>Excluir títulos do Fluxo de Caixa</DialogTitle>
+                          </DialogHeader>
+                          <p className="text-sm text-muted-foreground">
+                            Selecione títulos deste período ou apague integralmente um grupo. Essa
+                            ação não remove lançamentos do DRE.
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              disabled={excluirTitulosFluxo.isPending}
+                              onClick={() => excluirTitulosFluxo.mutate({ tipo: "paga" })}
+                            >
+                              Excluir tudo a pagar
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              disabled={excluirTitulosFluxo.isPending}
+                              onClick={() => excluirTitulosFluxo.mutate({ tipo: "recebida" })}
+                            >
+                              Excluir tudo a receber
+                            </Button>
+                          </div>
+                          <div className="flex items-center justify-between border-b pb-2 text-sm">
+                            <span>{titulosSelecionados.length} selecionado(s)</span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                setTitulosSelecionados(
+                                  titulosSelecionados.length === titulos.length
+                                    ? []
+                                    : titulos.map((titulo) => titulo.id),
+                                )
+                              }
+                            >
+                              {titulosSelecionados.length === titulos.length
+                                ? "Limpar seleção"
+                                : "Selecionar todos"}
+                            </Button>
+                          </div>
+                          <div className="max-h-72 space-y-1 overflow-y-auto">
+                            {titulos.length === 0 ? (
+                              <p className="py-6 text-center text-sm text-muted-foreground">
+                                Nenhum título no período selecionado.
+                              </p>
+                            ) : (
+                              titulos.map((titulo) => (
+                                <label
+                                  key={titulo.id}
+                                  className="flex cursor-pointer items-center gap-3 rounded-md border p-2 text-sm hover:bg-muted/40"
+                                >
+                                  <Checkbox
+                                    checked={titulosSelecionados.includes(titulo.id)}
+                                    onCheckedChange={(checked) =>
+                                      setTitulosSelecionados((atuais) =>
+                                        checked
+                                          ? [...new Set([...atuais, titulo.id])]
+                                          : atuais.filter((id) => id !== titulo.id),
+                                      )
+                                    }
+                                  />
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block truncate font-medium">
+                                      {titulo.pessoa || titulo.descricao || "Sem nome"}
+                                    </span>
+                                    <span className="block truncate text-xs text-muted-foreground">
+                                      {dataBR(titulo.vencimento)} · {titulo.descricao}
+                                    </span>
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      "font-medium tabular",
+                                      titulo.tipo === "paga" ? "text-negative" : "text-positive",
+                                    )}
+                                  >
+                                    {brl(Math.abs(Number(titulo.valor) || 0))}
+                                  </span>
+                                </label>
+                              ))
+                            )}
+                          </div>
+                          <DialogFooter>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => setExclusaoFluxoAberta(false)}
+                            >
+                              Cancelar
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              disabled={
+                                excluirTitulosFluxo.isPending || titulosSelecionados.length === 0
+                              }
+                              onClick={() =>
+                                excluirTitulosFluxo.mutate({ ids: titulosSelecionados })
+                              }
+                            >
+                              {excluirTitulosFluxo.isPending && (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              )}
+                              Excluir selecionados
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
                     </div>
                   }
                 >
                   <div className="mb-4 grid shrink-0 gap-3 border-b pb-4 sm:grid-cols-2 lg:grid-cols-5">
-                    <CampoSelect label="Periodo" value={periodo} onValue={setPeriodo}>
+                    <CampoSelect label="Periodo" value={periodo} onValue={alterarPeriodo}>
                       <SelectItem value="semana_atual">Semana atual</SelectItem>
                       <SelectItem value="proximos_7">Proximos 7 dias</SelectItem>
                       <SelectItem value="proximos_15">Proximos 15 dias</SelectItem>
                       <SelectItem value="proximos_30">Proximos 30 dias</SelectItem>
                       <SelectItem value="personalizado">Personalizado</SelectItem>
                     </CampoSelect>
-                    <CampoInput
-                      label="De"
-                      type="date"
-                      value={range.inicio}
-                      disabled={periodo !== "personalizado"}
-                      onChange={setInicioPersonalizado}
-                    />
-                    <CampoInput
-                      label="Ate"
-                      type="date"
-                      value={range.fim}
-                      disabled={periodo !== "personalizado"}
-                      onChange={setFimPersonalizado}
-                    />
+                    {periodo === "personalizado" && (
+                      <>
+                        <CampoInput
+                          label="Data inicial"
+                          type="date"
+                          value={inicioPersonalizado}
+                          onChange={alterarInicioPersonalizado}
+                        />
+                        <CampoInput
+                          label="Data final"
+                          type="date"
+                          value={fimPersonalizado}
+                          onChange={alterarFimPersonalizado}
+                        />
+                      </>
+                    )}
                     <CampoSelect label="Tipo" value={tipoFiltro} onValue={setTipoFiltro}>
                       <SelectItem value="todos">Todos</SelectItem>
                       <SelectItem value="recebimentos">Recebimentos</SelectItem>
@@ -947,14 +1455,44 @@ function FluxoCaixaPage() {
                               </td>
                               <td className="max-w-40 px-2 py-1.5">
                                 <span className="block truncate font-medium">{linha.nome}</span>
-                                <span className="block truncate text-[10px] text-muted-foreground">
-                                  {linha.identificadorNibo}
-                                </span>
                               </td>
                               <td className="max-w-52 px-2 py-1.5">
-                                <span className="block truncate">{linha.descricao}</span>
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="block w-full truncate text-left hover:text-primary hover:underline"
+                                      aria-label={`Ver centros de custo de ${linha.descricao}`}
+                                    >
+                                      {linha.descricao}
+                                    </button>
+                                  </PopoverTrigger>
+                                  <PopoverContent align="start" className="w-72 p-0">
+                                    <div className="border-b px-3 py-2">
+                                      <p className="text-xs font-semibold">Centros de custo</p>
+                                      <p className="truncate text-[11px] text-muted-foreground">
+                                        {linha.descricao}
+                                      </p>
+                                    </div>
+                                    <div className="max-h-52 overflow-y-auto py-1">
+                                      {linha.centrosCusto.map((centro) => (
+                                        <div
+                                          key={centro.nome}
+                                          className="flex items-center justify-between gap-3 px-3 py-2 text-xs"
+                                        >
+                                          <span className="min-w-0 truncate font-medium">
+                                            {centro.nome}
+                                          </span>
+                                          <span className="shrink-0 tabular text-muted-foreground">
+                                            {brl(centro.valor)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
                                 <span className="block truncate text-[10px] text-muted-foreground">
-                                  {linha.categoria}
+                                  {linha.subdescricao}
                                 </span>
                               </td>
                               <td className="tabular px-2 py-1.5 text-right font-medium text-positive">
@@ -1112,6 +1650,7 @@ function SeletorBancos({
   contasSelecionadas,
   onAberto,
   onSelecionar,
+  onOutro,
 }: {
   aberto: boolean;
   bancos: BancoPreConfigurado[];
@@ -1119,6 +1658,7 @@ function SeletorBancos({
   contasSelecionadas: string[];
   onAberto: (aberto: boolean) => void;
   onSelecionar: (banco: BancoPreConfigurado) => void;
+  onOutro: () => void;
 }) {
   const selecionados = bancos.filter((banco) => {
     const conta = contasPorNome.get(normalizar(banco.nome));
@@ -1166,6 +1706,12 @@ function SeletorBancos({
                     </CommandItem>
                   );
                 })}
+                <CommandItem value="outro banco personalizado" onSelect={onOutro}>
+                  <span className="grid size-9 shrink-0 place-items-center rounded-lg border bg-muted">
+                    <Plus className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1 font-medium">Outro banco...</span>
+                </CommandItem>
               </CommandGroup>
             </CommandList>
           </Command>
@@ -1187,8 +1733,8 @@ function CardConta({
   conta: FluxoContaBancaria;
   valor: string;
   selecionada: boolean;
-  atualizadoEm?: string;
-  salvando?: boolean;
+  atualizadoEm: string | undefined;
+  salvando: boolean;
   onSelecionar: (checked: boolean) => void;
   onValor: (valor: string) => void;
 }) {
@@ -1231,7 +1777,13 @@ function CardConta({
   );
 }
 
-function BancoImagem({ nome, imagemUrl }: { nome: string; imagemUrl?: string | null }) {
+function BancoImagem({
+  nome,
+  imagemUrl,
+}: {
+  nome: string;
+  imagemUrl: string | null | undefined;
+}) {
   return (
     <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg border bg-muted text-[11px] font-semibold text-muted-foreground">
       {imagemUrl ? (
@@ -1550,32 +2102,22 @@ function montarSerieSaldo(linhas: LinhaFluxo[], saldoInicial: number, inicio: st
 }
 
 function montarInadimplentes(
-  lancamentos: Lancamento[],
   titulosVencidos: FluxoTituloNibo[],
   hoje: string,
 ) {
-  const deLancamentos = lancamentos.map((lancamento) => {
-    const dias = diferencaDias(lancamento.data_efetiva.slice(0, 10), hoje);
-    return {
-      id: lancamento.id,
-      nome: lancamento.pessoa?.trim() || "Sem cliente",
-      dias,
-      valor: Math.abs(Number(lancamento.valor) || 0),
-      status: dias > 30 ? "Critico" : dias > 15 ? "Alto" : "Atencao",
-    };
-  });
-  const deTitulos = titulosVencidos.map((titulo) => {
-    const dias = diferencaDias(titulo.vencimento.slice(0, 10), hoje);
-    return {
-      id: titulo.id,
-      nome: titulo.pessoa?.trim() || "Sem cliente",
-      dias,
-      valor: Math.abs(Number(titulo.valor) || 0),
-      status: dias > 30 ? "Critico" : dias > 15 ? "Alto" : "Atencao",
-    };
-  });
-
-  return [...deLancamentos, ...deTitulos].sort((a, b) => b.dias - a.dias).slice(0, 8);
+  return titulosVencidos
+    .map((titulo) => {
+      const dias = diferencaDias(titulo.vencimento.slice(0, 10), hoje);
+      return {
+        id: titulo.id,
+        nome: titulo.pessoa?.trim() || "Sem cliente",
+        dias,
+        valor: Math.abs(Number(titulo.valor) || 0),
+        status: dias > 30 ? "Critico" : dias > 15 ? "Alto" : "Atencao",
+      };
+    })
+    .sort((a, b) => b.dias - a.dias)
+    .slice(0, 8);
 }
 
 function montarPagamentosAtrasados(titulosVencidos: FluxoTituloNibo[], hoje: string): ItemAtraso[] {
@@ -1604,16 +2146,15 @@ function linhaParaExportacao(linha: LinhaFluxo) {
     "Saldo projetado": linha.saldoProjetado,
     Categoria: linha.categoria,
     "ID NIBO": linha.identificadorNibo,
-    Origem:
-      linha.origem === "manual"
-        ? "Lancamento manual"
-        : linha.origem === "titulo"
-          ? "Titulo futuro"
-          : "Lancamento realizado",
+    Origem: linha.origem === "manual" ? "Lancamento manual" : "Titulo futuro",
   };
 }
 
 function tipoProjetadoTitulo(titulo: FluxoTituloNibo) {
+  // Títulos negativos já foram classificados como contas a pagar durante a
+  // leitura. Não permita que texto ou categoria mudem essa natureza depois.
+  if (titulo.tipo === "paga") return "paga";
+
   const texto = normalizar(
     `${titulo.descricao ?? ""} ${titulo.categoria_nibo ?? ""} ${titulo.pessoa ?? ""} ${titulo.status ?? ""} ${titulo.hash ?? ""}`,
   );
@@ -1664,40 +2205,15 @@ function tipoProjetadoTitulo(titulo: FluxoTituloNibo) {
   return titulo.tipo;
 }
 
-function tipoProjetadoLancamento(lancamento: Lancamento) {
-  const texto = normalizar(
-    `${lancamento.descricao ?? ""} ${lancamento.categoria_nibo ?? ""} ${lancamento.pessoa ?? ""} ${lancamento.hash ?? ""}`,
-  );
-  const codigoCategoria = lancamento.categoria_nibo?.match(/\d+/)?.[0] ?? "";
-  if (/(^|[| ])recebida($|[| ])/.test(texto)) return "recebida";
-  if (/(^|[| ])paga($|[| ])/.test(texto)) return "paga";
-  if (codigoCategoria.startsWith("1")) return "recebida";
-  if (["2", "3", "4", "5"].some((prefixo) => codigoCategoria.startsWith(prefixo))) {
-    return "paga";
-  }
-  if (/recebido|recebida|receber|recebimento|receita|entrada|cliente|sacado/.test(texto)) {
-    return "recebida";
-  }
-  if (/pago|paga|pagar|pagamento|despesa|saida|fornecedor|boleto/.test(texto)) return "paga";
-  if (Number(lancamento.valor) < 0) return "paga";
-  if (Number(lancamento.valor) > 0) return "recebida";
-  return lancamento.tipo;
-}
-
 function pontuarTexto(texto: string, termos: string[]) {
   return termos.reduce((total, termo) => total + (texto.includes(normalizar(termo)) ? 1 : 0), 0);
 }
 
 function statusChecklistLinha(
   linha: LinhaFluxo,
-  checklistPorLancamento: Map<string | null, { status: StatusChecklistFluxo }>,
   checklistPorTitulo: Map<string | null, { status: StatusChecklistFluxo }>,
 ) {
-  return (
-    (linha.origem === "lancamento"
-      ? checklistPorLancamento.get(linha.id)?.status
-      : checklistPorTitulo.get(linha.id)?.status) ?? "nao_selecionado"
-  );
+  return checklistPorTitulo.get(linha.id)?.status ?? "nao_selecionado";
 }
 
 function labelStatus(status?: StatusChecklistFluxo) {
@@ -1789,6 +2305,19 @@ function normalizar(texto: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function adicionarValorCentroCusto(
+  centros: CentroCustoFluxo[],
+  nome: string,
+  valor: number,
+) {
+  const centroExistente = centros.find((centro) => centro.nome === nome);
+  if (centroExistente) {
+    centroExistente.valor = Math.round((centroExistente.valor + valor) * 100) / 100;
+    return;
+  }
+  centros.push({ nome, valor });
 }
 
 function formatarDescricao(texto?: string | null) {

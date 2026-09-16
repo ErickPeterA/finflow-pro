@@ -11,6 +11,11 @@ type ImportData = {
   linhas?: LinhaImportada[];
   titulos?: TituloImportado[];
 };
+
+// Mantém as inserções dentro do limite de parâmetros do PostgreSQL e evita uma
+// viagem ao banco para cada linha do relatório.
+const INSERT_BATCH_SIZE = 500;
+
 const unique = <T extends { hash: string }>(rows: T[]) => {
   const seen = new Set<string>();
   let ignored = 0;
@@ -19,6 +24,17 @@ const unique = <T extends { hash: string }>(rows: T[]) => {
     ignored,
   };
 };
+
+function placeholdersForRows(rows: unknown[][], offset = 0) {
+  const values = rows.flat();
+  const placeholders = rows
+    .map(
+      (row, rowIndex) =>
+        `(${row.map((_, columnIndex) => `$${offset + rowIndex * row.length + columnIndex + 1}`).join(",")})`,
+    )
+    .join(",");
+  return { placeholders, values };
+}
 export const importarManual = createServerFn({ method: "POST" })
   .middleware([requireAuthenticatedUser])
   .validator((d: ImportData) => d)
@@ -28,6 +44,18 @@ export const importarManual = createServerFn({ method: "POST" })
     const { rows, ignored: internal } = unique(raw);
     if (!rows.length) return { inseridos: 0, atualizados: 0, ignorados: internal };
     return withTransaction(async (c) => {
+      if (
+        data.modo === "titulos" &&
+        rows.some((row) => row.external_source === "fluxo_caixa")
+      ) {
+        // Corrige os hashes legados que nao diferenciavam pagar de receber.
+        // Assim, uma importacao antiga continua sendo reconhecida sem impedir
+        // a entrada do titulo de natureza oposta com o mesmo agendamento NIBO.
+        await c.query(
+          "update fluxo_titulos_nibo set hash=hash||'|tipo:'||tipo where empresa_id=$1::uuid and external_source='fluxo_caixa' and hash not like '%|tipo:paga' and hash not like '%|tipo:recebida'",
+          [data.empresaId],
+        );
+      }
       const maps = await c.query<{ categoria_nibo: string; categoria_id: string | null }>(
         "select categoria_nibo,categoria_id from mapeamentos where empresa_id=$1",
         [data.empresaId],
@@ -38,7 +66,9 @@ export const importarManual = createServerFn({ method: "POST" })
       const groups = new Map<string, typeof rows>();
       for (const r of rows) {
         const k = `${r.tipo}|${r.competencia}`;
-        groups.set(k, [...(groups.get(k) ?? []), r]);
+        const group = groups.get(k);
+        if (group) group.push(r);
+        else groups.set(k, [r]);
       }
       for (const [key, group] of groups) {
         const [tipo, competencia] = key.split("|");
@@ -58,59 +88,68 @@ export const importarManual = createServerFn({ method: "POST" })
           )
         ).rows[0]!;
         let added = 0;
-        for (const r of group) {
-          if (data.modo === "linhas") {
-            const l = r as LinhaImportada;
-            const result = await c.query(
-              "insert into lancamentos (empresa_id,importacao_id,tipo,data_efetiva,competencia,descricao,categoria_nibo,categoria_id,pessoa,centro_custo,conta_bancaria,valor,hash,origem,external_source,external_id,source_content_hash) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'manual',$14,$15,$16) on conflict (empresa_id,hash) do nothing",
-              [
-                data.empresaId,
-                imp.id,
-                l.tipo,
-                l.data_efetiva,
-                l.competencia,
-                l.descricao,
-                l.categoria_nibo || null,
-                map.get((l.categoria_nibo || "").toLowerCase()) ?? null,
-                l.pessoa || null,
-                l.centro_custo || null,
-                l.conta_bancaria || null,
-                l.valor,
-                l.hash,
-                l.external_source ?? null,
-                l.external_id ?? null,
-                l.source_content_hash ?? null,
-              ],
-            );
-            if (result.rowCount) added++;
-            else ignorados++;
-          } else {
-            const t = r as TituloImportado;
-            const result = await c.query(
-              "insert into fluxo_titulos_nibo (empresa_id,importacao_id,tipo,vencimento,data_projetada,competencia,descricao,categoria_nibo,pessoa,centro_custo,valor,status,hash,external_source,external_id,source_content_hash,payload) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'{}'::jsonb) on conflict (empresa_id,hash) do nothing",
-              [
-                data.empresaId,
-                imp.id,
-                t.tipo,
-                t.vencimento,
-                t.data_projetada,
-                t.competencia,
-                t.descricao,
-                t.categoria_nibo || null,
-                t.pessoa || null,
-                t.centro_custo || null,
-                t.valor,
-                t.status,
-                t.hash,
-                t.external_source ?? null,
-                t.external_id ?? null,
-                t.source_content_hash ?? null,
-              ],
-            );
-            if (result.rowCount) added++;
-            else ignorados++;
-          }
+        for (let start = 0; start < group.length; start += INSERT_BATCH_SIZE) {
+          const batch = group.slice(start, start + INSERT_BATCH_SIZE);
+          const batchRows =
+            data.modo === "linhas"
+              ? batch.map((r) => {
+                  const l = r as LinhaImportada;
+                  return [
+                    data.empresaId,
+                    imp.id,
+                    l.tipo,
+                    l.data_efetiva,
+                    l.competencia,
+                    l.descricao,
+                    l.categoria_nibo || null,
+                    map.get((l.categoria_nibo || "").toLowerCase()) ?? null,
+                    l.pessoa || null,
+                    l.centro_custo || null,
+                    l.conta_bancaria || null,
+                    l.valor,
+                    l.hash,
+                    "manual",
+                    l.external_source ?? null,
+                    l.external_id ?? null,
+                    l.source_content_hash ?? null,
+                  ];
+                })
+              : batch.map((r) => {
+                  const t = r as TituloImportado;
+                  return [
+                    data.empresaId,
+                    imp.id,
+                    t.tipo,
+                    t.vencimento,
+                    t.data_projetada,
+                    t.competencia,
+                    t.descricao,
+                    t.categoria_nibo || null,
+                    t.pessoa || null,
+                    t.centro_custo || null,
+                    t.valor,
+                    t.status,
+                    t.hash,
+                    t.external_source ?? null,
+                    t.external_id ?? null,
+                    t.source_content_hash ?? null,
+                    "{}",
+                  ];
+                });
+          const { placeholders, values } = placeholdersForRows(batchRows);
+          const result =
+            data.modo === "linhas"
+              ? await c.query(
+                  `insert into lancamentos (empresa_id,importacao_id,tipo,data_efetiva,competencia,descricao,categoria_nibo,categoria_id,pessoa,centro_custo,conta_bancaria,valor,hash,origem,external_source,external_id,source_content_hash) values ${placeholders} on conflict (empresa_id,hash) do nothing`,
+                  values,
+                )
+              : await c.query(
+                  `insert into fluxo_titulos_nibo (empresa_id,importacao_id,tipo,vencimento,data_projetada,competencia,descricao,categoria_nibo,pessoa,centro_custo,valor,status,hash,external_source,external_id,source_content_hash,payload) values ${placeholders} on conflict (empresa_id,hash) do nothing`,
+                  values,
+                );
+          added += result.rowCount ?? 0;
         }
+        ignorados += group.length - added;
         inseridos += added;
         await c.query(
           "update importacoes set status=$1,total_registros=$2,duplicados=$3 where id=$4",
