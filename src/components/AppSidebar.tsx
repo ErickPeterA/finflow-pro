@@ -18,6 +18,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
+  ClipboardList,
 } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import { cn } from "@/lib/utils";
@@ -34,6 +35,7 @@ const itensProjeto = [
   { to: "/ponto-equilibrio", label: "Ponto de Equilíbrio", icon: Scale },
   { to: "/fluxo-caixa", label: "Fluxo de Caixa", icon: Wallet },
   { to: "/auditoria-financeira", label: "Auditoria Financeira", icon: ShieldCheck },
+  { to: "/solicitacoes-pagamento", label: "Solicitações de Pagamento", icon: ClipboardList },
   { to: "/plano-acao", label: "Plano de Ação", icon: ListChecks },
   { to: "/relatorios", label: "Relatórios", icon: FileText },
 ] as const;
@@ -92,9 +94,9 @@ export function AppSidebar({ colapsado, onToggle }: { colapsado: boolean; onTogg
         colapsado ? "w-16" : "w-64",
       )}
     >
-      <img src="logobranca.png" alt="" className="mx-auto my-4 h-17 w-30" />
+      <img src="logobranca.png" alt="" className="mx-auto my-3 h-16 w-28" />
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
+      <nav className="sidebar-scroll flex-1 space-y-0.5 overflow-y-auto px-2 py-2">
         {itensVisiveis.map((item) => {
           const ativo = pathname === item.to || pathname.startsWith(item.to + "/");
           return (
@@ -103,7 +105,7 @@ export function AppSidebar({ colapsado, onToggle }: { colapsado: boolean; onTogg
                 to={item.to}
                 title={item.label}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
+                  "flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-colors",
                   ativo
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-[inset_3px_0_0_0_var(--sidebar-primary)]"
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
@@ -154,7 +156,7 @@ export function AppSidebar({ colapsado, onToggle }: { colapsado: boolean; onTogg
 
       <button
         onClick={onToggle}
-        className="m-2 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/60"
+        className="m-2 flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/60"
       >
         {colapsado ? (
           <PanelLeftOpen className="h-[18px] w-[18px]" />

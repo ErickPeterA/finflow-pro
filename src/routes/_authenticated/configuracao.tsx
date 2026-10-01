@@ -60,7 +60,7 @@ type AbaImportada = {
   nome: string;
   empresaId: string | null;
   linhas: Array<Record<string, Celula>>;
-  agrupadorasIgnoradas: number;
+  agrupadorasEncontradas: number;
   resetEmpresa?: boolean;
 };
 
@@ -178,13 +178,6 @@ const importarCategorias = createServerFn({ method: "POST" })
         for (const linha of aba.linhas) {
           const nome = extrairNome(linha);
           if (!nome) continue;
-          if (!ehCategoriaAnalitica(linha)) {
-            await client.query(
-              "update auditoria_categorias set ativo=false,updated_at=now() where empresa_id=$1 and nome=$2 and origem='planilha'",
-              [aba.empresaId, nome.slice(0, 240)],
-            );
-            continue;
-          }
           await client.query(
             "insert into auditoria_categorias (empresa_id,nome,dados,origem,aba_origem,importacao_id,created_by) values ($1,$2,$3::jsonb,'planilha',$4,$5,$6) on conflict (empresa_id,nome) do update set dados=excluded.dados,origem='planilha',aba_origem=excluded.aba_origem,importacao_id=excluded.importacao_id,ativo=true,updated_at=now()",
             [
@@ -244,10 +237,13 @@ function chaveTipoCategoria(linha: Record<string, Celula>) {
   return indiceDescricao >= 0 ? chaves[indiceDescricao + 1] : undefined;
 }
 
-function ehCategoriaAnalitica(linha: Record<string, Celula>) {
-  const chave = chaveTipoCategoria(linha);
-  const tipo = normalizar(String(chave ? (linha[chave] ?? "") : ""));
-  return tipo === "analitica" || tipo.includes("contaanalitica");
+function codigoDaConta(nome: string) {
+  return nome.trim().match(/^(\d+(?:\.\d+)*)\b/)?.[1] ?? null;
+}
+
+function codigoPai(codigo: string | null) {
+  if (!codigo?.includes(".")) return null;
+  return codigo.slice(0, codigo.lastIndexOf("."));
 }
 
 function limparCabecalhos(linha: Record<string, Celula>) {
@@ -298,15 +294,43 @@ function extrairLinhasDaAba(sheet: XLSX.WorkSheet) {
   }
 
   const colunaCategoria = [...votosColuna.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 1;
-  const registros: Array<Record<string, Celula>> = [];
-  let agrupadorasIgnoradas = 0;
-
-  for (const linha of linhas) {
+  const candidatas = linhas.flatMap((linha, ordem) => {
     const nome = String(linha[colunaCategoria] ?? "").trim();
-    if (!nome) continue;
-    const agrupadora = linhaEhAgrupadora(linha);
-    const codigoHierarquico = nome.match(/^\s*\d+(?:\.\d+)*\s+.+/);
-    if (!agrupadora && !codigoHierarquico) continue;
+    if (!nome) return [];
+    const marcadorAgrupadora = linhaEhAgrupadora(linha);
+    const codigo = codigoDaConta(nome);
+    if (!marcadorAgrupadora && !codigo) return [];
+    return [{ linha, ordem, nome, codigo, marcadorAgrupadora }];
+  });
+  const codigosComFilhos = new Set(
+    candidatas.flatMap((candidata) => {
+      const pai = codigoPai(candidata.codigo);
+      return pai ? [pai] : [];
+    }),
+  );
+  const agrupadoras = candidatas.filter(
+    (candidata) =>
+      candidata.marcadorAgrupadora ||
+      (candidata.codigo ? codigosComFilhos.has(candidata.codigo) : false),
+  );
+  const registros: Array<Record<string, Celula>> = [];
+
+  for (const candidata of candidatas) {
+    const { linha, nome, codigo, ordem } = candidata;
+    const agrupadora = agrupadoras.includes(candidata);
+    const paisAnteriores = agrupadoras.filter((possivelPai) => possivelPai.ordem < ordem);
+    const paiCodificado = paisAnteriores
+      .filter(
+        (possivelPai) =>
+          codigo && possivelPai.codigo && codigo.startsWith(`${possivelPai.codigo}.`),
+      )
+      .sort((a, b) => (a.codigo?.length ?? 0) - (b.codigo?.length ?? 0))
+      .at(-1);
+    const paiSemCodigo = paisAnteriores.filter((possivelPai) => !possivelPai.codigo).at(-1);
+    const contaPai =
+      paiSemCodigo && (!paiCodificado || paiSemCodigo.ordem > paiCodificado.ordem)
+        ? paiSemCodigo
+        : paiCodificado;
 
     const descricao = linha
       .slice(colunaCategoria + 1)
@@ -316,11 +340,12 @@ function extrairLinhasDaAba(sheet: XLSX.WorkSheet) {
       Categoria: nome,
       Descrição: agrupadora ? "" : (descricao ?? ""),
       "Tipo da categoria": agrupadora ? "Agrupadora (NÃO USAR)" : "Analítica",
+      "Conta agrupadora": contaPai?.nome ?? "",
+      Ordem: ordem,
     });
-    if (agrupadora) agrupadorasIgnoradas++;
   }
 
-  return { registros, agrupadorasIgnoradas };
+  return { registros, agrupadorasEncontradas: agrupadoras.length };
 }
 
 function encontrarEmpresaDaAba(nomeAba: string, empresas: Empresa[]) {
@@ -451,14 +476,14 @@ function ConfiguracaoPage() {
       const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
       const resultado = workbook.SheetNames.map((nome) => {
         const empresa = encontrarEmpresaDaAba(nome, empresas);
-        const { registros: linhas, agrupadorasIgnoradas } = extrairLinhasDaAba(
+        const { registros: linhas, agrupadorasEncontradas } = extrairLinhasDaAba(
           workbook.Sheets[nome]!,
         );
         return {
           nome,
           empresaId: empresa?.id ?? null,
           linhas,
-          agrupadorasIgnoradas,
+          agrupadorasEncontradas,
         };
       });
       setArquivo(file.name);
@@ -532,7 +557,7 @@ function ConfiguracaoPage() {
             valor={new Set(categorias.map((c) => c.empresaId)).size}
             icon={Building2}
           />
-          <Resumo titulo="Categorias ativas" valor={categorias.length} icon={FileSpreadsheet} />
+          <Resumo titulo="Contas ativas" valor={categorias.length} icon={FileSpreadsheet} />
           <Resumo
             titulo="Importadas da planilha"
             valor={categorias.filter((c) => c.origem === "planilha").length}
@@ -570,7 +595,7 @@ function ConfiguracaoPage() {
                   <h2 className="font-semibold">{mapaEmpresas.get(empresaSelecionadaId)}</h2>
                   <p className="text-sm text-muted-foreground">
                     {categorias.filter((c) => c.empresaId === empresaSelecionadaId).length}{" "}
-                    categorias analíticas
+                    contas do plano
                   </p>
                 </div>
                 <Button
@@ -749,9 +774,9 @@ function ConfiguracaoPage() {
                 <div>
                   <p className="font-medium">{aba.nome}</p>
                   <p className="text-xs text-muted-foreground">
-                    {aba.linhas.length - aba.agrupadorasIgnoradas} analíticas
-                    {aba.agrupadorasIgnoradas > 0 &&
-                      ` · ${aba.agrupadorasIgnoradas} agrupadoras ignoradas`}
+                    {aba.linhas.length - aba.agrupadorasEncontradas} analíticas
+                    {aba.agrupadorasEncontradas > 0 &&
+                      ` · ${aba.agrupadorasEncontradas} agrupadoras`}
                   </p>
                 </div>
                 <Select
@@ -793,7 +818,7 @@ function ConfiguracaoPage() {
           >
             {importarMut.isPending
               ? "Importando..."
-              : `Importar ${abas.reduce((s, a) => s + (a.empresaId ? a.linhas.length - a.agrupadorasIgnoradas : 0), 0)} categorias analíticas`}
+              : `Importar ${abas.reduce((s, a) => s + (a.empresaId ? a.linhas.length : 0), 0)} contas do plano`}
           </Button>
         </DialogContent>
       </Dialog>

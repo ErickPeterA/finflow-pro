@@ -65,9 +65,7 @@ function AnalisesPage() {
     "resultadoOperacional",
     "resultadoLiquido",
   ]);
-  const [mesesVisiveis, setMesesVisiveis] = useState<number[]>(
-    Array.from({ length: 12 }, (_, i) => i),
-  );
+  const [mesesVisiveis, setMesesVisiveis] = useState<number[]>([]);
 
   const lancamentosFiltrados = useMemo(
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),

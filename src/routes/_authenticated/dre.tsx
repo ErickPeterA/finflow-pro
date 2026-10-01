@@ -13,7 +13,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useApp } from "@/lib/app-context";
-import { useCategorias, useConfiguracao, useLancamentos } from "@/lib/data";
+import {
+  useCategorias,
+  useCategoriasAuditoria,
+  useConfiguracao,
+  useLancamentos,
+  type CategoriaAuditoria,
+} from "@/lib/data";
 import {
   agregarPorCentroCategoria,
   calcularDre,
@@ -70,6 +76,7 @@ function DrePage() {
   const { data: lancamentosAnoA = [] } = useLancamentos(empresaId, anoComparativoA);
   const { data: lancamentosAnoB = [] } = useLancamentos(empresaId, anoComparativoB);
   const { data: categorias = [] } = useCategorias(empresaId);
+  const { data: planoContas = [] } = useCategoriasAuditoria(empresaId);
   const { data: config } = useConfiguracao(empresaId);
   const [abertos, setAbertos] = useState<Record<string, boolean>>({});
   const [centrosAbertos, setCentrosAbertos] = useState<Record<string, boolean>>({});
@@ -548,6 +555,7 @@ function DrePage() {
                           onToggle={() => alternar("receita_operacional")}
                           centrosAbertos={centrosAbertos}
                           onToggleCentro={alternarCentro}
+                          planoContas={planoContas}
                         />
                         <LinhaTotal
                           nome="(-) Custos Operacionais"
@@ -560,6 +568,7 @@ function DrePage() {
                           onToggle={() => alternar("custos")}
                           centrosAbertos={centrosAbertos}
                           onToggleCentro={alternarCentro}
+                          planoContas={planoContas}
                         />
                         <LinhaResumo
                           nome="= Resultado Bruto"
@@ -578,6 +587,7 @@ function DrePage() {
                           onToggle={() => alternar("despesas")}
                           centrosAbertos={centrosAbertos}
                           onToggleCentro={alternarCentro}
+                          planoContas={planoContas}
                         />
                         <LinhaResumo
                           nome="= Resultado Operacional"
@@ -597,6 +607,7 @@ function DrePage() {
                           onToggle={() => alternar("financeiro")}
                           centrosAbertos={centrosAbertos}
                           onToggleCentro={alternarCentro}
+                          planoContas={planoContas}
                         />
                         <LinhaResumo
                           nome="= Operacional + Financeiro"
@@ -615,6 +626,7 @@ function DrePage() {
                           onToggle={() => alternar("nao_operacional")}
                           centrosAbertos={centrosAbertos}
                           onToggleCentro={alternarCentro}
+                          planoContas={planoContas}
                         />
                         <LinhaResumo
                           nome="= Resultado Líquido"
@@ -1463,6 +1475,73 @@ function LinhaResumo({
   );
 }
 
+function normalizarContaDre(valor: unknown) {
+  return String(valor ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase();
+}
+
+function valorDadoConta(conta: CategoriaAuditoria, nomes: string[]) {
+  const chaves = new Set(nomes.map(normalizarContaDre));
+  const entrada = Object.entries(conta.dados).find(([chave]) =>
+    chaves.has(normalizarContaDre(chave)),
+  );
+  return String(entrada?.[1] ?? "").trim();
+}
+
+function nomeSemCodigoConta(nome: string) {
+  return nome.replace(/^\s*\d+(?:\.\d+)*\s*(?:[-–—]\s*)?/, "").trim();
+}
+
+function agruparCategoriasDoDre(
+  linhas: LinhaCentroCategoria[],
+  planoContas: CategoriaAuditoria[],
+  mesesVisiveis: number[],
+) {
+  const analiticas = planoContas.filter((conta) =>
+    normalizarContaDre(valorDadoConta(conta, ["Tipo da categoria", "Tipo"])).includes("analitica"),
+  );
+  const acharConta = (nome: string) => {
+    const exato = normalizarContaDre(nome);
+    const semCodigo = normalizarContaDre(nomeSemCodigoConta(nome));
+    return (
+      analiticas.find((conta) => normalizarContaDre(conta.nome) === exato) ??
+      analiticas.find((conta) => normalizarContaDre(nomeSemCodigoConta(conta.nome)) === semCodigo)
+    );
+  };
+  const mapa = new Map<
+    string,
+    { centroCusto: string; itens: LinhaCentroCategoria[]; valores: number[]; ordem: number }
+  >();
+
+  for (const linha of linhas) {
+    const conta = acharConta(linha.nome);
+    const agrupadora = conta ? valorDadoConta(conta, ["Conta agrupadora", "Agrupadora"]) : "";
+    const nomeAgrupadora = agrupadora || "Outras categorias";
+    const ordem = Number(
+      planoContas.find((item) => normalizarContaDre(item.nome) === normalizarContaDre(agrupadora))
+        ?.dados.Ordem ?? Number.MAX_SAFE_INTEGER,
+    );
+    const atual = mapa.get(nomeAgrupadora) ?? {
+      centroCusto: nomeAgrupadora,
+      itens: [],
+      valores: mesesVisiveis.map(() => 0),
+      ordem,
+    };
+    atual.itens.push(linha);
+    atual.valores = mesesVisiveis.map(
+      (mesIndex, indice) => (atual.valores[indice] ?? 0) + (linha.valores[mesIndex] ?? 0),
+    );
+    mapa.set(nomeAgrupadora, atual);
+  }
+
+  return [...mapa.values()].sort(
+    (a, b) => a.ordem - b.ordem || a.centroCusto.localeCompare(b.centroCusto, "pt-BR"),
+  );
+}
+
 function LinhaTotal({
   nome,
   resultados,
@@ -1474,6 +1553,7 @@ function LinhaTotal({
   onToggle,
   centrosAbertos,
   onToggleCentro,
+  planoContas,
 }: {
   nome: string;
   resultados: ResultadoMes[];
@@ -1485,6 +1565,7 @@ function LinhaTotal({
   onToggle: () => void;
   centrosAbertos: Record<string, boolean>;
   onToggleCentro: (chave: string) => void;
+  planoContas: CategoriaAuditoria[];
 }) {
   const mesesDaLinha = mesesVisiveis.map((i) => resultados[i]!);
   const vals = mesesDaLinha.map(pick);
@@ -1493,18 +1574,20 @@ function LinhaTotal({
   const mediaReceita = mediaFechados(mesesDaLinha, (m) => m.receitaBruta);
   const mediaValor = mediaFechados(mesesDaLinha, pick);
   const filhos = linhas.filter((l) => grupos.includes(l.grupo));
-  const centros = Array.from(
+  const categoriasConsolidadas = Array.from(
     filhos.reduce((mapa, filho) => {
-      const lista = mapa.get(filho.centroCusto) ?? [];
-      lista.push(filho);
-      mapa.set(filho.centroCusto, lista);
+      const existente = mapa.get(filho.nome);
+      if (existente) {
+        existente.valores = existente.valores.map(
+          (valor, indice) => valor + (filho.valores[indice] ?? 0),
+        );
+      } else {
+        mapa.set(filho.nome, { ...filho, valores: [...filho.valores] });
+      }
       return mapa;
-    }, new Map<string, LinhaCentroCategoria[]>()),
-  ).map(([centroCusto, itens]) => ({
-    centroCusto,
-    itens,
-    valores: mesesVisiveis.map((i) => itens.reduce((s, item) => s + (item.valores[i] ?? 0), 0)),
-  }));
+    }, new Map<string, LinhaCentroCategoria>()),
+  ).map(([, item]) => item);
+  const agrupadoras = agruparCategoriasDoDre(categoriasConsolidadas, planoContas, mesesVisiveis);
 
   return (
     <>
@@ -1541,7 +1624,7 @@ function LinhaTotal({
         </td>
       </tr>
       {aberto &&
-        centros.map((centro) => {
+        agrupadoras.map((centro) => {
           const totalCentro = centro.valores.reduce((s, v) => s + v, 0);
           const mesesComValorCentro = centro.valores.filter((v) => v !== 0).length || 1;
           const mediaCentro = totalCentro / mesesComValorCentro;
@@ -1565,7 +1648,7 @@ function LinhaTotal({
                     )}
                     <span className="truncate">{centro.centroCusto}</span>
                     <span className="shrink-0 rounded bg-info-soft px-1.5 py-0.5 text-[10px] font-medium text-info">
-                      Centro
+                      Agrupadora
                     </span>
                     <span className="shrink-0 text-[10px] text-muted-foreground">
                       {centro.itens.length}
@@ -1597,43 +1680,50 @@ function LinhaTotal({
                   <ValorComPercentual valor={mediaCentro} base={mediaReceita} />
                 </td>
               </tr>
-              {centroAberto && centro.itens.map((f) => {
-                const somaFilho = mesesVisiveis.reduce((s, i) => s + (f.valores[i] ?? 0), 0);
-                const mesesComValor =
-                  mesesVisiveis.filter((i) => (f.valores[i] ?? 0) !== 0).length || 1;
-                const mediaFilho = somaFilho / mesesComValor;
+              {centroAberto &&
+                centro.itens.map((f) => {
+                  const somaFilho = mesesVisiveis.reduce((s, i) => s + (f.valores[i] ?? 0), 0);
+                  const mesesComValor =
+                    mesesVisiveis.filter((i) => (f.valores[i] ?? 0) !== 0).length || 1;
+                  const mediaFilho = somaFilho / mesesComValor;
 
-                return (
-                  <tr key={`${f.centroCusto}::${f.nome}`} className="border-b bg-muted/10 text-xs">
-                    <td className="sticky left-0 z-10 bg-muted/10 py-1.5 pl-14 pr-4">
-                      <span className="flex items-center gap-2">
-                        <span className="truncate">{f.nome}</span>
-                      </span>
-                    </td>
-                    {mesesVisiveis.map((i) => {
-                      const v = f.valores[i] ?? 0;
-                      return (
-                        <td
-                          key={i}
-                          className="tabular px-3 py-1.5 text-right text-muted-foreground"
-                        >
-                          {v ? (
-                            <ValorComPercentual valor={v} base={resultados[i]?.receitaBruta ?? 0} />
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="tabular px-3 py-1.5 text-right">
-                      <ValorComPercentual valor={somaFilho} base={totalReceita} />
-                    </td>
-                    <td className="tabular px-4 py-1.5 text-right text-muted-foreground">
-                      <ValorComPercentual valor={mediaFilho} base={mediaReceita} />
-                    </td>
-                  </tr>
-                );
-              })}
+                  return (
+                    <tr
+                      key={`${f.centroCusto}::${f.nome}`}
+                      className="border-b bg-muted/10 text-xs"
+                    >
+                      <td className="sticky left-0 z-10 bg-muted/10 py-1.5 pl-14 pr-4">
+                        <span className="flex items-center gap-2">
+                          <span className="truncate">{f.nome}</span>
+                        </span>
+                      </td>
+                      {mesesVisiveis.map((i) => {
+                        const v = f.valores[i] ?? 0;
+                        return (
+                          <td
+                            key={i}
+                            className="tabular px-3 py-1.5 text-right text-muted-foreground"
+                          >
+                            {v ? (
+                              <ValorComPercentual
+                                valor={v}
+                                base={resultados[i]?.receitaBruta ?? 0}
+                              />
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="tabular px-3 py-1.5 text-right">
+                        <ValorComPercentual valor={somaFilho} base={totalReceita} />
+                      </td>
+                      <td className="tabular px-4 py-1.5 text-right text-muted-foreground">
+                        <ValorComPercentual valor={mediaFilho} base={mediaReceita} />
+                      </td>
+                    </tr>
+                  );
+                })}
             </Fragment>
           );
         })}

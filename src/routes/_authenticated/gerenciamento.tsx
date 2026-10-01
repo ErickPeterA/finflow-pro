@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn, createServerOnlyFn, useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, KeyRound, Link2, Pencil, RefreshCw, Trash2, UserMinus, UserPlus } from "lucide-react";
+import { Building2, ChevronDown, KeyRound, Link2, Pencil, RefreshCw, Trash2, UserMinus, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/TopBar";
@@ -9,6 +9,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -275,31 +281,39 @@ const excluirUsuario = createServerFn({ method: "POST" })
 
 const salvarVinculo = createServerFn({ method: "POST" })
   .middleware([requireAuthenticatedUser])
-  .validator((data: { userId: string; empresaId: string; perfil: PerfilProjeto }) => {
+  .validator((data: { userId: string; empresaIds: string[]; perfil: PerfilProjeto }) => {
     if (!data.userId) throw new Error("Selecione um usuário.");
-    if (!data.empresaId) throw new Error("Selecione um projeto.");
+    const empresaIds = [...new Set(data.empresaIds.filter(Boolean))];
+    if (!empresaIds.length) throw new Error("Selecione ao menos um projeto.");
     if (data.perfil !== "interno" && data.perfil !== "externo") {
       throw new Error("Selecione um perfil válido.");
     }
 
     return {
       userId: data.userId,
-      empresaId: data.empresaId,
+      empresaIds,
       perfil: data.perfil,
     };
   })
   .handler(async ({ context, data }) => {
     const adminId = String(context.userId);
     await exigirAdmin(adminId);
-    const { query } = await carregarServidor();
+    const { query, withTransaction } = await carregarServidor();
 
-    const { rows: projeto } = await query("select id from empresas where id=$1::uuid", [data.empresaId]);
-    if (!projeto.length) throw new Error("Projeto não encontrado.");
-    if (!projeto) throw new Error("Projeto não encontrado.");
+    const { rows: projetos } = await query<{ id: string }>(
+      "select id from empresas where id = any($1::uuid[])",
+      [data.empresaIds],
+    );
+    if (projetos.length !== data.empresaIds.length) throw new Error("Um ou mais projetos não foram encontrados.");
 
-    await query("insert into projeto_usuarios (user_id,empresa_id,perfil,ativo,created_by) values ($1,$2,$3,true,$4) on conflict (empresa_id,user_id) do update set perfil=excluded.perfil,ativo=true,created_by=excluded.created_by", [data.userId,data.empresaId,data.perfil,adminId]);
+    await withTransaction(async (client) => {
+      await client.query(
+        "insert into projeto_usuarios (user_id,empresa_id,perfil,ativo,created_by) select $1, empresa_id, $3, true, $4 from unnest($2::uuid[]) as empresa_id on conflict (empresa_id,user_id) do update set perfil=excluded.perfil,ativo=true,created_by=excluded.created_by",
+        [data.userId, data.empresaIds, data.perfil, adminId],
+      );
+    });
 
-    return { ok: true };
+    return { ok: true, total: data.empresaIds.length };
   });
 
 const desativarVinculo = createServerFn({ method: "POST" })
@@ -334,11 +348,11 @@ function GerenciamentoPage() {
   const [edicao, setEdicao] = useState({ userId: "", nome: "", email: "", senha: "" });
   const [novoVinculo, setNovoVinculo] = useState<{
     userId: string;
-    empresaId: string;
+    empresaIds: string[];
     perfil: PerfilProjeto;
   }>({
     userId: "",
-    empresaId: "",
+    empresaIds: [],
     perfil: "interno",
   });
 
@@ -404,9 +418,9 @@ function GerenciamentoPage() {
 
   const atrelarUsuario = useMutation({
     mutationFn: () => salvarVinculoFn({ data: novoVinculo }),
-    onSuccess: () => {
-      toast.success("Usuário atrelado ao projeto.");
-      setNovoVinculo({ userId: "", empresaId: "", perfil: "interno" });
+    onSuccess: ({ total }) => {
+      toast.success(total === 1 ? "Usuário atrelado ao projeto." : `Usuário atrelado a ${total} projetos.`);
+      setNovoVinculo({ userId: "", empresaIds: [], perfil: "interno" });
       invalidarPainel();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao atrelar usuário."),
@@ -661,22 +675,41 @@ function GerenciamentoPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Projeto</Label>
-                    <Select
-                      value={novoVinculo.empresaId}
-                      onValueChange={(empresaId) => setNovoVinculo((v) => ({ ...v, empresaId }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
-                      <SelectContent>
+                    <Label>Projetos</Label>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full justify-between font-normal"
+                          aria-label="Selecionar projetos"
+                        >
+                          {novoVinculo.empresaIds.length === 0
+                            ? "Selecione um ou mais projetos"
+                            : `${novoVinculo.empresaIds.length} projeto${novoVinculo.empresaIds.length > 1 ? "s" : ""} selecionado${novoVinculo.empresaIds.length > 1 ? "s" : ""}`}
+                          <ChevronDown className="h-4 w-4 opacity-50" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
                         {projetos.map((projeto) => (
-                          <SelectItem key={projeto.id} value={projeto.id}>
+                          <DropdownMenuCheckboxItem
+                            key={projeto.id}
+                            checked={novoVinculo.empresaIds.includes(projeto.id)}
+                            onSelect={(event) => event.preventDefault()}
+                            onCheckedChange={(selecionado) =>
+                              setNovoVinculo((v) => ({
+                                ...v,
+                                empresaIds: selecionado
+                                  ? [...v.empresaIds, projeto.id]
+                                  : v.empresaIds.filter((id) => id !== projeto.id),
+                              }))
+                            }
+                          >
                             {projeto.nome}
-                          </SelectItem>
+                          </DropdownMenuCheckboxItem>
                         ))}
-                      </SelectContent>
-                    </Select>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
 
                   <div className="space-y-2">
@@ -700,10 +733,10 @@ function GerenciamentoPage() {
                   <Button
                     className="w-full"
                     onClick={() => atrelarUsuario.mutate()}
-                    disabled={atrelarUsuario.isPending || projetos.length === 0}
+                    disabled={atrelarUsuario.isPending || projetos.length === 0 || novoVinculo.empresaIds.length === 0}
                   >
                     <Building2 className="h-4 w-4" />
-                    {atrelarUsuario.isPending ? "Atrelando..." : "Atrelar ao projeto"}
+                    {atrelarUsuario.isPending ? "Atrelando..." : "Atrelar aos projetos"}
                   </Button>
                 </div>
               </section>

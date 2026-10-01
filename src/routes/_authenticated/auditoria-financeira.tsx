@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn, createServerOnlyFn, useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -69,6 +69,15 @@ const carregarServidorAuditoria = createServerOnlyFn(async () => {
 });
 
 type DecisaoPersistida = { chave_auditoria: string; acao: string };
+type RegraAuditoria = {
+  id: string;
+  tipo_auditoria: string;
+  fornecedor_normalizado: string | null;
+  categoria_origem_id: string | null;
+  categoria_destino_id: string | null;
+  acao: "excecao" | "sugestao";
+  observacao: string | null;
+};
 
 const listarDecisoesAuditoria = createServerFn({ method: "GET" })
   .middleware([requireAuthenticatedUser])
@@ -110,6 +119,92 @@ const salvarDecisaoAuditoria = createServerFn({ method: "POST" })
         String(context.userId),
       ],
     );
+    return { ok: true };
+  });
+
+const confirmarSugestaoAuditoria = createServerFn({ method: "POST" })
+  .middleware([requireAuthenticatedUser])
+  .validator((data: { empresaId: string; lancamentoId: string; categoriaSugerida: string }) => data)
+  .handler(async ({ context, data }) => {
+    const { query, assertEmpresaAccess } = await carregarServidorAuditoria();
+    await assertEmpresaAccess(String(context.userId), data.empresaId);
+    const categoria = await query<{ id: string }>(
+      "select id from categorias where empresa_id=$1::uuid and lower(trim(nome))=lower(trim($2)) and ativo=true limit 1",
+      [data.empresaId, data.categoriaSugerida],
+    );
+    if (!categoria.rows[0])
+      throw new Error(
+        "A sugestão não corresponde a uma categoria ativa. Use Manter atual ou crie uma regra para este caso.",
+      );
+    const atualizado = await query(
+      "update lancamentos set categoria_id=$1::uuid where id=$2::uuid and empresa_id=$3::uuid",
+      [categoria.rows[0].id, data.lancamentoId, data.empresaId],
+    );
+    if (!atualizado.rowCount) throw new Error("Lançamento não encontrado neste projeto.");
+    return { ok: true };
+  });
+
+const listarRegrasAuditoria = createServerFn({ method: "GET" })
+  .middleware([requireAuthenticatedUser])
+  .validator((data: { empresaId: string }) => data)
+  .handler(async ({ context, data }) => {
+    const { query, assertEmpresaAccess } = await carregarServidorAuditoria();
+    await assertEmpresaAccess(String(context.userId), data.empresaId);
+    return (
+      await query<RegraAuditoria>(
+        "select id,tipo_auditoria,fornecedor_normalizado,categoria_origem_id,categoria_destino_id,acao,observacao from auditoria_regras where empresa_id=$1::uuid and ativo=true order by updated_at desc",
+        [data.empresaId],
+      )
+    ).rows;
+  });
+
+const salvarRegraAuditoria = createServerFn({ method: "POST" })
+  .middleware([requireAuthenticatedUser])
+  .validator(
+    (data: {
+      empresaId: string;
+      id?: string;
+      tipo: string;
+      fornecedor?: string | null;
+      categoriaOrigemId?: string | null;
+      categoriaDestinoId?: string | null;
+      acao: "excecao" | "sugestao";
+      observacao?: string;
+    }) => data,
+  )
+  .handler(async ({ context, data }) => {
+    const { query, assertEmpresaAccess } = await carregarServidorAuditoria();
+    await assertEmpresaAccess(String(context.userId), data.empresaId);
+    const fornecedor = data.fornecedor?.trim().toLocaleLowerCase("pt-BR") || null;
+    if (data.id) {
+      await query(
+        "update auditoria_regras set tipo_auditoria=$1,fornecedor_normalizado=$2,categoria_origem_id=$3::uuid,categoria_destino_id=$4::uuid,acao=$5,observacao=$6,updated_at=now() where id=$7::uuid and empresa_id=$8::uuid",
+        [
+          data.tipo,
+          fornecedor,
+          data.categoriaOrigemId ?? null,
+          data.categoriaDestinoId ?? null,
+          data.acao,
+          data.observacao?.trim() || null,
+          data.id,
+          data.empresaId,
+        ],
+      );
+    } else {
+      await query(
+        "insert into auditoria_regras (empresa_id,tipo_auditoria,fornecedor_normalizado,categoria_origem_id,categoria_destino_id,acao,observacao,created_by) values ($1,$2,$3,$4::uuid,$5::uuid,$6,$7,$8::uuid)",
+        [
+          data.empresaId,
+          data.tipo,
+          fornecedor,
+          data.categoriaOrigemId ?? null,
+          data.categoriaDestinoId ?? null,
+          data.acao,
+          data.observacao?.trim() || null,
+          String(context.userId),
+        ],
+      );
+    }
     return { ok: true };
   });
 
@@ -209,6 +304,9 @@ function AuditoriaFinanceiraPage() {
   const queryClient = useQueryClient();
   const listarDecisoes = useServerFn(listarDecisoesAuditoria);
   const salvarDecisao = useServerFn(salvarDecisaoAuditoria);
+  const confirmarSugestao = useServerFn(confirmarSugestaoAuditoria);
+  const listarRegras = useServerFn(listarRegrasAuditoria);
+  const salvarRegra = useServerFn(salvarRegraAuditoria);
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categoriasConfiguradas = [], isLoading: configuracaoCarregando } =
     useCategoriasAuditoria(empresaId);
@@ -257,6 +355,10 @@ function AuditoriaFinanceiraPage() {
   const [decisoesLocais, setDecisoesLocais] = useState<Record<string, string>>({});
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
   const [execucaoManual, setExecucaoManual] = useState(0);
+  const [macroGerada, setMacroGerada] = useState(false);
+  const [listaMacro, setListaMacro] = useState<{ titulo: string; itens: AuditoriaItem[] } | null>(
+    null,
+  );
   const decisoesQuery = useQuery({
     queryKey: ["auditoria-decisoes", empresaId],
     queryFn: () => listarDecisoes({ data: { empresaId: empresaId! } }),
@@ -290,19 +392,87 @@ function AuditoriaFinanceiraPage() {
     onError: (erro) =>
       toast.error(erro instanceof Error ? erro.message : "Não foi possível salvar a decisão."),
   });
+  const confirmarSugestaoMut = useMutation({
+    mutationFn: (item: AuditoriaItem) =>
+      confirmarSugestao({
+        data: {
+          empresaId: empresaId!,
+          lancamentoId: item.lancamento!.id,
+          categoriaSugerida: item.sugestao,
+        },
+      }),
+    onSuccess: (_, item) => {
+      registrarDecisao(item, `Sugestão confirmada e categoria alterada para: ${item.sugestao}`);
+      queryClient.invalidateQueries({ queryKey: ["lancamentos", empresaId, ano] });
+      toast.success("Categoria do lançamento atualizada.");
+    },
+    onError: (erro) =>
+      toast.error(erro instanceof Error ? erro.message : "Não foi possível aplicar a sugestão."),
+  });
+  const regrasQuery = useQuery({
+    queryKey: ["auditoria-regras", empresaId],
+    queryFn: () => listarRegras({ data: { empresaId: empresaId! } }),
+    enabled: Boolean(empresaId),
+  });
+  const salvarRegraMut = useMutation({
+    mutationFn: (data: {
+      empresaId: string;
+      id?: string;
+      tipo: string;
+      fornecedor?: string | null;
+      categoriaOrigemId?: string | null;
+      categoriaDestinoId?: string | null;
+      acao: "excecao" | "sugestao";
+      observacao?: string;
+    }) => salvarRegra({ data }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["auditoria-regras", empresaId] });
+      toast.success("Regra da auditoria salva.");
+    },
+    onError: (erro) =>
+      toast.error(erro instanceof Error ? erro.message : "Não foi possível salvar a regra."),
+  });
 
   const auditoriasBase = useMemo(
     () => gerarAuditorias(lancamentosCentro, lancamentosPeriodo, categorias, mesesPeriodo),
     [categorias, lancamentosCentro, lancamentosPeriodo, mesesPeriodo],
   );
 
+  const auditoriasComRegras = useMemo(
+    () =>
+      auditoriasBase.map((item) => {
+        const fornecedor = item.lancamento?.pessoa?.trim().toLocaleLowerCase("pt-BR") ?? null;
+        const regra = (regrasQuery.data ?? []).find(
+          (candidata) =>
+            candidata.acao === "sugestao" &&
+            candidata.tipo_auditoria === item.tipo &&
+            candidata.fornecedor_normalizado === fornecedor &&
+            (!candidata.categoria_origem_id || candidata.categoria_origem_id === item.categoriaId),
+        );
+        const categoriaDestino = regra?.categoria_destino_id
+          ? categorias.find((categoria) => categoria.id === regra.categoria_destino_id)
+          : null;
+        return categoriaDestino
+          ? {
+              ...item,
+              sugestao: categoriaDestino.nome,
+              confianca: 100,
+              motivo: `${item.motivo} Regra confirmada pelo usuário aplicada.`,
+            }
+          : item;
+      }),
+    [auditoriasBase, categorias, regrasQuery.data],
+  );
+
   const auditorias = useMemo(
     () =>
-      auditoriasBase.map((item) => ({
-        ...item,
-        status: decisoes[item.id] ? "revisado" : item.status,
-      })),
-    [auditoriasBase, decisoes],
+      auditoriasComRegras
+        .filter((item) => !regraDeExcecaoAplica(item, regrasQuery.data ?? []))
+        .map((item) => ({
+          ...item,
+          status: decisoes[item.id] ? "revisado" : item.status,
+        })),
+    [auditoriasComRegras, decisoes, regrasQuery.data],
   );
 
   const categoriasFiltro = useMemo(
@@ -378,6 +548,50 @@ function AuditoriaFinanceiraPage() {
     if (empresaId) salvarDecisaoMut.mutate({ ...item, acao: decisao });
   }
 
+  function aplicarSugestao(item: AuditoriaItem) {
+    if (!item.lancamento) {
+      registrarDecisao(item, `Sugestão confirmada após revisão: ${item.sugestao}`);
+      return;
+    }
+    confirmarSugestaoMut.mutate(item);
+  }
+
+  function salvarRegraDoItem(item: AuditoriaItem, acao: "excecao" | "sugestao", editar = false) {
+    if (!empresaId) return;
+    const regraExistente = (regrasQuery.data ?? []).find(
+      (regra) =>
+        regra.tipo_auditoria === item.tipo &&
+        regra.fornecedor_normalizado ===
+          (item.lancamento?.pessoa?.trim().toLocaleLowerCase("pt-BR") || null),
+    );
+    const observacao = window.prompt(
+      editar ? "Edite a descrição da regra:" : "Descreva a regra (opcional):",
+      regraExistente?.observacao ?? item.motivo,
+    );
+    if (observacao === null) return;
+    salvarRegraMut.mutate({
+      empresaId,
+      ...(editar && regraExistente ? { id: regraExistente.id } : {}),
+      tipo: item.tipo,
+      fornecedor: item.lancamento?.pessoa ?? null,
+      categoriaOrigemId: item.categoriaId ?? null,
+      categoriaDestinoId:
+        acao === "sugestao"
+          ? (categorias.find((categoria) => categoria.nome === item.sugestao)?.id ?? null)
+          : null,
+      acao,
+      observacao,
+    });
+    registrarDecisao(
+      item,
+      acao === "excecao"
+        ? "Exceção permanente criada para ocorrências equivalentes"
+        : editar
+          ? "Regra permanente editada"
+          : "Regra permanente solicitada e criada",
+    );
+  }
+
   return (
     <>
       <TopBar
@@ -391,6 +605,7 @@ function AuditoriaFinanceiraPage() {
               queryClient.invalidateQueries({ queryKey: ["lancamentos", empresaId, ano] });
               queryClient.invalidateQueries({ queryKey: ["auditoria-categorias", empresaId] });
               setExecucaoManual((valor) => valor + 1);
+              setMacroGerada(false);
               toast.success("Base atualizada. A auditoria foi recalculada.");
             }}
           >
@@ -456,6 +671,15 @@ function AuditoriaFinanceiraPage() {
                 tom={resumo.score >= 90 ? "positivo" : resumo.score >= 70 ? "atencao" : "negativo"}
               />
             </section>
+
+            <MacroAuditoria
+              gerada={macroGerada}
+              onGerar={() => setMacroGerada(true)}
+              onAbrirLista={(titulo, itens) => setListaMacro({ titulo, itens })}
+              meses={mesesPeriodo}
+              auditorias={auditorias}
+              resumo={resumo}
+            />
 
             <section className="rounded-xl border bg-card shadow-card">
               <div className="border-b px-5 py-4">
@@ -612,11 +836,187 @@ function AuditoriaFinanceiraPage() {
               perfilFornecedor={perfilFornecedor}
               {...(decisoes[selecionado.id] ? { decisao: decisoes[selecionado.id] } : {})}
               onRegistrarDecisao={(decisao) => registrarDecisao(selecionado, decisao)}
+              onConfirmarSugestao={() => aplicarSugestao(selecionado)}
+              aplicandoSugestao={confirmarSugestaoMut.isPending}
+              onSalvarRegra={(acao, editar) => salvarRegraDoItem(selecionado, acao, editar)}
             />
           )}
         </SheetContent>
       </Sheet>
+      <Sheet open={!!listaMacro} onOpenChange={(open) => !open && setListaMacro(null)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+          {listaMacro && <ListaMacro titulo={listaMacro.titulo} itens={listaMacro.itens} />}
+        </SheetContent>
+      </Sheet>
     </>
+  );
+}
+
+function MacroAuditoria({
+  gerada,
+  onGerar,
+  onAbrirLista,
+  meses,
+  auditorias,
+  resumo,
+}: {
+  gerada: boolean;
+  onGerar: () => void;
+  onAbrirLista: (titulo: string, itens: AuditoriaItem[]) => void;
+  meses: number[];
+  auditorias: AuditoriaItem[];
+  resumo: ReturnType<typeof calcularResumo>;
+}) {
+  const valoresImpactados = new Map<string, number>();
+  for (const item of auditorias) {
+    if (item.lancamento?.id) valoresImpactados.set(item.lancamento.id, item.valor ?? 0);
+  }
+  const impactado = [...valoresImpactados.values()].reduce((total, valor) => total + valor, 0);
+  const duplicidades = auditorias.filter((item) => item.tipo === "duplicidade").length;
+  const provaveis = auditorias.filter((item) => item.confianca >= 85).length;
+  const pendentes = auditorias.filter((item) => item.status === "pendente").length;
+  const porTipo = Object.entries(
+    auditorias.reduce<Record<string, number>>((total, item) => {
+      total[item.tipo] = (total[item.tipo] ?? 0) + 1;
+      return total;
+    }, {}),
+  ).sort(([, a], [, b]) => b - a);
+  const riscos = porTipo
+    .slice(0, 4)
+    .map(([tipo, total]) => `${labelsTipo[tipo as TipoAuditoria]}: ${total}`);
+
+  return (
+    <section className="rounded-xl border border-primary/25 bg-linear-to-br from-primary/8 via-card to-info-soft p-6 shadow-card">
+      <div className="mx-auto max-w-4xl text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
+          <BrainCircuit className="h-6 w-6" />
+        </div>
+        <h2 className="mt-3 text-lg font-semibold">Macro da auditoria financeira</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Consolida materialidade, recorrência, histórico e evidências — sem alterar dados
+          automaticamente.
+        </p>
+        {!gerada ? (
+          <Button className="mt-5" size="lg" onClick={onGerar}>
+            <Sparkles className="h-4 w-4" />
+            Gerar macro da auditoria
+          </Button>
+        ) : (
+          <div className="mt-5 rounded-lg border bg-card/90 p-4 text-left">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-semibold">Resumo executivo</h3>
+              <Badge variant="outline">{meses.map((mes) => mesesCurtos[mes]).join(", ")}</Badge>
+            </div>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Foram analisados {resumo.analisados} lançamentos, com {auditorias.length} alertas e{" "}
+              {brl(impactado)} sob revisão potencial. Há {resumo.criticos} itens críticos,{" "}
+              {duplicidades} possíveis duplicidades e {provaveis} achados com confiança alta.
+            </p>
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <ResumoMacro
+                titulo="Panorama e materialidade"
+                onClick={() => onAbrirLista("Todos os alertas", auditorias)}
+              >
+                {pendentes} alertas ainda aguardam revisão. O valor potencialmente impactado é de{" "}
+                {brl(impactado)}, calculado sem duplicar o mesmo lançamento quando ele possui mais
+                de um alerta. O score de aderência estimado é de {pct(resumo.score, 0)}.
+              </ResumoMacro>
+              <ResumoMacro
+                titulo="Riscos identificados"
+                onClick={() =>
+                  onAbrirLista(
+                    "Riscos identificados",
+                    auditorias.filter((item) => item.criticidade !== "informativo"),
+                  )
+                }
+              >
+                {riscos.length
+                  ? `Os alertas se concentram em ${riscos.join("; ")}. ${duplicidades ? `Foram identificadas ${duplicidades} possíveis duplicidades, que exigem conferência de documento, data e pagamento antes de qualquer baixa.` : "Não foram encontradas possíveis duplicidades no período."}`
+                  : "Não foram encontrados riscos relevantes com os critérios atuais."}
+              </ResumoMacro>
+              <ResumoMacro
+                titulo="Qualidade das evidências"
+                onClick={() =>
+                  onAbrirLista(
+                    "Achados com confiança alta",
+                    auditorias.filter((item) => item.confianca >= 85),
+                  )
+                }
+              >
+                {provaveis} achados têm confiança alta, baseada em recorrência, histórico de
+                fornecedor, categoria, texto e valor. Os demais são indícios para validação:
+                diferenças isoladas não são tratadas automaticamente como erro.
+              </ResumoMacro>
+              <ResumoMacro
+                titulo="Itens críticos pendentes"
+                onClick={() =>
+                  onAbrirLista(
+                    "Itens críticos pendentes",
+                    auditorias.filter(
+                      (item) => item.criticidade === "critico" && item.status === "pendente",
+                    ),
+                  )
+                }
+              >
+                Priorize os {resumo.criticos} itens críticos, valide documentos e responsáveis antes
+                de confirmar uma sugestão e use exceções apenas para padrões realmente autorizados.
+                Padrões recorrentes confirmados podem ser convertidos em regras permanentes.
+              </ResumoMacro>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ResumoMacro({
+  titulo,
+  children,
+  onClick,
+}: {
+  titulo: string;
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg border bg-muted/35 p-4 text-left transition-colors hover:bg-muted/70"
+    >
+      <h4 className="text-sm font-semibold">{titulo}</h4>
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">{children}</p>
+      <p className="mt-3 text-xs font-medium text-primary">Ver ocorrências</p>
+    </button>
+  );
+}
+
+function ListaMacro({ titulo, itens }: { titulo: string; itens: AuditoriaItem[] }) {
+  return (
+    <div className="space-y-4">
+      <SheetHeader>
+        <SheetTitle>{titulo}</SheetTitle>
+        <SheetDescription>
+          {itens.length} ocorrência{itens.length === 1 ? "" : "s"} encontrada
+          {itens.length === 1 ? "" : "s"}.
+        </SheetDescription>
+      </SheetHeader>
+      {itens.map((item) => (
+        <article key={item.id} className="rounded-lg border p-4">
+          <div className="flex items-center gap-2">
+            <CriticidadeBadge criticidade={item.criticidade} />
+            <Badge variant="outline">{labelsTipo[item.tipo]}</Badge>
+            <span className="ml-auto font-medium">
+              {item.valor == null ? "—" : brl(item.valor)}
+            </span>
+          </div>
+          <p className="mt-3 font-medium">{item.lancamentoLabel}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{item.motivo}</p>
+          <p className="mt-2 text-sm text-primary">Sugestão: {item.sugestao}</p>
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -712,11 +1112,17 @@ function PainelRevisao({
   perfilFornecedor,
   decisao,
   onRegistrarDecisao,
+  onConfirmarSugestao,
+  aplicandoSugestao,
+  onSalvarRegra,
 }: {
   item: AuditoriaItem;
   perfilFornecedor: PerfilFornecedor | null;
   decisao?: string;
   onRegistrarDecisao: (decisao: string) => void;
+  onConfirmarSugestao: () => void;
+  aplicandoSugestao: boolean;
+  onSalvarRegra: (acao: "excecao" | "sugestao", editar: boolean) => void;
 }) {
   const lancamento = item.lancamento;
 
@@ -790,9 +1196,9 @@ function PainelRevisao({
           <h3 className="text-sm font-semibold">Ações</h3>
         </div>
         <div className="grid gap-2 p-4 sm:grid-cols-2">
-          <Button onClick={() => onRegistrarDecisao(`Sugestão confirmada: ${item.sugestao}`)}>
+          <Button onClick={onConfirmarSugestao} disabled={aplicandoSugestao}>
             <CheckCircle2 className="h-4 w-4" />
-            Confirmar sugestão
+            {aplicandoSugestao ? "Aplicando..." : "Confirmar sugestão"}
           </Button>
           <Button
             variant="outline"
@@ -808,21 +1214,15 @@ function PainelRevisao({
             <X className="h-4 w-4" />
             Ignorar alerta
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => onRegistrarDecisao("Exceção cadastrada para recorrências semelhantes")}
-          >
+          <Button variant="outline" onClick={() => onSalvarRegra("excecao", false)}>
             <Lightbulb className="h-4 w-4" />
             Marcar exceção
           </Button>
-          <Button variant="outline" onClick={() => onRegistrarDecisao("Nova regra solicitada")}>
+          <Button variant="outline" onClick={() => onSalvarRegra("sugestao", false)}>
             <BookOpen className="h-4 w-4" />
             Solicitar regra
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => onRegistrarDecisao("Edição de regra solicitada")}
-          >
+          <Button variant="outline" onClick={() => onSalvarRegra("sugestao", true)}>
             <History className="h-4 w-4" />
             Editar regra
           </Button>
@@ -842,8 +1242,13 @@ function PainelRevisao({
           </Button>
         </div>
         {decisao && (
-          <div className="border-t bg-positive-soft px-4 py-3 text-sm text-positive">
-            Decisão salva para esta auditoria: {decisao}
+          <div className="border-t bg-positive-soft px-4 py-4 text-sm text-positive">
+            <p className="font-semibold">Resultado da ação</p>
+            <p className="mt-1">{decisao}</p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              O alerta foi marcado como revisado e a decisão ficou registrada no histórico desta
+              auditoria.
+            </p>
           </div>
         )}
       </section>
@@ -1774,6 +2179,19 @@ function groupIndexMaisRecente(grupo: Lancamento[]) {
     if (grupo[i].data_efetiva > grupo[index].data_efetiva) index = i;
   }
   return index;
+}
+
+function regraDeExcecaoAplica(item: AuditoriaItem, regras: RegraAuditoria[]) {
+  const fornecedor = item.lancamento?.pessoa
+    ? item.lancamento.pessoa.trim().toLocaleLowerCase("pt-BR")
+    : null;
+  return regras.some(
+    (regra) =>
+      regra.acao === "excecao" &&
+      regra.tipo_auditoria === item.tipo &&
+      regra.fornecedor_normalizado === fornecedor &&
+      (!regra.categoria_origem_id || regra.categoria_origem_id === item.categoriaId),
+  );
 }
 
 function deduplicarAuditorias(itens: AuditoriaItem[]) {
