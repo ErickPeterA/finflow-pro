@@ -28,6 +28,7 @@ export function Kpi({
   anterior,
   tom = "neutro",
   legenda,
+  mostrarSemBase = true,
 }: {
   titulo: string;
   valor: number;
@@ -35,6 +36,7 @@ export function Kpi({
   anterior?: number | undefined;
   tom?: Tom | undefined;
   legenda?: string | undefined;
+  mostrarSemBase?: boolean | undefined;
 }) {
   const sobe = (variacaoPct ?? 0) > 0;
   const desce = (variacaoPct ?? 0) < 0;
@@ -44,11 +46,11 @@ export function Kpi({
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{titulo}</p>
       <p className={cn("tabular mt-2 text-2xl font-semibold", tons[tom])}>{brl(valor)}</p>
       <div className="mt-2 flex items-center gap-2 text-xs">
-        {variacaoPct == null ? (
+        {variacaoPct == null && mostrarSemBase ? (
           <span className="inline-flex items-center gap-1 text-muted-foreground">
             <Minus className="h-3 w-3" /> sem base
           </span>
-        ) : (
+        ) : variacaoPct != null ? (
           <span
             className={cn(
               "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium",
@@ -64,7 +66,7 @@ export function Kpi({
             )}
             {pct(Math.abs(variacaoPct))}
           </span>
-        )}
+        ) : null}
         <span className="truncate text-muted-foreground">
           {legenda ?? (anterior !== undefined ? `mês anterior ${brl(anterior, true)}` : "")}
         </span>

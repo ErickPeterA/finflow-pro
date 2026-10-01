@@ -17,12 +17,14 @@ import {
   useCategorias,
   useCategoriasAuditoria,
   useConfiguracao,
+  useEmpresaAtual,
   useLancamentos,
   type CategoriaAuditoria,
 } from "@/lib/data";
 import {
   agregarPorCentroCategoria,
   calcularDre,
+  calcularDreHartwig,
   mediaFechados,
   type GrupoDre,
   type LinhaCentroCategoria,
@@ -78,6 +80,8 @@ function DrePage() {
   const { data: categorias = [] } = useCategorias(empresaId);
   const { data: planoContas = [] } = useCategoriasAuditoria(empresaId);
   const { data: config } = useConfiguracao(empresaId);
+  const { data: empresa } = useEmpresaAtual(empresaId);
+  const dreHartwig = normalizarNomeEmpresa(empresa?.nome).includes("hartwig");
   const [abertos, setAbertos] = useState<Record<string, boolean>>({});
   const [centrosAbertos, setCentrosAbertos] = useState<Record<string, boolean>>({});
 
@@ -120,8 +124,11 @@ function DrePage() {
   }, [lancamentosCentro, modoFiltro, mesFiltro, periodoInicio, periodoFim, ano]);
 
   const resultados = useMemo(
-    () => calcularDre(lancamentosFiltrados, categorias),
-    [lancamentosFiltrados, categorias],
+    () =>
+      dreHartwig
+        ? calcularDreHartwig(lancamentosFiltrados, categorias)
+        : calcularDre(lancamentosFiltrados, categorias),
+    [lancamentosFiltrados, categorias, dreHartwig],
   );
   const mesesVisiveis = useMemo(() => {
     if (modoFiltro === "mes") return [mesFiltro];
@@ -150,12 +157,18 @@ function DrePage() {
   );
   const atual = totalizarResultados(resultadosVisiveis);
   const resultadosAnoA = useMemo(
-    () => calcularDre(lancamentosAnoACentro, categorias),
-    [lancamentosAnoACentro, categorias],
+    () =>
+      dreHartwig
+        ? calcularDreHartwig(lancamentosAnoACentro, categorias)
+        : calcularDre(lancamentosAnoACentro, categorias),
+    [lancamentosAnoACentro, categorias, dreHartwig],
   );
   const resultadosAnoB = useMemo(
-    () => calcularDre(lancamentosAnoBCentro, categorias),
-    [lancamentosAnoBCentro, categorias],
+    () =>
+      dreHartwig
+        ? calcularDreHartwig(lancamentosAnoBCentro, categorias)
+        : calcularDre(lancamentosAnoBCentro, categorias),
+    [lancamentosAnoBCentro, categorias, dreHartwig],
   );
   const comparativo = useMemo(() => {
     if (modoComparativo === "anos") {
@@ -182,8 +195,8 @@ function DrePage() {
     mesComparativoB,
   ]);
   const linhasComparativo = useMemo(
-    () => montarLinhasComparativo(comparativo.a, comparativo.b),
-    [comparativo],
+    () => montarLinhasComparativo(comparativo.a, comparativo.b, dreHartwig),
+    [comparativo, dreHartwig],
   );
   const detalhesComparativo = useMemo(() => {
     if (modoComparativo === "anos") {
@@ -635,6 +648,42 @@ function DrePage() {
                           pick={(m) => m.resultadoLiquido}
                           forte
                         />
+                        {dreHartwig && (
+                          <>
+                            <LinhaResumo
+                              nome="(-) Ações Sociais"
+                              resultados={resultados}
+                              mesesVisiveis={mesesVisiveis}
+                              pick={(m) => m.acoesSociais}
+                            />
+                            <LinhaResumo
+                              nome="= Resultado Líquido c/ Distrib"
+                              resultados={resultados}
+                              mesesVisiveis={mesesVisiveis}
+                              pick={(m) => m.resultadoLiquidoComDistrib}
+                              forte
+                            />
+                            <LinhaResumo
+                              nome="(-) Distribuição de Lucros - Cotistas"
+                              resultados={resultados}
+                              mesesVisiveis={mesesVisiveis}
+                              pick={(m) => m.distribuicaoCotistas}
+                            />
+                            <LinhaResumo
+                              nome="(+/-) Demais ajustes de cotistas"
+                              resultados={resultados}
+                              mesesVisiveis={mesesVisiveis}
+                              pick={(m) => m.ajustesCotistas}
+                            />
+                            <LinhaResumo
+                              nome="= Resultado Operacional - Cotistas"
+                              resultados={resultados}
+                              mesesVisiveis={mesesVisiveis}
+                              pick={(m) => m.resultadoOperacionalCotistas}
+                              forte
+                            />
+                          </>
+                        )}
                         <tr className="border-t bg-muted/30 text-xs text-muted-foreground">
                           <td className="sticky left-0 bg-muted/30 px-4 py-2">
                             Margem operacional
@@ -766,6 +815,12 @@ function totalizarResultados(resultados: ResultadoMes[]): ResultadoMes {
       naoOperacional: acc.naoOperacional + m.naoOperacional,
       aportesEmprestimos: acc.aportesEmprestimos + m.aportesEmprestimos,
       resultadoLiquido: acc.resultadoLiquido + m.resultadoLiquido,
+      acoesSociais: acc.acoesSociais + m.acoesSociais,
+      distribuicaoCotistas: acc.distribuicaoCotistas + m.distribuicaoCotistas,
+      ajustesCotistas: acc.ajustesCotistas + m.ajustesCotistas,
+      resultadoLiquidoComDistrib: acc.resultadoLiquidoComDistrib + m.resultadoLiquidoComDistrib,
+      resultadoOperacionalCotistas:
+        acc.resultadoOperacionalCotistas + m.resultadoOperacionalCotistas,
       temMovimento: acc.temMovimento || m.temMovimento,
     }),
     {
@@ -782,6 +837,11 @@ function totalizarResultados(resultados: ResultadoMes[]): ResultadoMes {
       naoOperacional: 0,
       aportesEmprestimos: 0,
       resultadoLiquido: 0,
+      acoesSociais: 0,
+      distribuicaoCotistas: 0,
+      ajustesCotistas: 0,
+      resultadoLiquidoComDistrib: 0,
+      resultadoOperacionalCotistas: 0,
       margemBruta: 0,
       margemOperacional: 0,
       margemLiquida: 0,
@@ -850,7 +910,11 @@ type LinhaDetalheComparativo = LinhaComparativoBase & {
   classificacao?: "fixo" | "variavel" | undefined;
 };
 
-function montarLinhasComparativo(a: ResultadoMes, b: ResultadoMes): LinhaComparativo[] {
+function montarLinhasComparativo(
+  a: ResultadoMes,
+  b: ResultadoMes,
+  dreHartwig = false,
+): LinhaComparativo[] {
   const linha = (
     nome: string,
     valorA: number,
@@ -871,7 +935,7 @@ function montarLinhasComparativo(a: ResultadoMes, b: ResultadoMes): LinhaCompara
     grupos,
   });
 
-  return [
+  const linhas: LinhaComparativo[] = [
     linha("Receita Operacional", a.receitaBruta, b.receitaBruta, "moeda", false, [
       "receita_operacional",
     ]),
@@ -894,10 +958,48 @@ function montarLinhasComparativo(a: ResultadoMes, b: ResultadoMes): LinhaCompara
       "nao_operacional",
     ]),
     linha("= Resultado Líquido", a.resultadoLiquido, b.resultadoLiquido, "moeda", true),
+  ];
+
+  if (dreHartwig) {
+    linhas.push(
+      linha("(-) Ações Sociais", a.acoesSociais, b.acoesSociais),
+      linha(
+        "= Resultado Líquido c/ Distrib",
+        a.resultadoLiquidoComDistrib,
+        b.resultadoLiquidoComDistrib,
+        "moeda",
+        true,
+      ),
+      linha(
+        "(-) Distribuição de Lucros - Cotistas",
+        a.distribuicaoCotistas,
+        b.distribuicaoCotistas,
+      ),
+      linha("(+/-) Demais ajustes de cotistas", a.ajustesCotistas, b.ajustesCotistas),
+      linha(
+        "= Resultado Operacional - Cotistas",
+        a.resultadoOperacionalCotistas,
+        b.resultadoOperacionalCotistas,
+        "moeda",
+        true,
+      ),
+    );
+  }
+
+  linhas.push(
     linha("Margem Bruta", a.margemBruta, b.margemBruta, "percentual"),
     linha("Margem Operacional", a.margemOperacional, b.margemOperacional, "percentual", true),
     linha("Margem Líquida", a.margemLiquida, b.margemLiquida, "percentual"),
-  ];
+  );
+
+  return linhas;
+}
+
+function normalizarNomeEmpresa(nome?: string | null) {
+  return String(nome ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 function montarDetalhesComparativo(
@@ -1181,8 +1283,8 @@ function LinhaTabelaComparativa({
       <td
         className={cn(
           "sticky left-0 z-10 px-4 py-2 font-medium",
-          detalhe && linha.nivel === "centro" && "bg-muted/30 pl-8",
-          detalhe && linha.nivel === "categoria" && "bg-muted/10 pl-14",
+          detalhe && linha.nivel === "centro" && "bg-card pl-8",
+          detalhe && linha.nivel === "categoria" && "bg-card pl-14",
           !detalhe && (linha.forte ? "bg-secondary" : "bg-card"),
         )}
       >
@@ -1634,7 +1736,7 @@ function LinhaTotal({
           return (
             <Fragment key={centro.centroCusto}>
               <tr className="border-b bg-muted/30 text-xs font-semibold">
-                <td className="sticky left-0 z-10 bg-muted/30 py-1.5 pl-8 pr-4">
+                <td className="sticky left-0 z-10 bg-card py-1.5 pl-8 pr-4">
                   <button
                     type="button"
                     onClick={() => onToggleCentro(chaveCentro)}
@@ -1692,7 +1794,7 @@ function LinhaTotal({
                       key={`${f.centroCusto}::${f.nome}`}
                       className="border-b bg-muted/10 text-xs"
                     >
-                      <td className="sticky left-0 z-10 bg-muted/10 py-1.5 pl-14 pr-4">
+                      <td className="sticky left-0 z-10 bg-card py-1.5 pl-14 pr-4">
                         <span className="flex items-center gap-2">
                           <span className="truncate">{f.nome}</span>
                         </span>

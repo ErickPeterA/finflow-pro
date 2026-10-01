@@ -149,6 +149,11 @@ export interface ResultadoMes {
   naoOperacional: number;
   aportesEmprestimos: number;
   resultadoLiquido: number;
+  acoesSociais: number;
+  distribuicaoCotistas: number;
+  ajustesCotistas: number;
+  resultadoLiquidoComDistrib: number;
+  resultadoOperacionalCotistas: number;
   margemBruta: number;
   margemOperacional: number;
   margemLiquida: number;
@@ -169,6 +174,11 @@ const vazio = (mes: number): ResultadoMes => ({
   naoOperacional: 0,
   aportesEmprestimos: 0,
   resultadoLiquido: 0,
+  acoesSociais: 0,
+  distribuicaoCotistas: 0,
+  ajustesCotistas: 0,
+  resultadoLiquidoComDistrib: 0,
+  resultadoOperacionalCotistas: 0,
   margemBruta: 0,
   margemOperacional: 0,
   margemLiquida: 0,
@@ -232,12 +242,80 @@ export function calcularDre(lancamentos: Lancamento[], categorias: Categoria[]):
     m.resultadoOperacional = m.resultadoBruto - m.despesas;
     m.resultadoOpFin = m.resultadoOperacional + m.financeiro;
     m.resultadoLiquido = m.resultadoOpFin + m.naoOperacional;
+    m.resultadoLiquidoComDistrib = m.resultadoLiquido;
+    m.resultadoOperacionalCotistas = m.resultadoOperacional;
     m.margemBruta = receitaBase ? (m.resultadoBruto / receitaBase) * 100 : 0;
     m.margemOperacional = receitaBase ? (m.resultadoOperacional / receitaBase) * 100 : 0;
     m.margemLiquida = receitaBase ? (m.resultadoLiquido / receitaBase) * 100 : 0;
   }
 
   return meses;
+}
+
+/**
+ * Aplica a ponte de resultados exclusiva da Hartwig.
+ * O resultado líquido considera a atividade de financiamento antes das
+ * ações sociais e distribuições; os dois indicadores seguintes seguem as
+ * pontes específicas do modelo gerencial da empresa.
+ */
+export function calcularDreHartwig(
+  lancamentos: Lancamento[],
+  categorias: Categoria[],
+): ResultadoMes[] {
+  const resultados = calcularDre(lancamentos, categorias);
+  const financiamentoBase = Array<number>(12).fill(0);
+  const acoesSociais = Array<number>(12).fill(0);
+  const acoesSociais541 = Array<number>(12).fill(0);
+  const distribuicaoCotistas = Array<number>(12).fill(0);
+  const ajustesCotistas = Array<number>(12).fill(0);
+
+  for (const lancamento of lancamentos) {
+    const mes = mesDaCompetencia(lancamento.competencia);
+    if (mes < 0 || mes > 11) continue;
+    const grupo = grupoDoLancamento(lancamento, categorias);
+    if (grupo !== "nao_operacional") continue;
+
+    const nome = normalizarCategoriaHartwig(nomeCategoria(lancamento, categorias));
+    const valor = valorAssinado(grupo, lancamento);
+    if (nome.startsWith("5.4")) {
+      acoesSociais[mes]! += valor;
+      if (nome.startsWith("5.4.1")) acoesSociais541[mes]! += valor;
+    } else if (nome.startsWith("5.5.1")) {
+      distribuicaoCotistas[mes]! += valor;
+    } else if (nome.startsWith("5.5")) {
+      ajustesCotistas[mes]! += valor;
+    } else {
+      financiamentoBase[mes]! += valor;
+    }
+  }
+
+  for (const resultado of resultados) {
+    const mes = resultado.mes;
+    resultado.naoOperacional = financiamentoBase[mes] ?? 0;
+    resultado.acoesSociais = acoesSociais[mes] ?? 0;
+    resultado.distribuicaoCotistas = distribuicaoCotistas[mes] ?? 0;
+    resultado.ajustesCotistas = ajustesCotistas[mes] ?? 0;
+    resultado.resultadoLiquido = resultado.resultadoOpFin + resultado.naoOperacional;
+    resultado.resultadoLiquidoComDistrib = resultado.resultadoLiquido + resultado.acoesSociais;
+    resultado.resultadoOperacionalCotistas =
+      resultado.resultadoOperacional +
+      resultado.distribuicaoCotistas +
+      resultado.ajustesCotistas +
+      (acoesSociais541[mes] ?? 0);
+    resultado.margemLiquida = resultado.receitaBruta
+      ? (resultado.resultadoLiquido / resultado.receitaBruta) * 100
+      : 0;
+  }
+
+  return resultados;
+}
+
+function normalizarCategoriaHartwig(valor: string) {
+  return valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 /** Média considerando apenas meses efetivamente fechados (com movimento). */
