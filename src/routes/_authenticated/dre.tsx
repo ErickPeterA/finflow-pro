@@ -537,7 +537,7 @@ function DrePage() {
                   <div className="-mx-5 -mb-5 overflow-x-auto">
                     <table className="w-full min-w-[1100px] text-[13px]">
                       <thead>
-                        <tr className="border-b bg-muted/50 text-[11px] uppercase tracking-wide text-muted-foreground">
+                        <tr className="border-b bg-muted/50 text-[11px] normal-case tracking-wide text-muted-foreground">
                           <th className="sticky left-0 z-10 bg-muted/50 px-4 py-2 text-left font-medium">
                             Linha
                           </th>
@@ -1207,7 +1207,7 @@ function TabelaComparativa({
     <div className="-mx-5 -mb-5 overflow-x-auto">
       <table className="w-full min-w-[1160px] text-[13px]">
         <thead>
-          <tr className="border-b bg-muted/50 text-[11px] uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b bg-muted/50 text-[11px] normal-case tracking-wide text-muted-foreground">
             <th className="sticky left-0 z-10 bg-muted/50 px-4 py-2 text-left font-medium">
               Linha
             </th>
@@ -1397,7 +1397,9 @@ function ColunaComposicaoPeriodo({
 }) {
   return (
     <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{nome}</p>
+      <p className="text-xs font-semibold normal-case tracking-wide text-muted-foreground">
+        {nome}
+      </p>
       <ul className="space-y-1 text-xs">
         {itens.map((item) => (
           <li

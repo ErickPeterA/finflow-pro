@@ -1,7 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn, createServerOnlyFn, useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, ChevronDown, KeyRound, Link2, Pencil, RefreshCw, Trash2, UserMinus, UserPlus } from "lucide-react";
+import {
+  Building2,
+  ChevronDown,
+  KeyRound,
+  Link2,
+  Pencil,
+  RefreshCw,
+  Trash2,
+  UserMinus,
+  UserPlus,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/TopBar";
@@ -90,7 +100,9 @@ export const Route = createFileRoute("/_authenticated/gerenciamento")({
 
 async function exigirAdmin(userId: string) {
   const { query } = await carregarServidor();
-  const result = await query("select 1 from user_roles where user_id=$1::uuid and role='admin'", [userId]);
+  const result = await query("select 1 from user_roles where user_id=$1::uuid and role='admin'", [
+    userId,
+  ]);
   if (!result.rowCount) throw new Error("Acesso restrito a administradores.");
 }
 
@@ -127,11 +139,24 @@ async function montarPainel(adminId: string) {
   const { query } = await carregarServidor();
 
   const [usuariosResult, projetosResult, vinculosResult] = await Promise.all([
-    query<UsuarioGerenciado>(`select u.id,coalesce(u.email,'sem e-mail') as email,coalesce(nullif(p.nome,''),nullif(u.nome,''),split_part(u.email,'@',1),'Usuário') as nome,u.ativo,u.created_at as "criadoEm",(select max(s.created_at) from auth_sessions s where s.user_id=u.id) as "ultimoAcesso" from users u left join profiles p on p.id=u.id order by nome`),
+    query<UsuarioGerenciado>(
+      `select u.id,coalesce(u.email,'sem e-mail') as email,coalesce(nullif(p.nome,''),nullif(u.nome,''),split_part(u.email,'@',1),'Usuário') as nome,u.ativo,u.created_at as "criadoEm",(select max(s.created_at) from auth_sessions s where s.user_id=u.id) as "ultimoAcesso" from users u left join profiles p on p.id=u.id order by nome`,
+    ),
     query<ProjetoGerenciado>("select id,nome,cnpj,ativo from empresas order by nome"),
-    query<{id:string;empresa_id:string;user_id:string;perfil:PerfilProjeto;ativo:boolean;created_at:string}>("select id,empresa_id,user_id,perfil,ativo,created_at from projeto_usuarios order by created_at desc"),
+    query<{
+      id: string;
+      empresa_id: string;
+      user_id: string;
+      perfil: PerfilProjeto;
+      ativo: boolean;
+      created_at: string;
+    }>(
+      "select id,empresa_id,user_id,perfil,ativo,created_at from projeto_usuarios order by created_at desc",
+    ),
   ]);
-  const usuarios=usuariosResult.rows, projetos=projetosResult.rows, vinculos=vinculosResult.rows;
+  const usuarios = usuariosResult.rows,
+    projetos = projetosResult.rows,
+    vinculos = vinculosResult.rows;
 
   return {
     usuarios,
@@ -177,13 +202,23 @@ const criarLogin = createServerFn({ method: "POST" })
     const passwordHash = await hashPassword(data.senha);
     try {
       await withTransaction(async (client) => {
-        const user = await client.query<{ id: string }>("insert into users (email,nome,password_hash,password_changed_at) values ($1,$2,$3,now()) returning id", [data.email,data.nome,passwordHash]);
+        const user = await client.query<{ id: string }>(
+          "insert into users (email,nome,password_hash,password_changed_at) values ($1,$2,$3,now()) returning id",
+          [data.email, data.nome, passwordHash],
+        );
         const userId = user.rows[0]!.id;
-        await client.query("insert into profiles (id,nome,email) values ($1,$2,$3)", [userId,data.nome,data.email]);
-        await client.query("insert into user_roles (user_id,role) values ($1,'consultor')", [userId]);
+        await client.query("insert into profiles (id,nome,email) values ($1,$2,$3)", [
+          userId,
+          data.nome,
+          data.email,
+        ]);
+        await client.query("insert into user_roles (user_id,role) values ($1,'consultor')", [
+          userId,
+        ]);
       });
     } catch (error) {
-      if ((error as { code?: string }).code === "23505") throw new Error("Já existe um login com esse e-mail.");
+      if ((error as { code?: string }).code === "23505")
+        throw new Error("Já existe um login com esse e-mail.");
       throw error;
     }
 
@@ -206,9 +241,16 @@ const alterarStatusUsuario = createServerFn({ method: "POST" })
     }
 
     await withTransaction(async (client) => {
-      const result = await client.query("update users set ativo=$1 where id=$2::uuid", [data.ativo,data.userId]);
+      const result = await client.query("update users set ativo=$1 where id=$2::uuid", [
+        data.ativo,
+        data.userId,
+      ]);
       if (!result.rowCount) throw new Error("Usuário não encontrado.");
-      if (!data.ativo) await client.query("update auth_sessions set revoked_at=now() where user_id=$1::uuid and revoked_at is null", [data.userId]);
+      if (!data.ativo)
+        await client.query(
+          "update auth_sessions set revoked_at=now() where user_id=$1::uuid and revoked_at is null",
+          [data.userId],
+        );
     });
 
     return { ok: true };
@@ -229,16 +271,30 @@ const editarUsuario = createServerFn({ method: "POST" })
     const { withTransaction } = await carregarServidor();
     try {
       await withTransaction(async (client) => {
-        const anterior = await client.query<{ email: string | null }>("select email from users where id=$1::uuid for update", [data.userId]);
+        const anterior = await client.query<{ email: string | null }>(
+          "select email from users where id=$1::uuid for update",
+          [data.userId],
+        );
         if (!anterior.rowCount) throw new Error("Usuário não encontrado.");
-        await client.query("update users set nome=$1,email=$2 where id=$3::uuid", [data.nome,data.email,data.userId]);
-        await client.query("insert into profiles (id,nome,email) values ($1,$2,$3) on conflict (id) do update set nome=excluded.nome,email=excluded.email", [data.userId,data.nome,data.email]);
+        await client.query("update users set nome=$1,email=$2 where id=$3::uuid", [
+          data.nome,
+          data.email,
+          data.userId,
+        ]);
+        await client.query(
+          "insert into profiles (id,nome,email) values ($1,$2,$3) on conflict (id) do update set nome=excluded.nome,email=excluded.email",
+          [data.userId, data.nome, data.email],
+        );
         if (anterior.rows[0]!.email?.toLowerCase() !== data.email) {
-          await client.query("update auth_sessions set revoked_at=now() where user_id=$1::uuid and revoked_at is null", [data.userId]);
+          await client.query(
+            "update auth_sessions set revoked_at=now() where user_id=$1::uuid and revoked_at is null",
+            [data.userId],
+          );
         }
       });
     } catch (error) {
-      if ((error as { code?: string }).code === "23505") throw new Error("Já existe um login com esse e-mail.");
+      if ((error as { code?: string }).code === "23505")
+        throw new Error("Já existe um login com esse e-mail.");
       throw error;
     }
     return { ok: true };
@@ -256,9 +312,15 @@ const redefinirSenhaUsuario = createServerFn({ method: "POST" })
     const { hashPassword, withTransaction } = await carregarServidor();
     const passwordHash = await hashPassword(data.senha);
     await withTransaction(async (client) => {
-      const result = await client.query("update users set password_hash=$1,password_changed_at=now() where id=$2::uuid", [passwordHash,data.userId]);
+      const result = await client.query(
+        "update users set password_hash=$1,password_changed_at=now() where id=$2::uuid",
+        [passwordHash, data.userId],
+      );
       if (!result.rowCount) throw new Error("Usuário não encontrado.");
-      await client.query("update auth_sessions set revoked_at=now() where user_id=$1::uuid and revoked_at is null", [data.userId]);
+      await client.query(
+        "update auth_sessions set revoked_at=now() where user_id=$1::uuid and revoked_at is null",
+        [data.userId],
+      );
     });
     return { ok: true };
   });
@@ -304,7 +366,8 @@ const salvarVinculo = createServerFn({ method: "POST" })
       "select id from empresas where id = any($1::uuid[])",
       [data.empresaIds],
     );
-    if (projetos.length !== data.empresaIds.length) throw new Error("Um ou mais projetos não foram encontrados.");
+    if (projetos.length !== data.empresaIds.length)
+      throw new Error("Um ou mais projetos não foram encontrados.");
 
     await withTransaction(async (client) => {
       await client.query(
@@ -388,7 +451,8 @@ function GerenciamentoPage() {
   });
 
   const salvarEdicao = useMutation({
-    mutationFn: () => editarUsuarioFn({ data: { userId: edicao.userId, nome: edicao.nome, email: edicao.email } }),
+    mutationFn: () =>
+      editarUsuarioFn({ data: { userId: edicao.userId, nome: edicao.nome, email: edicao.email } }),
     onSuccess: () => {
       toast.success("Usuário atualizado.");
       setEdicao({ userId: "", nome: "", email: "", senha: "" });
@@ -419,7 +483,9 @@ function GerenciamentoPage() {
   const atrelarUsuario = useMutation({
     mutationFn: () => salvarVinculoFn({ data: novoVinculo }),
     onSuccess: ({ total }) => {
-      toast.success(total === 1 ? "Usuário atrelado ao projeto." : `Usuário atrelado a ${total} projetos.`);
+      toast.success(
+        total === 1 ? "Usuário atrelado ao projeto." : `Usuário atrelado a ${total} projetos.`,
+      );
       setNovoVinculo({ userId: "", empresaIds: [], perfil: "interno" });
       invalidarPainel();
     },
@@ -440,8 +506,21 @@ function GerenciamentoPage() {
   const vinculos = painelQuery.data?.vinculos ?? vinculosVazios;
   const usuarioAtualId = painelQuery.data?.usuarioAtualId;
 
-  const usuariosPorId = useMemo(() => new Map(usuarios.map((u) => [u.id, u])), [usuarios]);
   const projetosPorId = useMemo(() => new Map(projetos.map((p) => [p.id, p])), [projetos]);
+  const vinculosPorUsuario = useMemo(() => {
+    const grupos = new Map<string, typeof vinculos>();
+    for (const vinculo of vinculos) {
+      const grupo = grupos.get(vinculo.userId) ?? [];
+      grupo.push(vinculo);
+      grupos.set(vinculo.userId, grupo);
+    }
+    return [...grupos.entries()]
+      .map(([userId, acessos]) => ({
+        usuario: usuarios.find((usuario) => usuario.id === userId),
+        acessos,
+      }))
+      .sort((a, b) => (a.usuario?.nome ?? "").localeCompare(b.usuario?.nome ?? "", "pt-BR"));
+  }, [usuarios, vinculos]);
 
   return (
     <>
@@ -528,20 +607,57 @@ function GerenciamentoPage() {
                 <div className="grid gap-3 border-b bg-muted/20 p-5 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label htmlFor="editar-nome">Nome</Label>
-                    <Input id="editar-nome" value={edicao.nome} maxLength={160} onChange={(e) => setEdicao((v) => ({ ...v, nome: e.target.value }))} />
+                    <Input
+                      id="editar-nome"
+                      value={edicao.nome}
+                      maxLength={160}
+                      onChange={(e) => setEdicao((v) => ({ ...v, nome: e.target.value }))}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="editar-email">E-mail</Label>
-                    <Input id="editar-email" value={edicao.email} onChange={(e) => setEdicao((v) => ({ ...v, email: e.target.value }))} />
+                    <Input
+                      id="editar-email"
+                      value={edicao.email}
+                      onChange={(e) => setEdicao((v) => ({ ...v, email: e.target.value }))}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="reset-senha">Nova senha</Label>
-                    <Input id="reset-senha" type="password" minLength={8} placeholder="Mínimo de 8 caracteres" autoComplete="new-password" value={edicao.senha} onChange={(e) => setEdicao((v) => ({ ...v, senha: e.target.value }))} />
+                    <Input
+                      id="reset-senha"
+                      type="password"
+                      minLength={8}
+                      placeholder="Mínimo de 8 caracteres"
+                      autoComplete="new-password"
+                      value={edicao.senha}
+                      onChange={(e) => setEdicao((v) => ({ ...v, senha: e.target.value }))}
+                    />
                   </div>
                   <div className="flex flex-wrap gap-2 md:col-span-3">
-                    <Button size="sm" onClick={() => salvarEdicao.mutate()} disabled={salvarEdicao.isPending}>Salvar dados</Button>
-                    <Button size="sm" variant="outline" onClick={() => redefinirSenha.mutate()} disabled={redefinirSenha.isPending || edicao.senha.length < 8}><KeyRound className="h-4 w-4" />Redefinir senha</Button>
-                    <Button size="sm" variant="ghost" onClick={() => setEdicao({ userId: "", nome: "", email: "", senha: "" })}>Cancelar</Button>
+                    <Button
+                      size="sm"
+                      onClick={() => salvarEdicao.mutate()}
+                      disabled={salvarEdicao.isPending}
+                    >
+                      Salvar dados
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => redefinirSenha.mutate()}
+                      disabled={redefinirSenha.isPending || edicao.senha.length < 8}
+                    >
+                      <KeyRound className="h-4 w-4" />
+                      Redefinir senha
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setEdicao({ userId: "", nome: "", email: "", senha: "" })}
+                    >
+                      Cancelar
+                    </Button>
                   </div>
                 </div>
               )}
@@ -606,26 +722,47 @@ function GerenciamentoPage() {
                           </TableCell>
                           <TableCell className="px-5 text-right">
                             <div className="flex justify-end gap-2">
-                            <Button variant="outline" size="sm" onClick={() => setEdicao({ userId: usuario.id, nome: usuario.nome, email: usuario.email, senha: "" })}>
-                              <Pencil className="h-4 w-4" />Editar
-                            </Button>
-                            <Button
-                              variant={usuario.ativo ? "destructive" : "outline"}
-                              size="sm"
-                              disabled={alterarStatus.isPending || usuario.id === usuarioAtualId}
-                              onClick={() =>
-                                alterarStatus.mutate({
-                                  userId: usuario.id,
-                                  ativo: !usuario.ativo,
-                                })
-                              }
-                            >
-                              <UserMinus className="h-4 w-4" />
-                              {usuario.ativo ? "Desativar" : "Reativar"}
-                            </Button>
-                            <Button variant="outline" size="sm" disabled={excluir.isPending || usuario.id === usuarioAtualId} onClick={() => { if (window.confirm(`Excluir definitivamente ${usuario.nome}?`)) excluir.mutate(usuario.id); }}>
-                              <Trash2 className="h-4 w-4" />Excluir
-                            </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  setEdicao({
+                                    userId: usuario.id,
+                                    nome: usuario.nome,
+                                    email: usuario.email,
+                                    senha: "",
+                                  })
+                                }
+                              >
+                                <Pencil className="h-4 w-4" />
+                                Editar
+                              </Button>
+                              <Button
+                                variant={usuario.ativo ? "destructive" : "outline"}
+                                size="sm"
+                                disabled={alterarStatus.isPending || usuario.id === usuarioAtualId}
+                                onClick={() =>
+                                  alterarStatus.mutate({
+                                    userId: usuario.id,
+                                    ativo: !usuario.ativo,
+                                  })
+                                }
+                              >
+                                <UserMinus className="h-4 w-4" />
+                                {usuario.ativo ? "Desativar" : "Reativar"}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={excluir.isPending || usuario.id === usuarioAtualId}
+                                onClick={() => {
+                                  if (window.confirm(`Excluir definitivamente ${usuario.nome}?`))
+                                    excluir.mutate(usuario.id);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Excluir
+                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -690,7 +827,10 @@ function GerenciamentoPage() {
                           <ChevronDown className="h-4 w-4 opacity-50" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                      <DropdownMenuContent
+                        align="start"
+                        className="w-[var(--radix-dropdown-menu-trigger-width)]"
+                      >
                         {projetos.map((projeto) => (
                           <DropdownMenuCheckboxItem
                             key={projeto.id}
@@ -733,7 +873,11 @@ function GerenciamentoPage() {
                   <Button
                     className="w-full"
                     onClick={() => atrelarUsuario.mutate()}
-                    disabled={atrelarUsuario.isPending || projetos.length === 0 || novoVinculo.empresaIds.length === 0}
+                    disabled={
+                      atrelarUsuario.isPending ||
+                      projetos.length === 0 ||
+                      novoVinculo.empresaIds.length === 0
+                    }
                   >
                     <Building2 className="h-4 w-4" />
                     {atrelarUsuario.isPending ? "Atrelando..." : "Atrelar aos projetos"}
@@ -749,53 +893,63 @@ function GerenciamentoPage() {
                       Usuários só enxergam projetos com vínculo ativo.
                     </p>
                   </div>
-                  <span className="text-xs text-muted-foreground">{vinculos.length} no total</span>
+                  <span className="text-xs text-muted-foreground">
+                    {vinculosPorUsuario.length} usuário{vinculosPorUsuario.length === 1 ? "" : "s"}
+                  </span>
                 </div>
 
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="px-5">Usuário</TableHead>
-                      <TableHead>Projeto</TableHead>
-                      <TableHead>Perfil</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="px-5 text-right">Ações</TableHead>
+                      <TableHead className="px-5">Projetos e acessos</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {vinculos.length === 0 ? (
                       <TableRow>
-                        <TableCell className="px-5 text-muted-foreground" colSpan={5}>
+                        <TableCell className="px-5 text-muted-foreground" colSpan={2}>
                           Nenhum vínculo criado.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      vinculos.map((vinculo) => {
-                        const usuario = usuariosPorId.get(vinculo.userId);
-                        const projeto = projetosPorId.get(vinculo.empresaId);
-
+                      vinculosPorUsuario.map(({ usuario, acessos }) => {
                         return (
-                          <TableRow key={vinculo.id}>
-                            <TableCell className="px-5">
+                          <TableRow key={usuario?.id ?? acessos[0]?.userId}>
+                            <TableCell className="w-64 px-5 align-top">
                               <p className="font-medium">{usuario?.nome ?? "Usuário removido"}</p>
                               <p className="text-xs text-muted-foreground">{usuario?.email}</p>
                             </TableCell>
-                            <TableCell>{projeto?.nome ?? "Projeto removido"}</TableCell>
-                            <TableCell>{perfilLabels[vinculo.perfil]}</TableCell>
-                            <TableCell>
-                              <Badge variant={vinculo.ativo ? "secondary" : "outline"}>
-                                {vinculo.ativo ? "Ativo" : "Desativado"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="px-5 text-right">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={!vinculo.ativo || removerVinculo.isPending}
-                                onClick={() => removerVinculo.mutate(vinculo.id)}
-                              >
-                                Desvincular
-                              </Button>
+                            <TableCell className="px-5">
+                              <div className="space-y-2">
+                                {acessos.map((vinculo) => {
+                                  const projeto = projetosPorId.get(vinculo.empresaId);
+                                  return (
+                                    <div
+                                      key={vinculo.id}
+                                      className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 px-3 py-2"
+                                    >
+                                      <span className="min-w-40 flex-1 font-medium">
+                                        {projeto?.nome ?? "Projeto removido"}
+                                      </span>
+                                      <Badge variant="outline">
+                                        {perfilLabels[vinculo.perfil]}
+                                      </Badge>
+                                      <Badge variant={vinculo.ativo ? "secondary" : "outline"}>
+                                        {vinculo.ativo ? "Ativo" : "Desativado"}
+                                      </Badge>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={!vinculo.ativo || removerVinculo.isPending}
+                                        onClick={() => removerVinculo.mutate(vinculo.id)}
+                                      >
+                                        Desvincular
+                                      </Button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </TableCell>
                           </TableRow>
                         );

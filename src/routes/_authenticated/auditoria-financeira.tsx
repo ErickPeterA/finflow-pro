@@ -300,7 +300,7 @@ const quickFilters: Array<{ value: AbaFiltro; label: string }> = [
 ];
 
 function AuditoriaFinanceiraPage() {
-  const { empresaId, ano, mes, periodo, centroCusto } = useApp();
+  const { empresaId, ano, mes, mesesSelecionados, periodo, centroCusto } = useApp();
   const queryClient = useQueryClient();
   const listarDecisoes = useServerFn(listarDecisoesAuditoria);
   const salvarDecisao = useServerFn(salvarDecisaoAuditoria);
@@ -330,7 +330,10 @@ function AuditoriaFinanceiraPage() {
       }),
     [categoriasConfiguradas],
   );
-  const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
+  const mesesPeriodo = useMemo(
+    () => mesesDoPeriodoFiltro(periodo, mes, mesesSelecionados),
+    [periodo, mes, mesesSelecionados],
+  );
   const lancamentosCentro = useMemo(
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
     [centroCusto, lancamentos],
@@ -1164,7 +1167,7 @@ function PainelRevisao({
         <div className="space-y-4 p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-medium uppercase text-muted-foreground">
+              <p className="text-xs font-medium normal-case text-muted-foreground">
                 Categoria sugerida / esperado
               </p>
               <p className="mt-1 text-lg font-semibold text-primary">{item.sugestao}</p>
@@ -1178,7 +1181,7 @@ function PainelRevisao({
           <p className="text-sm text-muted-foreground">{item.motivo}</p>
 
           <div className="space-y-2">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Evidências</p>
+            <p className="text-xs font-medium normal-case text-muted-foreground">Evidências</p>
             <ul className="space-y-2">
               {item.evidencias.map((evidencia) => (
                 <li key={evidencia} className="flex gap-2 rounded-md bg-muted/60 px-3 py-2 text-sm">
@@ -1318,19 +1321,19 @@ function PainelConhecimento({
       <div className="border-t px-5 py-4">
         <div className="grid gap-3 text-sm sm:grid-cols-3">
           <div>
-            <p className="text-xs font-medium uppercase text-muted-foreground">
+            <p className="text-xs font-medium normal-case text-muted-foreground">
               Fornecedores/clientes
             </p>
             <p className="mt-1 font-semibold">{fornecedores}</p>
           </div>
           <div>
-            <p className="text-xs font-medium uppercase text-muted-foreground">
+            <p className="text-xs font-medium normal-case text-muted-foreground">
               Evidências priorizadas
             </p>
             <p className="mt-1 font-semibold">Regra, histórico, descrição e valor</p>
           </div>
           <div>
-            <p className="text-xs font-medium uppercase text-muted-foreground">
+            <p className="text-xs font-medium normal-case text-muted-foreground">
               Modelo por cliente
             </p>
             <p className="mt-1 font-semibold">Manual + histórico + decisões</p>
@@ -1402,7 +1405,7 @@ function KpiAuditoria({
     <div className="rounded-xl border bg-card p-4 shadow-card">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="text-xs font-medium normal-case tracking-wide text-muted-foreground">
             {titulo}
           </p>
           <p className="tabular mt-2 text-2xl font-semibold">{valor}</p>
@@ -1488,7 +1491,7 @@ function InfoItem({
 }) {
   return (
     <div className={className}>
-      <dt className="text-xs font-medium uppercase text-muted-foreground">{rotulo}</dt>
+      <dt className="text-xs font-medium normal-case text-muted-foreground">{rotulo}</dt>
       <dd className="mt-1 break-words font-medium">{valor}</dd>
     </div>
   );
@@ -1509,7 +1512,7 @@ function MiniStat({
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium uppercase text-muted-foreground">{label}</p>
+        <p className="truncate text-xs font-medium normal-case text-muted-foreground">{label}</p>
         <p className="truncate font-semibold">{value}</p>
       </div>
     </div>

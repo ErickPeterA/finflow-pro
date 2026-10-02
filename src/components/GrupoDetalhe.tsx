@@ -163,7 +163,7 @@ export function GrupoDetalhe({
   titulo: string;
   descricao: string;
 }) {
-  const { empresaId, ano, mes, periodo, centroCusto } = useApp();
+  const { empresaId, ano, mes, mesesSelecionados, periodo, centroCusto } = useApp();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
   const [busca, setBusca] = useState("");
@@ -188,7 +188,10 @@ export function GrupoDetalhe({
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
     [lancamentos, centroCusto],
   );
-  const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
+  const mesesPeriodo = useMemo(
+    () => mesesDoPeriodoFiltro(periodo, mes, mesesSelecionados),
+    [periodo, mes, mesesSelecionados],
+  );
   const lancamentosPeriodo = useMemo(
     () => filtrarLancamentosPorMeses(lancamentosFiltrados, mesesPeriodo),
     [lancamentosFiltrados, mesesPeriodo],
@@ -229,13 +232,15 @@ export function GrupoDetalhe({
     () => totalizarResultadosPeriodo(resultados, mesesPeriodo),
     [resultados, mesesPeriodo],
   );
-  const anterior = mes > 0 ? resultadosAno[mes - 1] : undefined;
+  const mesReferencia = mesesPeriodo.at(-1) ?? mes;
+  const anterior =
+    mesesPeriodo.length === 1 && mesReferencia > 0 ? resultadosAno[mesReferencia - 1] : undefined;
   const totalMes = pick(atual);
-  const totalAnterior = periodo === "mes_atual" && anterior ? pick(anterior) : 0;
+  const totalAnterior = anterior ? pick(anterior) : 0;
   const media = mediaFechados(resultados, pick);
   const acumuladoAno = resultadosAno.reduce((s, m) => s + pick(m), 0);
   const receitaMes = atual.receitaBruta;
-  const periodoLabel = periodoFiltroLabel(periodo, mes);
+  const periodoLabel = periodoFiltroLabel(periodo, mes, mesesSelecionados);
 
   const serie = resultados
     .filter((m) => m.temMovimento)
@@ -255,7 +260,7 @@ export function GrupoDetalhe({
       nome: l.nome,
       classificacao: l.classificacao,
       valorMes: mesesPeriodo.reduce((s, i) => s + Math.abs(l.valores[i] ?? 0), 0),
-      valorAnterior: periodo === "mes_atual" && mes > 0 ? Math.abs(l.valores[mes - 1] ?? 0) : 0,
+      valorAnterior: anterior ? Math.abs(l.valores[mesReferencia - 1] ?? 0) : 0,
       ano: l.valores.reduce((s, v) => s + Math.abs(v), 0),
     }))
     .filter((l) => l.valorMes > 0 || l.ano > 0)
@@ -658,7 +663,7 @@ export function GrupoDetalhe({
                   <div className="-mx-5 -mb-5 overflow-x-auto">
                     <table className="w-full min-w-[720px] text-sm">
                       <thead>
-                        <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                        <tr className="border-b bg-muted/50 text-xs normal-case tracking-wide text-muted-foreground">
                           <th className="px-5 py-2 text-left font-medium">
                             {permiteFiltrosTabela ? (
                               <OrdenacaoBotao
@@ -729,7 +734,7 @@ export function GrupoDetalhe({
                 <div className="-mx-5 -mb-5 max-h-[520px] overflow-auto">
                   <table className="w-full min-w-[760px] text-sm">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
-                      <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                      <tr className="border-b text-xs normal-case tracking-wide text-muted-foreground">
                         <th className="px-5 py-2 text-left font-medium">
                           {permiteFiltrosTabela ? (
                             <OrdenacaoBotao
@@ -1038,7 +1043,7 @@ function OrdenacaoBotao({
       variant="ghost"
       size="sm"
       className={cn(
-        "h-6 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground",
+        "h-6 px-1 text-xs font-medium normal-case tracking-wide text-muted-foreground hover:text-foreground",
         alinhamento === "right" && "ml-auto",
         ativo && "text-foreground",
       )}

@@ -450,7 +450,7 @@ function ImportacaoPage() {
                 <div className="-mx-5 mt-4 max-h-96 overflow-auto border-t">
                   <table className="w-full min-w-[760px] text-sm">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
-                      <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                      <tr className="border-b text-xs normal-case tracking-wide text-muted-foreground">
                         <th className="px-5 py-2 text-left font-medium">Data</th>
                         <th className="px-3 py-2 text-left font-medium">Competência</th>
                         <th className="px-3 py-2 text-left font-medium">Descrição</th>
@@ -559,7 +559,7 @@ function ImportacaoPage() {
                 <div className="-mx-5 -mb-5 overflow-x-auto">
                   <table className="w-full min-w-[720px] text-sm">
                     <thead>
-                      <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                      <tr className="border-b bg-muted/50 text-xs normal-case tracking-wide text-muted-foreground">
                         <th className="px-5 py-2 text-left font-medium">Arquivo</th>
                         <th className="px-3 py-2 text-left font-medium">Competência</th>
                         <th className="px-3 py-2 text-right font-medium">Importados</th>

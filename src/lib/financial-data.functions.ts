@@ -42,8 +42,12 @@ const companyResources = new Set([
 const sql: Record<string, (d: RequestData, userId: string) => { text: string; values: unknown[] }> =
   {
     empresas: (_d, userId) => ({
-      text: "select id,nome,cnpj,cor_primaria,logo_url,ativo from empresas where public.can_access_empresa($1::uuid,id) order by nome",
+      text: "select id,nome,cnpj,cor_primaria,logo_url,ativo from empresas where ativo=true and public.can_access_empresa($1::uuid,id) order by nome",
       values: [userId],
+    }),
+    empresasArquivadas: () => ({
+      text: "select id,nome,cnpj,cor_primaria,logo_url,ativo from empresas where ativo=false order by nome",
+      values: [],
     }),
     cargo: (_d, userId) => ({
       text: "select role from user_roles where user_id=$1::uuid order by case role when 'admin' then 1 when 'consultor' then 2 else 3 end limit 1",
@@ -153,6 +157,13 @@ export const getFinancialData = createServerFn({ method: "GET" })
   .handler(async ({ data, context }) => {
     const obterSql = sql[data.resource];
     if (!obterSql) throw new Error("Recurso de dados inválido.");
+    if (data.resource === "empresasArquivadas") {
+      const admin = await query(
+        "select 1 from user_roles where user_id=$1::uuid and role='admin'",
+        [String(context.userId)],
+      );
+      if (!admin.rowCount) throw new Error("Acesso restrito a administradores.");
+    }
     if (companyResources.has(data.resource)) {
       if (!data.empresaId) throw new Error("Empresa obrigatória.");
       await assertEmpresaAccess(String(context.userId), data.empresaId);

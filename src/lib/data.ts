@@ -35,6 +35,8 @@ function useData<T>(
   });
 }
 export const useEmpresas = () => useData<Empresa[]>(["empresas"], "empresas");
+export const useEmpresasArquivadas = (enabled = true) =>
+  useData<Empresa[]>(["empresas-arquivadas"], "empresasArquivadas", {}, enabled);
 export const useEmpresaAtual = (empresaId: string | null) => {
   const q = useData<Empresa[]>(["empresa", empresaId], "empresa", { empresaId }, !!empresaId);
   return { ...q, data: q.data?.[0] ?? null };

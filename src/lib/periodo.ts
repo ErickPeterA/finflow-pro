@@ -5,7 +5,7 @@ export type PeriodoFiltro =
   "mes_atual" | "tri1" | "tri2" | "tri3" | "tri4" | "sem1" | "sem2" | "ano";
 
 export const periodosFiltro: Array<{ value: PeriodoFiltro; label: string }> = [
-  { value: "mes_atual", label: "Mês selecionado" },
+  { value: "mes_atual", label: "Meses selecionados" },
   { value: "tri1", label: "1º trimestre" },
   { value: "tri2", label: "2º trimestre" },
   { value: "tri3", label: "3º trimestre" },
@@ -15,7 +15,11 @@ export const periodosFiltro: Array<{ value: PeriodoFiltro; label: string }> = [
   { value: "ano", label: "Ano inteiro" },
 ];
 
-export function mesesDoPeriodoFiltro(periodo: PeriodoFiltro, mesAtual: number): number[] {
+export function mesesDoPeriodoFiltro(
+  periodo: PeriodoFiltro,
+  mesAtual: number,
+  mesesSelecionados: number[] = [mesAtual],
+): number[] {
   switch (periodo) {
     case "tri1":
       return [0, 1, 2];
@@ -33,12 +37,22 @@ export function mesesDoPeriodoFiltro(periodo: PeriodoFiltro, mesAtual: number): 
       return Array.from({ length: 12 }, (_, i) => i);
     case "mes_atual":
     default:
-      return [mesAtual];
+      return mesesSelecionados.length ? mesesSelecionados : [mesAtual];
   }
 }
 
-export function periodoFiltroLabel(periodo: PeriodoFiltro, mesAtual: number) {
-  if (periodo === "mes_atual") return meses[mesAtual] ?? "Mês selecionado";
+export function periodoFiltroLabel(
+  periodo: PeriodoFiltro,
+  mesAtual: number,
+  mesesSelecionados: number[] = [mesAtual],
+) {
+  if (periodo === "mes_atual") {
+    const selecionados = mesesSelecionados.length ? mesesSelecionados : [mesAtual];
+    return selecionados
+      .map((indice) => meses[indice])
+      .filter(Boolean)
+      .join(", ");
+  }
   return periodosFiltro.find((item) => item.value === periodo)?.label ?? "Período";
 }
 

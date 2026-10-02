@@ -1,7 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Building2, Plus } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowRight,
+  Building2,
+  MoreVertical,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/TopBar";
@@ -17,8 +25,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useApp } from "@/lib/app-context";
-import { useEmpresas } from "@/lib/data";
+import { useEmpresas, useEmpresasArquivadas, useMeuCargo } from "@/lib/data";
 import { mutateFinancialData } from "@/lib/financial-mutations.functions";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +55,8 @@ function ProjetosPage() {
   const mutateData = useServerFn(mutateFinancialData);
   const { empresaId, setEmpresaId } = useApp();
   const { data: empresas = [], isLoading } = useEmpresas();
+  const { data: cargo } = useMeuCargo();
+  const { data: empresasArquivadas = [] } = useEmpresasArquivadas(cargo === "admin");
   const [nome, setNome] = useState("");
   const [novoProjetoAberto, setNovoProjetoAberto] = useState(false);
 
@@ -71,6 +87,29 @@ function ProjetosPage() {
       abrirProjeto(id);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao criar projeto."),
+  });
+
+  const alterarProjeto = useMutation({
+    mutationFn: ({
+      id,
+      action,
+    }: {
+      id: string;
+      action: "archiveEmpresa" | "restoreEmpresa" | "deleteEmpresa";
+    }) => mutateData({ data: { action, empresaId: id } }),
+    onSuccess: (_, { id, action }) => {
+      if (empresaId === id) setEmpresaId(null);
+      toast.success(
+        action === "archiveEmpresa"
+          ? "Projeto arquivado."
+          : action === "restoreEmpresa"
+            ? "Projeto restaurado."
+            : "Projeto excluído.",
+      );
+      queryClient.invalidateQueries({ queryKey: ["empresas"] });
+      queryClient.invalidateQueries({ queryKey: ["empresas-arquivadas"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao atualizar projeto."),
   });
 
   return (
@@ -145,7 +184,7 @@ function ProjetosPage() {
               ) : (
                 <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {empresas.map((empresa) => (
-                    <li key={empresa.id}>
+                    <li key={empresa.id} className="relative">
                       <button
                         onClick={() => abrirProjeto(empresa.id)}
                         className={cn(
@@ -164,12 +203,95 @@ function ProjetosPage() {
                           <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                         </span>
                       </button>
+                      {cargo === "admin" && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="absolute right-2 top-2 h-8 w-8"
+                              aria-label={`Ações do projeto ${empresa.nome}`}
+                              disabled={alterarProjeto.isPending}
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() =>
+                                window.confirm(`Arquivar o projeto “${empresa.nome}”?`) &&
+                                alterarProjeto.mutate({ id: empresa.id, action: "archiveEmpresa" })
+                              }
+                            >
+                              <Archive className="h-4 w-4" />
+                              Arquivar projeto
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() =>
+                                window.confirm(
+                                  `Excluir definitivamente o projeto “${empresa.nome}” e todos os seus dados? Esta ação não pode ser desfeita.`,
+                                ) &&
+                                alterarProjeto.mutate({ id: empresa.id, action: "deleteEmpresa" })
+                              }
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Excluir projeto
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     </li>
                   ))}
                 </ul>
               )}
             </div>
           </div>
+          {cargo === "admin" && empresasArquivadas.length > 0 && (
+            <div className="mt-5 rounded-lg border bg-card shadow-card">
+              <div className="flex items-center justify-between gap-3 border-b px-5 py-3">
+                <h2 className="text-sm font-semibold">Projetos arquivados</h2>
+                <span className="text-xs text-muted-foreground">
+                  {empresasArquivadas.length} no total
+                </span>
+              </div>
+              <ul className="divide-y">
+                {empresasArquivadas.map((empresa) => (
+                  <li key={empresa.id} className="flex items-center gap-3 px-5 py-3">
+                    <Archive className="h-4 w-4 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {empresa.nome}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={alterarProjeto.isPending}
+                      onClick={() =>
+                        alterarProjeto.mutate({ id: empresa.id, action: "restoreEmpresa" })
+                      }
+                    >
+                      <ArchiveRestore className="h-4 w-4" />
+                      Restaurar
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      disabled={alterarProjeto.isPending}
+                      onClick={() =>
+                        window.confirm(
+                          `Excluir definitivamente o projeto “${empresa.nome}” e todos os seus dados? Esta ação não pode ser desfeita.`,
+                        ) && alterarProjeto.mutate({ id: empresa.id, action: "deleteEmpresa" })
+                      }
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Excluir
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       </main>
     </>

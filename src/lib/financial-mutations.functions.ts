@@ -51,6 +51,33 @@ export const mutateFinancialData = createServerFn({ method: "POST" })
         );
         return r.rows[0];
       }
+      case "archiveEmpresa": {
+        const admin = await query(
+          "select 1 from user_roles where user_id=$1::uuid and role='admin'",
+          [userId],
+        );
+        if (!admin.rowCount) throw new Error("Acesso restrito a administradores.");
+        await query("update empresas set ativo=false where id=$1::uuid", [data.empresaId]);
+        return { ok: true };
+      }
+      case "restoreEmpresa": {
+        const admin = await query(
+          "select 1 from user_roles where user_id=$1::uuid and role='admin'",
+          [userId],
+        );
+        if (!admin.rowCount) throw new Error("Acesso restrito a administradores.");
+        await query("update empresas set ativo=true where id=$1::uuid", [data.empresaId]);
+        return { ok: true };
+      }
+      case "deleteEmpresa": {
+        const admin = await query(
+          "select 1 from user_roles where user_id=$1::uuid and role='admin'",
+          [userId],
+        );
+        if (!admin.rowCount) throw new Error("Acesso restrito a administradores.");
+        await query("delete from empresas where id=$1::uuid", [data.empresaId]);
+        return { ok: true };
+      }
       case "createTituloManual": {
         const t = data.titulo as Record<string, unknown>;
         const r = await query(

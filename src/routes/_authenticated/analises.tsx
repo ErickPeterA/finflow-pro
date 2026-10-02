@@ -459,7 +459,7 @@ function GraficoContasResultado({
                     ativo ? item.softClass : "bg-muted/50 text-muted-foreground",
                   )}
                 >
-                  <dt className="text-xs font-medium uppercase">{item.label}</dt>
+                  <dt className="text-xs font-medium normal-case">{item.label}</dt>
                   <dd className="tabular mt-1 text-lg font-semibold">{brl(item.total)}</dd>
                   <p className="mt-1 text-xs">
                     {mesesVisiveis.length === 1
@@ -612,7 +612,7 @@ function BlocoCategoriasFinanceiras({
               total >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative",
             )}
           >
-            <p className="text-xs font-medium uppercase">Total do período</p>
+            <p className="text-xs font-medium normal-case">Total do período</p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <p className="tabular text-xl font-semibold">{brl(total)}</p>
               <BadgeSinal valor={total} />
@@ -673,7 +673,7 @@ function ResumoInvestimento({
         positivo ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative",
       )}
     >
-      <dt className="text-xs font-medium uppercase">{rotulo}</dt>
+      <dt className="text-xs font-medium normal-case">{rotulo}</dt>
       <dd className="mt-1 flex flex-wrap items-center gap-2">
         <span className="tabular text-lg font-semibold">{brl(valor)}</span>
         <BadgeSinal valor={valor} />

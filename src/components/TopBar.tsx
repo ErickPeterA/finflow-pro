@@ -8,7 +8,7 @@ import { useApp } from "@/lib/app-context";
 import { CENTRO_CUSTO_TODOS, opcoesCentroCusto } from "@/lib/centro-custo";
 import { useCentrosCusto, useEmpresaAtual } from "@/lib/data";
 import { meses } from "@/lib/format";
-import { periodosFiltro, type PeriodoFiltro } from "@/lib/periodo";
+import { mesesDoPeriodoFiltro, periodosFiltro, type PeriodoFiltro } from "@/lib/periodo";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -49,7 +49,8 @@ export function TopBar({
     ano,
     setAno,
     mes,
-    setMes,
+    mesesSelecionados,
+    setMesesSelecionados,
     periodo,
     setPeriodo,
     centroCusto,
@@ -76,6 +77,7 @@ export function TopBar({
     : centrosSelecionados.length === 1
       ? centrosSelecionados[0]?.label
       : `${centrosSelecionados.length} centros selecionados`;
+  const mesesSelecionadosLabel = mesesSelecionados.map((indice) => meses[indice]).join(", ");
 
   useEffect(() => {
     const opcoesValidas = new Set(centrosCusto.map((centro) => centro.value));
@@ -119,7 +121,21 @@ export function TopBar({
   }
 
   function selecionarPeriodo(value: string) {
-    setPeriodo(value as PeriodoFiltro);
+    const proximoPeriodo = value as PeriodoFiltro;
+    setPeriodo(proximoPeriodo);
+    if (proximoPeriodo !== "mes_atual") {
+      setMesesSelecionados(mesesDoPeriodoFiltro(proximoPeriodo, mes));
+    }
+  }
+
+  function selecionarMes(value: number) {
+    const selecionado = mesesSelecionados.includes(value);
+    if (selecionado && mesesSelecionados.length === 1) return;
+    const proximos = selecionado
+      ? mesesSelecionados.filter((item) => item !== value)
+      : [...mesesSelecionados, value];
+    setMesesSelecionados(proximos);
+    setPeriodo("mes_atual");
   }
 
   return (
@@ -157,18 +173,50 @@ export function TopBar({
                   </SelectContent>
                 </Select>
 
-                <Select value={String(mes)} onValueChange={(v) => setMes(Number(v))}>
-                  <SelectTrigger className="h-9 w-36">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {meses.map((m, i) => (
-                      <SelectItem key={m} value={String(i)}>
-                        {m}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      role="combobox"
+                      className="h-9 w-48 justify-between"
+                      title={mesesSelecionadosLabel}
+                      aria-label={`Selecionar meses. Selecionados: ${mesesSelecionadosLabel}`}
+                    >
+                      <span className="truncate">Selecionar meses</span>
+                      <ChevronsUpDown className="h-4 w-4 opacity-60" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-64 p-0">
+                    <Command>
+                      <CommandList>
+                        <CommandGroup heading="Selecione um ou mais meses">
+                          {meses.map((nome, indice) => {
+                            const selecionado = mesesSelecionados.includes(indice);
+                            return (
+                              <CommandItem
+                                key={nome}
+                                value={nome}
+                                onSelect={() => selecionarMes(indice)}
+                              >
+                                <span className="min-w-0 flex-1 truncate">{nome}</span>
+                                <Check
+                                  className={cn(
+                                    "h-4 w-4",
+                                    selecionado ? "opacity-100" : "opacity-0",
+                                  )}
+                                />
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                      <div className="border-t px-3 py-2 text-xs text-muted-foreground">
+                        Pelo menos um mês deve permanecer selecionado.
+                      </div>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </>
             )}
 
@@ -253,6 +301,22 @@ export function TopBar({
           <LogOut className="h-4 w-4" />
         </Button>
       </div>
+
+      {mostrarContexto && mostrarFiltrosData && (
+        <div className="flex flex-wrap items-center gap-1.5 border-t px-6 py-2 text-[11px]">
+          <span className="mr-1 font-medium text-muted-foreground">Meses selecionados:</span>
+          {[...mesesSelecionados]
+            .sort((a, b) => a - b)
+            .map((indice) => (
+              <span
+                key={indice}
+                className="rounded-md border bg-background px-2 py-0.5 text-foreground"
+              >
+                {meses[indice]}
+              </span>
+            ))}
+        </div>
+      )}
     </header>
   );
 }

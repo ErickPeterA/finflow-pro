@@ -95,7 +95,7 @@ const prioridadeLabels: Record<string, string> = {
 };
 
 function RelatoriosPage() {
-  const { empresaId, ano, mes, periodo, centroCusto } = useApp();
+  const { empresaId, ano, mes, mesesSelecionados, periodo, centroCusto } = useApp();
   const { data: empresa } = useEmpresaAtual(empresaId);
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
@@ -107,9 +107,12 @@ function RelatoriosPage() {
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
     [lancamentos, centroCusto],
   );
-  const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
+  const mesesPeriodo = useMemo(
+    () => mesesDoPeriodoFiltro(periodo, mes, mesesSelecionados),
+    [periodo, mes, mesesSelecionados],
+  );
   const mesReferencia = mesesPeriodo.at(-1) ?? mes;
-  const periodoLabel = periodoFiltroLabel(periodo, mes);
+  const periodoLabel = periodoFiltroLabel(periodo, mes, mesesSelecionados);
   const lancamentosPeriodo = useMemo(
     () => filtrarLancamentosPorMeses(lancamentosFiltrados, mesesPeriodo),
     [lancamentosFiltrados, mesesPeriodo],
@@ -119,7 +122,8 @@ function RelatoriosPage() {
     [lancamentosPeriodo, categorias],
   );
   const atual = totalizarResultados(resultados.filter((r) => mesesPeriodo.includes(r.mes)));
-  const anterior = periodo === "mes_atual" && mes > 0 ? resultados[mes - 1] : undefined;
+  const anterior =
+    mesesPeriodo.length === 1 && mesReferencia > 0 ? resultados[mesReferencia - 1] : undefined;
   const linhas = useMemo(
     () => agregarPorCategoria(lancamentosPeriodo, categorias),
     [lancamentosPeriodo, categorias],
@@ -259,7 +263,7 @@ function RelatoriosPage() {
                     )}
                   </div>
                   <div className="rounded-lg border bg-muted/40 p-4">
-                    <p className="text-xs font-semibold uppercase text-muted-foreground">
+                    <p className="text-xs font-semibold normal-case text-muted-foreground">
                       Base do relatório
                     </p>
                     <dl className="mt-3 space-y-2 text-sm">
@@ -526,7 +530,7 @@ function CapaRelatorio({
     <section className="overflow-hidden rounded-xl border bg-card shadow-card print:break-inside-avoid print:shadow-none">
       <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="p-6">
-          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold normal-case text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <FileText className="h-3.5 w-3.5" /> Relatório gerencial
             </span>
@@ -553,7 +557,7 @@ function CapaRelatorio({
         </div>
         <div className={cn("flex flex-col justify-between p-6", qualidadeClasse(qualidade.nivel))}>
           <div>
-            <p className="text-xs font-semibold uppercase opacity-80">Diagnóstico</p>
+            <p className="text-xs font-semibold normal-case opacity-80">Diagnóstico</p>
             <p className="mt-2 text-xl font-semibold">{qualidade.texto}</p>
           </div>
           <div className="mt-6 flex items-end justify-between gap-4">
@@ -595,7 +599,7 @@ function KpiRelatorio({
 
   return (
     <div className="rounded-xl border bg-card p-4 shadow-card print:break-inside-avoid print:shadow-none">
-      <p className="text-xs font-semibold uppercase text-muted-foreground">{titulo}</p>
+      <p className="text-xs font-semibold normal-case text-muted-foreground">{titulo}</p>
       <p
         className={cn(
           "tabular mt-2 text-2xl font-semibold",
@@ -644,7 +648,7 @@ function TabelaComparativoMensal({
       <div className="-mx-5 -mb-5 overflow-x-auto">
         <table className="w-full min-w-[620px] text-sm">
           <thead>
-            <tr className="border-b bg-muted/50 text-xs uppercase text-muted-foreground">
+            <tr className="border-b bg-muted/50 text-xs normal-case text-muted-foreground">
               <th className="px-5 py-2 text-left font-medium">Indicador</th>
               <th className="px-3 py-2 text-right font-medium">Mês atual</th>
               <th className="px-3 py-2 text-right font-medium">Mês anterior</th>

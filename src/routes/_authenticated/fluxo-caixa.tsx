@@ -485,8 +485,7 @@ function FluxoCaixaPage() {
       if (erros.length) toast.error(erros[0]);
       else if (titulos.length)
         toast.success(`${titulos.length} título(s) em aberto pronto(s) para importar.`);
-      else if (!erros.length)
-        toast.error("A planilha não possui títulos em aberto para importar.");
+      else if (!erros.length) toast.error("A planilha não possui títulos em aberto para importar.");
     } catch {
       toast.error("Não foi possível ler a planilha. Verifique se é uma exportação do NIBO.");
     } finally {
@@ -503,9 +502,7 @@ function FluxoCaixaPage() {
     [contas],
   );
   const bancosDisponiveis = useMemo(() => {
-    const preConfigurados = new Set(
-      bancosPreConfigurados.map((banco) => normalizar(banco.nome)),
-    );
+    const preConfigurados = new Set(bancosPreConfigurados.map((banco) => normalizar(banco.nome)));
     const personalizados = contas
       .filter((conta) => !preConfigurados.has(normalizar(conta.nome)))
       .map((conta) => ({
@@ -734,11 +731,7 @@ function FluxoCaixaPage() {
   );
   const pagamentosSemana = linhas.filter((linha) => linha.pagamento > 0);
   const inadimplentes = useMemo(
-    () =>
-      montarInadimplentes(
-        filtrarLancamentosPorCentroCusto(titulosVencidos, centroCusto),
-        hoje,
-      ),
+    () => montarInadimplentes(filtrarLancamentosPorCentroCusto(titulosVencidos, centroCusto), hoje),
     [centroCusto, titulosVencidos, hoje],
   );
   const pagamentosAtrasados = useMemo(
@@ -880,8 +873,7 @@ function FluxoCaixaPage() {
     if (!empresaId) return;
     const pagamentosSelecionados = pagamentosSemana
       .filter(
-        (linha) =>
-          statusChecklistLinha(linha, checklistPorTitulo) === "selecionado_pagamento",
+        (linha) => statusChecklistLinha(linha, checklistPorTitulo) === "selecionado_pagamento",
       )
       .map((linha) => ({
         origem: linha.origem,
@@ -1438,7 +1430,7 @@ function FluxoCaixaPage() {
                     <div className="-mx-5 -mb-5 min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
                       <table className="w-full min-w-[720px] text-xs">
                         <thead>
-                          <tr className="sticky top-0 z-10 border-b bg-muted/80 text-[10px] uppercase text-muted-foreground backdrop-blur">
+                          <tr className="sticky top-0 z-10 border-b bg-muted/80 text-[10px] normal-case text-muted-foreground backdrop-blur">
                             <th className="px-3 py-1.5 text-left font-medium">Vencimento</th>
                             <th className="px-2 py-1.5 text-left font-medium">Nome</th>
                             <th className="px-2 py-1.5 text-left font-medium">Descricao</th>
@@ -1755,7 +1747,7 @@ function CardConta({
           Usar
         </label>
       </div>
-      <p className="mt-2 text-[10px] font-medium uppercase text-muted-foreground">
+      <p className="mt-2 text-[10px] font-medium normal-case text-muted-foreground">
         Saldo informado manualmente
       </p>
       <p className="mt-0.5 truncate text-sm font-semibold">{conta.nome}</p>
@@ -1777,13 +1769,7 @@ function CardConta({
   );
 }
 
-function BancoImagem({
-  nome,
-  imagemUrl,
-}: {
-  nome: string;
-  imagemUrl: string | null | undefined;
-}) {
+function BancoImagem({ nome, imagemUrl }: { nome: string; imagemUrl: string | null | undefined }) {
   return (
     <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg border bg-muted text-[11px] font-semibold text-muted-foreground">
       {imagemUrl ? (
@@ -1823,7 +1809,7 @@ function KpiFluxo({
       >
         <Icone className="h-4 w-4" />
       </span>
-      <p className="mt-2 text-[10px] font-medium uppercase text-muted-foreground">{titulo}</p>
+      <p className="mt-2 text-[10px] font-medium normal-case text-muted-foreground">{titulo}</p>
       <p
         className={cn(
           "tabular mt-1.5 text-xl font-semibold",
@@ -2025,7 +2011,7 @@ function ItemAlerta({
         {destaque ? <AlertTriangle className="h-4 w-4" /> : <CalendarDays className="h-4 w-4" />}
       </span>
       <div className="min-w-0">
-        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <dt className="text-xs font-medium normal-case tracking-wide text-muted-foreground">
           {rotulo}
         </dt>
         <dd className="mt-1 break-words font-medium">{valor}</dd>
@@ -2101,10 +2087,7 @@ function montarSerieSaldo(linhas: LinhaFluxo[], saldoInicial: number, inicio: st
   return serie;
 }
 
-function montarInadimplentes(
-  titulosVencidos: FluxoTituloNibo[],
-  hoje: string,
-) {
+function montarInadimplentes(titulosVencidos: FluxoTituloNibo[], hoje: string) {
   return titulosVencidos
     .map((titulo) => {
       const dias = diferencaDias(titulo.vencimento.slice(0, 10), hoje);
@@ -2307,11 +2290,7 @@ function normalizar(texto: string) {
     .trim();
 }
 
-function adicionarValorCentroCusto(
-  centros: CentroCustoFluxo[],
-  nome: string,
-  valor: number,
-) {
+function adicionarValorCentroCusto(centros: CentroCustoFluxo[], nome: string, valor: number) {
   const centroExistente = centros.find((centro) => centro.nome === nome);
   if (centroExistente) {
     centroExistente.valor = Math.round((centroExistente.valor + valor) * 100) / 100;

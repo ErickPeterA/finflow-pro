@@ -47,7 +47,7 @@ export const Route = createFileRoute("/_authenticated/ponto-equilibrio")({
 });
 
 function PontoEquilibrioPage() {
-  const { empresaId, ano, mes, periodo, centroCusto } = useApp();
+  const { empresaId, ano, mes, mesesSelecionados, periodo, centroCusto } = useApp();
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
   const [lucroDesejado, setLucroDesejado] = useState(0);
@@ -56,8 +56,11 @@ function PontoEquilibrioPage() {
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
     [lancamentos, centroCusto],
   );
-  const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
-  const periodoLabel = periodoFiltroLabel(periodo, mes);
+  const mesesPeriodo = useMemo(
+    () => mesesDoPeriodoFiltro(periodo, mes, mesesSelecionados),
+    [periodo, mes, mesesSelecionados],
+  );
+  const periodoLabel = periodoFiltroLabel(periodo, mes, mesesSelecionados);
   const lancamentosPeriodo = useMemo(
     () => filtrarLancamentosPorMeses(lancamentosFiltrados, mesesPeriodo),
     [lancamentosFiltrados, mesesPeriodo],
@@ -249,7 +252,7 @@ function PontoEquilibrioPage() {
               <div className="-mx-5 -mb-5 overflow-x-auto">
                 <table className="w-full min-w-[600px] text-sm">
                   <thead>
-                    <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr className="border-b bg-muted/50 text-xs normal-case tracking-wide text-muted-foreground">
                       <th className="px-5 py-2 text-left font-medium">Categoria</th>
                       <th className="px-3 py-2 text-left font-medium">Grupo</th>
                       <th className="px-3 py-2 text-right font-medium">Valor no período</th>

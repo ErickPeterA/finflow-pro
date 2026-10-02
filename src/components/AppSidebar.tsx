@@ -26,17 +26,17 @@ import { useMeuCargo, usePerfilProjetoAtual } from "@/lib/data";
 
 const itensProjeto = [
   { to: "/home", label: "Home", icon: LayoutDashboard },
-  { to: "/importacao", label: "Importação NIBO", icon: Upload },
-  { to: "/dre", label: "DRE Gerencial", icon: Table2 },
+  { to: "/importacao", label: "Importação Nibo", icon: Upload },
+  { to: "/dre", label: "Dre gerencial", icon: Table2 },
   { to: "/receitas", label: "Receitas", icon: TrendingUp },
   { to: "/custos", label: "Custos", icon: Factory },
   { to: "/despesas", label: "Despesas", icon: Receipt },
   { to: "/analises", label: "Análises", icon: LineChart },
-  { to: "/ponto-equilibrio", label: "Ponto de Equilíbrio", icon: Scale },
-  { to: "/fluxo-caixa", label: "Fluxo de Caixa", icon: Wallet },
-  { to: "/auditoria-financeira", label: "Auditoria Financeira", icon: ShieldCheck },
-  { to: "/solicitacoes-pagamento", label: "Solicitações de Pagamento", icon: ClipboardList },
-  { to: "/plano-acao", label: "Plano de Ação", icon: ListChecks },
+  { to: "/ponto-equilibrio", label: "Ponto de equilíbrio", icon: Scale },
+  { to: "/fluxo-caixa", label: "Fluxo de caixa", icon: Wallet },
+  { to: "/auditoria-financeira", label: "Auditoria financeira", icon: ShieldCheck },
+  { to: "/solicitacoes-pagamento", label: "Solicitações de pagamento", icon: ClipboardList },
+  { to: "/plano-acao", label: "Plano de ação", icon: ListChecks },
   { to: "/relatorios", label: "Relatórios", icon: FileText },
 ] as const;
 
@@ -94,7 +94,16 @@ export function AppSidebar({ colapsado, onToggle }: { colapsado: boolean; onTogg
         colapsado ? "w-16" : "w-64",
       )}
     >
-      <img src="logobranca.png" alt="" className="mx-auto my-3 h-16 w-28" />
+      <div className="mx-auto my-3 flex h-16 items-center justify-center">
+        <img
+          src="/logobranca.png"
+          alt="VG Resultados"
+          className={cn(
+            "block object-contain transition-[width,height] duration-200",
+            colapsado ? "h-auto w-12" : "h-16 w-28",
+          )}
+        />
+      </div>
 
       <nav className="sidebar-scroll flex-1 space-y-0.5 overflow-y-auto px-2 py-2">
         {itensVisiveis.map((item) => {

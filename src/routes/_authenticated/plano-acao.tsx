@@ -399,7 +399,22 @@ function PlanoAcaoPage() {
       if (!empresaId) throw new Error("Selecione uma empresa.");
       if (!form.problema.trim() || !form.acao.trim())
         throw new Error("Informe o problema identificado e a ação recomendada.");
-      await mutateData({ data: { action: "createPlano", empresaId, plano: { competencia: competenciaDate(ano, mes), problema: form.problema.trim().slice(0, 1000), acao: form.acao.trim().slice(0, 1000), resultado: form.resultado_esperado.trim().slice(0, 1000) || null, categoria: form.categoria.trim().slice(0, 120) || null, responsavel: form.responsavel.trim().slice(0, 120) || null, prioridade: form.prioridade, prazo: form.prazo || null } } });
+      await mutateData({
+        data: {
+          action: "createPlano",
+          empresaId,
+          plano: {
+            competencia: competenciaDate(ano, mes),
+            problema: form.problema.trim().slice(0, 1000),
+            acao: form.acao.trim().slice(0, 1000),
+            resultado: form.resultado_esperado.trim().slice(0, 1000) || null,
+            categoria: form.categoria.trim().slice(0, 120) || null,
+            responsavel: form.responsavel.trim().slice(0, 120) || null,
+            prioridade: form.prioridade,
+            prazo: form.prazo || null,
+          },
+        },
+      });
     },
     onSuccess: () => {
       toast.success("Ação adicionada ao plano.");
@@ -457,7 +472,13 @@ function PlanoAcaoPage() {
       gerarRelatorioPlanos(acoesParaRelatorio);
 
       if (!empresaId) throw new Error("Selecione uma empresa.");
-      await mutateData({ data: { action: "archivePlanos", empresaId, ids: acoesParaRelatorio.map((plano) => plano.id) } });
+      await mutateData({
+        data: {
+          action: "archivePlanos",
+          empresaId,
+          ids: acoesParaRelatorio.map((plano) => plano.id),
+        },
+      });
     },
     onSuccess: () => {
       toast.success("Relatório gerado e ações movidas para o histórico.");
@@ -601,7 +622,7 @@ function PlanoAcaoPage() {
                     <SemDados mensagem="Nenhuma ação ativa para esta empresa." />
                   ) : (
                     <div className="overflow-hidden rounded-lg border">
-                      <div className="grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_110px_92px] gap-3 bg-muted/40 px-4 py-2 text-[11px] font-semibold uppercase text-muted-foreground max-lg:hidden">
+                      <div className="grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_110px_92px] gap-3 bg-muted/40 px-4 py-2 text-[11px] font-semibold normal-case text-muted-foreground max-lg:hidden">
                         <span>Ação</span>
                         <span>Problema</span>
                         <span>Status</span>
@@ -777,7 +798,7 @@ function PlanoAcaoPage() {
                     <SemDados mensagem="Nenhum plano de ação foi gerado em relatório ainda." />
                   ) : (
                     <div className="overflow-hidden rounded-lg border">
-                      <div className="grid grid-cols-[160px_minmax(0,1.5fr)_minmax(0,1fr)_90px] gap-3 bg-muted/40 px-4 py-2 text-[11px] font-semibold uppercase text-muted-foreground max-lg:hidden">
+                      <div className="grid grid-cols-[160px_minmax(0,1.5fr)_minmax(0,1fr)_90px] gap-3 bg-muted/40 px-4 py-2 text-[11px] font-semibold normal-case text-muted-foreground max-lg:hidden">
                         <span>Relatório</span>
                         <span>Ação</span>
                         <span>Problema</span>

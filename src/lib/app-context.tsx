@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { CENTRO_CUSTO_TODOS, type CentroCustoFiltro } from "./centro-custo";
-import type { PeriodoFiltro } from "./periodo";
+import { mesesDoPeriodoFiltro, type PeriodoFiltro } from "./periodo";
 
 interface AppState {
   empresaId: string | null;
@@ -9,6 +9,8 @@ interface AppState {
   setAno: (a: number) => void;
   mes: number;
   setMes: (m: number) => void;
+  mesesSelecionados: number[];
+  setMesesSelecionados: (meses: number[]) => void;
   periodo: PeriodoFiltro;
   setPeriodo: (periodo: PeriodoFiltro) => void;
   centroCusto: CentroCustoFiltro;
@@ -22,6 +24,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [empresaId, setEmpresaIdState] = useState<string | null>(null);
   const [ano, setAnoState] = useState(hoje.getFullYear());
   const [mes, setMesState] = useState(hoje.getMonth());
+  const [mesesSelecionados, setMesesSelecionadosState] = useState<number[]>([hoje.getMonth()]);
   const [periodo, setPeriodoState] = useState<PeriodoFiltro>("mes_atual");
   const [centroCusto, setCentroCustoState] = useState<CentroCustoFiltro>([CENTRO_CUSTO_TODOS]);
 
@@ -29,11 +32,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const e = localStorage.getItem("vg.empresa");
     const a = localStorage.getItem("vg.ano");
     const m = localStorage.getItem("vg.mes");
+    const ms = localStorage.getItem("vg.meses");
     const p = localStorage.getItem("vg.periodo") as PeriodoFiltro | null;
     const c = localStorage.getItem("vg.centroCusto");
     if (e) setEmpresaIdState(e);
     if (a) setAnoState(Number(a));
-    if (m) setMesState(Number(m));
+    const mesSalvo = m ? Number(m) : new Date().getMonth();
+    if (m) setMesState(mesSalvo);
+    if (p && p !== "mes_atual") {
+      setMesesSelecionadosState(mesesDoPeriodoFiltro(p, mesSalvo));
+    } else if (ms) {
+      setMesesSelecionadosState(parseMesesSalvos(ms, mesSalvo));
+    } else if (m) {
+      setMesesSelecionadosState([mesSalvo]);
+    }
     if (p) setPeriodoState(p);
     if (c) setCentroCustoState(parseCentroCustoSalvo(c));
   }, []);
@@ -54,7 +66,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       mes,
       setMes: (m) => {
         setMesState(m);
+        setMesesSelecionadosState([m]);
         localStorage.setItem("vg.mes", String(m));
+        localStorage.setItem("vg.meses", JSON.stringify([m]));
+      },
+      mesesSelecionados,
+      setMesesSelecionados: (meses) => {
+        const proximos = normalizarMeses(meses, mes);
+        setMesesSelecionadosState(proximos);
+        setMesState(proximos.at(-1) ?? mes);
+        localStorage.setItem("vg.meses", JSON.stringify(proximos));
+        localStorage.setItem("vg.mes", String(proximos.at(-1) ?? mes));
       },
       periodo,
       setPeriodo: (p) => {
@@ -68,10 +90,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
         localStorage.setItem("vg.centroCusto", JSON.stringify(proximo));
       },
     }),
-    [empresaId, ano, mes, periodo, centroCusto],
+    [empresaId, ano, mes, mesesSelecionados, periodo, centroCusto],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+function normalizarMeses(valores: number[], fallback: number): number[] {
+  const meses = [...new Set(valores)]
+    .filter((valor) => Number.isInteger(valor) && valor >= 0 && valor <= 11)
+    .sort((a, b) => a - b);
+  return meses.length ? meses : [fallback];
+}
+
+function parseMesesSalvos(valor: string, fallback: number): number[] {
+  try {
+    const parsed = JSON.parse(valor);
+    if (Array.isArray(parsed)) return normalizarMeses(parsed, fallback);
+  } catch {
+    // Ignora preferências inválidas e preserva o mês de referência.
+  }
+  return [fallback];
 }
 
 export function useApp(): AppState {

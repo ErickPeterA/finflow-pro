@@ -80,7 +80,7 @@ const coresGraficoHome = {
 };
 
 function HomePage() {
-  const { empresaId, ano, mes, periodo, centroCusto } = useApp();
+  const { empresaId, ano, mes, mesesSelecionados, periodo, centroCusto } = useApp();
   const { data: empresa } = useEmpresaAtual(empresaId);
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
   const { data: categorias = [] } = useCategorias(empresaId);
@@ -100,19 +100,24 @@ function HomePage() {
         : calcularDre(lancamentosFiltrados, categorias),
     [lancamentosFiltrados, categorias, dreHartwig],
   );
-  const mesesPeriodo = useMemo(() => mesesDoPeriodoFiltro(periodo, mes), [periodo, mes]);
+  const mesesPeriodo = useMemo(
+    () => mesesDoPeriodoFiltro(periodo, mes, mesesSelecionados),
+    [periodo, mes, mesesSelecionados],
+  );
   const atual = useMemo(
     () => totalizarResultadosPeriodo(resultados, mesesPeriodo),
     [resultados, mesesPeriodo],
   );
-  const anterior = periodo === "mes_atual" && mes > 0 ? resultados[mes - 1] : undefined;
+  const mesReferencia = mesesPeriodo.at(-1) ?? mes;
+  const anterior =
+    mesesPeriodo.length === 1 && mesReferencia > 0 ? resultados[mesReferencia - 1] : undefined;
   const custosOperacionais = atual.deducoes + atual.custos;
   const colaboradoresPeriodo = dreHartwig ? mediaColaboradoresHartwig(ano, mesesPeriodo) : 0;
   const resultadoOpPorColaborador = colaboradoresPeriodo
     ? atual.resultadoOperacional / colaboradoresPeriodo
     : 0;
   const colaboradoresAnterior =
-    dreHartwig && mes > 0 ? mediaColaboradoresHartwig(ano, [mes - 1]) : 0;
+    dreHartwig && anterior ? mediaColaboradoresHartwig(ano, [mesReferencia - 1]) : 0;
   const resultadoOpPorColaboradorAnterior =
     anterior && colaboradoresAnterior
       ? anterior.resultadoOperacional / colaboradoresAnterior
@@ -129,7 +134,7 @@ function HomePage() {
       ),
     [lancamentosFiltrados, categorias, mesesPeriodo, custosOperacionais, atual.despesas],
   );
-  const periodoLabel = periodoFiltroLabel(periodo, mes);
+  const periodoLabel = periodoFiltroLabel(periodo, mes, mesesSelecionados);
   const insights = useMemo(
     () =>
       criarInsightsAutomaticos({
@@ -168,10 +173,7 @@ function HomePage() {
 
   return (
     <>
-      <TopBar
-        titulo="Home"
-        descricao={`${empresa?.nome ?? "Selecione uma empresa"} · ${periodoLabel} de ${ano}`}
-      />
+      <TopBar titulo="Home" />
       <main className="space-y-5 p-6 ">
         {!empresaId ? (
           <SemEmpresa />
@@ -448,7 +450,7 @@ function HomePage() {
                         <p className="tabular text-2xl font-semibold">
                           {pct(atual.margemOperacional, 0)}
                         </p>
-                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                        <p className="text-[11px] normal-case tracking-wide text-muted-foreground">
                           margem
                         </p>
                       </div>
@@ -489,7 +491,7 @@ function HomePage() {
                 <div className="flex flex-col gap-5 p-5 lg:flex-row lg:items-center lg:justify-between">
                   <div className="max-w-2xl">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      <p className="text-xs font-semibold normal-case tracking-[0.14em] text-muted-foreground">
                         Resumo do período
                       </p>
                       <span
@@ -664,7 +666,7 @@ function Etapa({
         destaque ? "border-transparent bg-secondary" : "bg-card",
       )}
     >
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{rotulo}</p>
+      <p className="text-[11px] normal-case tracking-wide text-muted-foreground">{rotulo}</p>
       {descricao && <p className="mt-1 text-xs text-muted-foreground">{descricao}</p>}
       <p className={cn("tabular mt-1 text-base font-semibold", cores[tom])}>{brl(valor)}</p>
     </div>
@@ -852,7 +854,7 @@ function InsightCard({ insight }: { insight: InsightAutomatico }) {
         <span className={cn("tabular text-lg font-semibold", estilo.texto)}>{insight.valor}</span>
       </div>
       <p className="mt-3 text-sm font-semibold">{insight.titulo}</p>
-      <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <p className="mt-1 text-[10px] font-semibold normal-case tracking-wide text-muted-foreground">
         {insight.fonte}
       </p>
       <p className="mt-2 min-h-10 text-xs leading-relaxed text-muted-foreground">{insight.texto}</p>
