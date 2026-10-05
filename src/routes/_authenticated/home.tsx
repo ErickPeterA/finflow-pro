@@ -283,38 +283,12 @@ function HomePage() {
                   destaque
                 />
                 <Operador icone="igual" />
-                <Etapa
-                  rotulo="Dedução de receita"
-                  valor={caminhoGastos.deducaoReceita}
-                  tom="negativo"
-                />
-                <Operador icone="mais" />
-                <Etapa rotulo="Custos diretos" valor={caminhoGastos.custosDiretos} tom="negativo" />
-                <Operador icone="mais" />
-                <Etapa
-                  rotulo="Custos indiretos"
-                  valor={caminhoGastos.custosIndiretos}
-                  tom="negativo"
-                />
-                <Operador icone="mais" />
-                <Etapa
-                  rotulo="Comissionamento"
-                  valor={caminhoGastos.comissionamento}
-                  tom="negativo"
-                />
-                <Operador icone="mais" />
-                <Etapa
-                  rotulo="Custos pessoais"
-                  valor={caminhoGastos.custosPessoais}
-                  tom="negativo"
-                />
-                <Operador icone="mais" />
-                <Etapa
-                  rotulo="Custos de marketing"
-                  valor={caminhoGastos.custosMarketing}
-                  tom="negativo"
-                />
-                <Operador icone="mais" />
+                {caminhoGastos.subgrupos.map((subgrupo) => (
+                  <div key={subgrupo.codigo} className="contents">
+                    <Etapa rotulo={subgrupo.rotulo} valor={subgrupo.valor} tom="negativo" />
+                    <Operador icone="mais" />
+                  </div>
+                ))}
                 <Etapa
                   rotulo="Despesas operacionais"
                   valor={caminhoGastos.despesasOperacionais}
@@ -565,42 +539,115 @@ function calcularCaminhoGastos(
   despesasOperacionais: number,
 ) {
   const mesesPermitidos = new Set(mesesVisiveis);
-  const valorPorPrefixo = (prefixo: string, nomeContem?: string) =>
+  const textosPorLancamento = (lancamento: Lancamento) => {
+    const categoria = categorias.find((c) => c.id === lancamento.categoria_id);
+    return [lancamento.categoria_nibo, categoria?.nome]
+      .filter(Boolean)
+      .map((texto) => normalizarTexto(String(texto)));
+  };
+  const valorPorPrefixo = (prefixo: string) =>
     lancamentos.reduce((total, lancamento) => {
       if (!mesesPermitidos.has(mesDaCompetencia(lancamento.competencia))) return total;
-      const categoria = categorias.find((c) => c.id === lancamento.categoria_id);
-      const textos = [lancamento.categoria_nibo, categoria?.nome]
-        .filter(Boolean)
-        .map((texto) => normalizarTexto(String(texto)));
+      const textos = textosPorLancamento(lancamento);
       const temPrefixo = textos.some((texto) => textoComecaComPrefixo(texto, prefixo));
-      const temNome = nomeContem
-        ? textos.some((texto) => texto.includes(normalizarTexto(nomeContem)))
-        : false;
-      const pareceCustoOperacional =
-        categoria?.grupo === "custos" || textos.some((texto) => textoComecaComPrefixo(texto, "2"));
-
-      if (!temPrefixo && !(temNome && pareceCustoOperacional)) return total;
-      return total + Math.abs(Number(lancamento.valor) || 0);
+      if (!temPrefixo) return total;
+      // O DRE soma os valores com sinal e só então apresenta o custo como
+      // positivo. Somar Math.abs por lançamento superestimava estornos/créditos.
+      return total - (Number(lancamento.valor) || 0);
     }, 0);
 
-  const deducaoReceita = valorPorPrefixo("2.1");
-  const custosDiretos = valorPorPrefixo("2.2");
-  const custosIndiretos = valorPorPrefixo("2.3");
-  const comissionamento = valorPorPrefixo("2.4", "comissionamento");
-  const custosPessoais = valorPorPrefixo("2.5", "pessoais");
-  const custosMarketing = valorPorPrefixo("2.6", "marketing");
+  const subgrupos = montarSubgruposCustos(lancamentos, categorias).map((subgrupo) => ({
+    ...subgrupo,
+    valor: valorPorPrefixo(subgrupo.codigo),
+  }));
 
   return {
     custosOperacionais,
-    deducaoReceita,
-    custosDiretos,
-    custosIndiretos,
-    comissionamento,
-    custosPessoais,
-    custosMarketing,
+    subgrupos,
     despesasOperacionais,
     totalGastos: custosOperacionais + despesasOperacionais,
   };
+}
+
+function montarSubgruposCustos(lancamentos: Lancamento[], categorias: Categoria[]) {
+  const nomesPorPrefixo = new Map<string, Set<string>>();
+  for (const lancamento of lancamentos) {
+    const categoria = categorias.find((item) => item.id === lancamento.categoria_id);
+    const nome = String(lancamento.categoria_nibo || categoria?.nome || "").trim();
+    const codigo = nome.match(/^(2\.\d+)(?:[.\-\s]|$)/)?.[1];
+    if (!codigo) continue;
+    const nomes = nomesPorPrefixo.get(codigo) ?? new Set<string>();
+    nomes.add(normalizarTexto(nome.replace(/^2\.\d+(?:\.\d+)?[.\-\s]*/, "")));
+    nomesPorPrefixo.set(codigo, nomes);
+  }
+
+  const grupos = [...nomesPorPrefixo.entries()]
+    .sort(([codigoA], [codigoB]) => codigoA.localeCompare(codigoB, "pt-BR", { numeric: true }))
+    .map(([codigo, nomes]) => ({ codigo, nomes: [...nomes], rotulo: "" }));
+
+  const contem = (nomes: string[], termos: string[]) =>
+    nomes.filter((nome) => termos.some((termo) => nome.includes(termo))).length;
+  const atribuicoes = new Set<string>();
+  const atribuir = (grupo: (typeof grupos)[number], rotulo: string) => {
+    grupo.rotulo = rotulo;
+    atribuicoes.add(rotulo);
+  };
+
+  for (const grupo of grupos) {
+    if (grupo.codigo === "2.1") {
+      atribuir(grupo, "Dedução de receita");
+      continue;
+    }
+    const total = Math.max(grupo.nomes.length, 1);
+    const pessoal = contem(grupo.nomes, [
+      "salario",
+      "pro-labore",
+      "pro labore",
+      "rescis",
+      "encargo",
+      "ferias",
+      "beneficio",
+      "auxilio",
+      "bolsa estagio",
+      "freelancer",
+      "uniforme",
+      "bonifica",
+    ]);
+    const marketing = contem(grupo.nomes, [
+      "marketing",
+      "midia",
+      "publicidade",
+      "propaganda",
+      "anuncio",
+      "trafego pago",
+      "google ads",
+      "meta ads",
+      "grafica",
+      "patrocinio",
+      "rede social",
+    ]);
+    const delivery = contem(grupo.nomes, ["delivery", "ifood", "entrega"]);
+    const comissao = contem(grupo.nomes, ["comiss", "prospec"]);
+
+    if (pessoal >= Math.max(2, Math.ceil(total * 0.4))) {
+      atribuir(grupo, "Custos com pessoal");
+    } else if (marketing >= Math.max(2, Math.ceil(total * 0.4))) {
+      atribuir(grupo, "Custos de marketing");
+    } else if (delivery >= Math.ceil(total * 0.5)) {
+      atribuir(grupo, "Custos de delivery");
+    } else if (comissao > 0) {
+      atribuir(grupo, "Comissionamento");
+    }
+  }
+
+  const semRotulo = grupos.filter((grupo) => !grupo.rotulo && grupo.codigo !== "2.1");
+  for (const [indice, grupo] of semRotulo.entries()) {
+    if (!atribuicoes.has("Custos diretos")) atribuir(grupo, "Custos diretos");
+    else if (!atribuicoes.has("Custos indiretos")) atribuir(grupo, "Custos indiretos");
+    else atribuir(grupo, `Outros custos${semRotulo.length > 3 ? ` ${indice + 1}` : ""}`);
+  }
+
+  return grupos.map(({ codigo, rotulo }) => ({ codigo, rotulo }));
 }
 
 function normalizarTexto(texto: string) {
