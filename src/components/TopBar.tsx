@@ -1,6 +1,6 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { Check, ChevronsUpDown, LogOut } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { CalendarDays, Check, ChevronsUpDown, LogOut } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { logoutLocal } from "@/lib/auth.functions";
@@ -49,6 +49,7 @@ export function TopBar({
     ano,
     setAno,
     mes,
+    setMes,
     mesesSelecionados,
     setMesesSelecionados,
     periodo,
@@ -66,6 +67,7 @@ export function TopBar({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const queryClient = useQueryClient();
   const encerrarSessao = useServerFn(logoutLocal);
+  const [seletorMesesAberto, setSeletorMesesAberto] = useState(false);
   const anoAtual = new Date().getFullYear();
   const estaNoProjeto = pathname !== "/projetos" && pathname !== "/gerenciamento";
   const todosCentrosSelecionados = centroCusto.includes(CENTRO_CUSTO_TODOS);
@@ -138,6 +140,15 @@ export function TopBar({
     setPeriodo("mes_atual");
   }
 
+  function selecionarUltimoMesFechado() {
+    const hoje = new Date();
+    const ultimoMesFechado = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
+    setAno(ultimoMesFechado.getFullYear());
+    setMes(ultimoMesFechado.getMonth());
+    setPeriodo("mes_atual");
+    setSeletorMesesAberto(false);
+  }
+
   return (
     <header className="sticky top-0 z-20 border-b bg-card/95 backdrop-blur">
       <div className="flex flex-wrap items-center gap-3 px-6 py-3">
@@ -173,7 +184,7 @@ export function TopBar({
                   </SelectContent>
                 </Select>
 
-                <Popover>
+                <Popover open={seletorMesesAberto} onOpenChange={setSeletorMesesAberto}>
                   <PopoverTrigger asChild>
                     <Button
                       type="button"
@@ -211,8 +222,16 @@ export function TopBar({
                           })}
                         </CommandGroup>
                       </CommandList>
-                      <div className="border-t px-3 py-2 text-xs text-muted-foreground">
-                        Pelo menos um mês deve permanecer selecionado.
+                      <div className="border-t p-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-9 w-full justify-start gap-2"
+                          onClick={selecionarUltimoMesFechado}
+                        >
+                          <CalendarDays className="h-4 w-4" />
+                          Selecionar último mês fechado
+                        </Button>
                       </div>
                     </Command>
                   </PopoverContent>

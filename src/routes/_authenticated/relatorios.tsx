@@ -1,16 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
   CalendarDays,
   CheckCircle2,
   CircleDot,
+  Download,
   FileText,
   Printer,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   CartesianGrid,
   Line,
@@ -95,6 +97,7 @@ const prioridadeLabels: Record<string, string> = {
 };
 
 function RelatoriosPage() {
+  const [gerandoPptx, setGerandoPptx] = useState(false);
   const { empresaId, ano, mes, mesesSelecionados, periodo, centroCusto } = useApp();
   const { data: empresa } = useEmpresaAtual(empresaId);
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
@@ -169,6 +172,8 @@ function RelatoriosPage() {
       mes: mesesCurtos[r.mes],
       receita: r.receitaBruta,
       resultado: r.resultadoOperacional,
+      resultadoBruto: r.resultadoBruto,
+      resultadoLiquido: r.resultadoLiquido,
       margem: Number(r.margemOperacional.toFixed(1)),
     }));
 
@@ -190,15 +195,65 @@ function RelatoriosPage() {
     window.setTimeout(limparImpressao, 1000);
   }
 
+  async function baixarApresentacao() {
+    if (!empresaId || !atual.temMovimento) return;
+    setGerandoPptx(true);
+    try {
+      const { gerarRelatorioPptx } = await import("@/lib/relatorio-pptx");
+      await gerarRelatorioPptx({
+        empresa: empresa?.nome ?? "Empresa",
+        periodo: `${periodoLabel} de ${ano}`,
+        ano,
+        receita: atual.receitaBruta,
+        deducoesCustos: atual.deducoes + atual.custos,
+        despesas: atual.despesas,
+        resultadoBruto: atual.resultadoBruto,
+        resultadoOperacional: atual.resultadoOperacional,
+        resultadoLiquido: atual.resultadoLiquido,
+        margemOperacional: atual.margemOperacional,
+        margemDesejada,
+        resumo: resumoExecutivo(atual, anterior, margemDesejada, qualidade.texto),
+        alertas: alertas.map(({ titulo, detalhe }) => ({ titulo, detalhe })),
+        evolucao,
+        receitasPorCategoria: receitasPorCategoria.map(({ nome, valor }) => ({ nome, valor })),
+        custosPorCategoria: categoriasOperacionais.map(({ nome, valor }) => ({ nome, valor })),
+        impactosPositivos: impactos.positivos.slice(0, 5),
+        impactosNegativos: impactos.negativos.slice(0, 5),
+        acoes: acoesAbertas.map((acao) => ({
+          acao: acao.acao,
+          responsavel: acao.responsavel,
+          prazo: acao.prazo ? dataBR(acao.prazo) : null,
+          status: statusLabels[acao.status] ?? acao.status,
+        })),
+      });
+      toast.success("Apresentação gerada com os dados do período selecionado.");
+    } catch (error) {
+      console.error(error);
+      toast.error("Não foi possível gerar a apresentação.");
+    } finally {
+      setGerandoPptx(false);
+    }
+  }
+
   return (
     <>
       <TopBar
         titulo="Relatórios"
         descricao="Relatório mensal para apresentação ao cliente"
         acoes={
-          <Button size="sm" variant="outline" onClick={imprimirRelatorio} disabled={!empresaId}>
-            <Printer className="mr-2 h-4 w-4" /> Imprimir / PDF
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              onClick={baixarApresentacao}
+              disabled={!empresaId || !atual.temMovimento || gerandoPptx}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              {gerandoPptx ? "Gerando PPTX..." : "Baixar apresentação"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={imprimirRelatorio} disabled={!empresaId}>
+              <Printer className="mr-2 h-4 w-4" /> Imprimir / PDF
+            </Button>
+          </div>
         }
       />
       <main className="relatorio-page space-y-5 p-6 print:bg-white print:p-0">
