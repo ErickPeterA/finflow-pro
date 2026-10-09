@@ -52,6 +52,14 @@ import {
 } from "@/lib/periodo";
 import { brl, dataBR, mesesCurtos, pct, variacao } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  graficosRelatorio,
+  layoutRelatorioPadrao,
+  rotuloCategoriaRelatorio,
+  tituloGraficoRelatorio,
+  type GraficoRelatorioId,
+  type RelatorioPptxLayout,
+} from "@/lib/relatorio-config";
 
 export const Route = createFileRoute("/_authenticated/relatorios")({
   head: () => ({
@@ -98,6 +106,9 @@ const prioridadeLabels: Record<string, string> = {
 
 function RelatoriosPage() {
   const [gerandoPptx, setGerandoPptx] = useState(false);
+  const [layoutRelatorio, setLayoutRelatorio] = useState<RelatorioPptxLayout>(() => ({
+    graficos: [...layoutRelatorioPadrao.graficos],
+  }));
   const { empresaId, ano, mes, mesesSelecionados, periodo, centroCusto } = useApp();
   const { data: empresa } = useEmpresaAtual(empresaId);
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
@@ -169,7 +180,7 @@ function RelatoriosPage() {
   const evolucao = resultados
     .filter((r) => mesesPeriodo.includes(r.mes) && r.temMovimento)
     .map((r) => ({
-      mes: mesesCurtos[r.mes],
+      mes: mesesCurtos[r.mes] ?? `Mês ${r.mes + 1}`,
       receita: r.receitaBruta,
       resultado: r.resultadoOperacional,
       resultadoBruto: r.resultadoBruto,
@@ -225,6 +236,7 @@ function RelatoriosPage() {
           prazo: acao.prazo ? dataBR(acao.prazo) : null,
           status: statusLabels[acao.status] ?? acao.status,
         })),
+        layout: layoutRelatorio,
       });
       toast.success("Apresentação gerada com os dados do período selecionado.");
     } catch (error) {
@@ -265,300 +277,728 @@ function RelatoriosPage() {
           <SemDados mensagem="Sem lançamentos no período selecionado." />
         ) : (
           <article className="relatorio-print-root mx-auto max-w-6xl space-y-5 print:max-w-none print:space-y-3">
-            <CapaRelatorio
+            <ApresentacaoPreview
               empresa={empresa?.nome ?? "Empresa"}
-              cnpj={empresa?.cnpj}
               periodo={`${periodoLabel} de ${ano}`}
-              qualidade={qualidade}
-              resultado={atual.resultadoOperacional}
-              margem={atual.margemOperacional}
-              margemDesejada={margemDesejada}
-              totalLancamentos={totalLancamentosMes}
+              atual={atual}
+              evolucao={evolucao}
+              receitas={receitasPorCategoria}
+              custos={categoriasOperacionais}
+              impactosPositivos={impactos.positivos.slice(0, 5)}
+              impactosNegativos={impactos.negativos.slice(0, 5)}
+              layout={layoutRelatorio}
+              onLayoutChange={setLayoutRelatorio}
             />
 
-            <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <KpiRelatorio
-                titulo="Receita operacional"
-                valor={atual.receitaBruta}
-                anterior={anterior?.receitaBruta}
-                descricao={`Média no ano: ${brl(mediaReceita, true)}`}
-                tom={atual.receitaBruta >= (anterior?.receitaBruta ?? 0) ? "positivo" : "negativo"}
-              />
-              <KpiRelatorio
-                titulo="Resultado operacional"
-                valor={atual.resultadoOperacional}
-                anterior={anterior?.resultadoOperacional}
-                descricao={`Média no ano: ${brl(mediaResultado, true)}`}
-                tom={atual.resultadoOperacional >= 0 ? "positivo" : "negativo"}
-              />
-              <KpiRelatorio
-                titulo="Margem operacional"
-                valorTexto={pct(atual.margemOperacional)}
-                variacaoTexto={`${formatarPontos(atual.margemOperacional - margemDesejada)} vs. meta`}
-                descricao={`Meta: ${pct(margemDesejada)}`}
-                tom={atual.margemOperacional >= margemDesejada ? "positivo" : "atencao"}
-              />
-              <KpiRelatorio
-                titulo="Resultado líquido"
-                valor={atual.resultadoLiquido}
-                anterior={anterior?.resultadoLiquido}
-                descricao={`${mesesComMovimento} mês(es) com movimento no ano`}
-                tom={atual.resultadoLiquido >= 0 ? "positivo" : "negativo"}
-              />
-            </section>
+            <details open className="group rounded-xl border bg-card print:border-0">
+              <summary className="cursor-pointer list-none px-5 py-4 text-sm font-semibold print:hidden">
+                Ver detalhamento dos dados do relatório
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  (a prévia acima é a referência visual do PPTX)
+                </span>
+              </summary>
+              <div className="space-y-5 border-t p-5">
+                <CapaRelatorio
+                  empresa={empresa?.nome ?? "Empresa"}
+                  cnpj={empresa?.cnpj}
+                  periodo={`${periodoLabel} de ${ano}`}
+                  qualidade={qualidade}
+                  resultado={atual.resultadoOperacional}
+                  margem={atual.margemOperacional}
+                  margemDesejada={margemDesejada}
+                  totalLancamentos={totalLancamentosMes}
+                />
 
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
-              <Bloco titulo="Resumo executivo" className="print:break-inside-avoid">
-                <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
-                  <div className="space-y-3 text-sm leading-6 text-muted-foreground">
-                    {resumoExecutivo(atual, anterior, margemDesejada, qualidade.texto).map(
-                      (texto) => (
-                        <p key={texto}>{texto}</p>
-                      ),
-                    )}
-                  </div>
-                  <div className="rounded-lg border bg-muted/40 p-4">
-                    <p className="text-xs font-semibold normal-case text-muted-foreground">
-                      Base do relatório
-                    </p>
-                    <dl className="mt-3 space-y-2 text-sm">
-                      <Item rotulo="Regime" valor="Caixa" />
-                      <Item rotulo="Lançamentos" valor={String(totalLancamentosMes)} />
-                      <Item rotulo="Não recorrentes" valor={String(naoRecorrentesMes)} />
-                      <Item rotulo="Categorias ativas" valor={String(categorias.length)} />
-                    </dl>
-                  </div>
-                </div>
-              </Bloco>
-
-              <Bloco titulo="Leitura da consultoria" className="print:break-inside-avoid">
-                {alertas.length === 0 ? (
-                  <SemDados mensagem="Sem observações relevantes." />
-                ) : (
-                  <ul className="space-y-3">
-                    {alertas.slice(0, 5).map((a) => (
-                      <li key={a.titulo} className="flex gap-3 rounded-lg border p-3 text-sm">
-                        <span
-                          className={cn(
-                            "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                            alertaClasses(a.nivel),
-                          )}
-                        >
-                          {iconeAlerta(a.nivel)}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block font-semibold">{a.titulo}</span>
-                          <span className="mt-0.5 block text-muted-foreground">{a.detalhe}</span>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Bloco>
-            </div>
-
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
-              <Bloco
-                titulo="Evolução do exercício"
-                className="overflow-hidden print:break-inside-avoid"
-              >
-                {evolucao.length < 2 ? (
-                  <SemDados mensagem="Importe mais meses para visualizar a evolução." />
-                ) : (
-                  <div className="h-[320px] min-w-[560px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={evolucao}
-                        margin={{ top: 20, right: 18, left: 0, bottom: 0 }}
-                      >
-                        <CartesianGrid
-                          strokeDasharray="3 3"
-                          vertical={false}
-                          stroke="var(--border)"
-                        />
-                        <ReferenceLine
-                          yAxisId="valor"
-                          y={0}
-                          stroke="var(--foreground)"
-                          strokeOpacity={0.35}
-                        />
-                        <XAxis dataKey="mes" tickLine={false} axisLine={false} fontSize={12} />
-                        <YAxis
-                          yAxisId="valor"
-                          tickFormatter={(v) => brl(Number(v), true)}
-                          tickLine={false}
-                          axisLine={false}
-                          fontSize={12}
-                          width={86}
-                        />
-                        <YAxis
-                          yAxisId="margem"
-                          orientation="right"
-                          tickFormatter={(v) => pct(Number(v), 0)}
-                          tickLine={false}
-                          axisLine={false}
-                          fontSize={12}
-                          width={46}
-                        />
-                        <Tooltip
-                          formatter={(v, name) =>
-                            name === "Margem operacional" ? pct(Number(v)) : brl(Number(v))
-                          }
-                        />
-                        <Line
-                          yAxisId="valor"
-                          type="monotone"
-                          dataKey="receita"
-                          name="Receita"
-                          stroke="var(--info)"
-                          strokeWidth={2.5}
-                          dot={{ r: 3 }}
-                        />
-                        <Line
-                          yAxisId="valor"
-                          type="monotone"
-                          dataKey="resultado"
-                          name="Resultado operacional"
-                          stroke="var(--positive)"
-                          strokeWidth={2.5}
-                          dot={{ r: 3 }}
-                        />
-                        <Line
-                          yAxisId="margem"
-                          type="monotone"
-                          dataKey="margem"
-                          name="Margem operacional"
-                          stroke="var(--warning)"
-                          strokeWidth={2.5}
-                          dot={{ r: 3 }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </Bloco>
-
-              <Bloco titulo="DRE resumido" className="print:break-inside-avoid">
-                <dl className="space-y-2 text-sm">
-                  <LinhaDre
-                    rotulo="Receita operacional"
+                <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <KpiRelatorio
+                    titulo="Receita operacional"
                     valor={atual.receitaBruta}
-                    base={atual.receitaBruta}
+                    anterior={anterior?.receitaBruta}
+                    descricao={`Média no ano: ${brl(mediaReceita, true)}`}
+                    tom={
+                      atual.receitaBruta >= (anterior?.receitaBruta ?? 0) ? "positivo" : "negativo"
+                    }
                   />
-                  <LinhaDre
-                    rotulo="(-) Deduções e custos"
-                    valor={-(atual.deducoes + atual.custos)}
-                    base={atual.receitaBruta}
-                  />
-                  <LinhaDre
-                    rotulo="= Resultado bruto"
-                    valor={atual.resultadoBruto}
-                    base={atual.receitaBruta}
-                    destaque
-                  />
-                  <LinhaDre
-                    rotulo="(-) Despesas operacionais"
-                    valor={-atual.despesas}
-                    base={atual.receitaBruta}
-                  />
-                  <LinhaDre
-                    rotulo="= Resultado operacional"
+                  <KpiRelatorio
+                    titulo="Resultado operacional"
                     valor={atual.resultadoOperacional}
-                    base={atual.receitaBruta}
-                    destaque
+                    anterior={anterior?.resultadoOperacional}
+                    descricao={`Média no ano: ${brl(mediaResultado, true)}`}
+                    tom={atual.resultadoOperacional >= 0 ? "positivo" : "negativo"}
                   />
-                  <LinhaDre
-                    rotulo="Atividade de investimento"
-                    valor={atual.financeiro}
-                    base={atual.receitaBruta}
+                  <KpiRelatorio
+                    titulo="Margem operacional"
+                    valorTexto={pct(atual.margemOperacional)}
+                    variacaoTexto={`${formatarPontos(atual.margemOperacional - margemDesejada)} vs. meta`}
+                    descricao={`Meta: ${pct(margemDesejada)}`}
+                    tom={atual.margemOperacional >= margemDesejada ? "positivo" : "atencao"}
                   />
-                  <LinhaDre
-                    rotulo="Atividade de financiamento"
-                    valor={atual.naoOperacional}
-                    base={atual.receitaBruta}
-                  />
-                  <LinhaDre
-                    rotulo="= Resultado líquido"
+                  <KpiRelatorio
+                    titulo="Resultado líquido"
                     valor={atual.resultadoLiquido}
-                    base={atual.receitaBruta}
-                    destaque
-                    forte
+                    anterior={anterior?.resultadoLiquido}
+                    descricao={`${mesesComMovimento} mês(es) com movimento no ano`}
+                    tom={atual.resultadoLiquido >= 0 ? "positivo" : "negativo"}
                   />
-                </dl>
-              </Bloco>
-            </div>
+                </section>
 
-            <div className="grid gap-5 xl:grid-cols-2">
-              <TabelaComparativoMensal atual={atual} anterior={anterior} acumulado={acumuladoAno} />
-              <ComposicaoResultado
-                receitas={receitasPorCategoria}
-                operacionais={categoriasOperacionais}
-                receitaTotal={atual.receitaBruta}
-                saidaTotal={atual.deducoes + atual.custos + atual.despesas}
-              />
-            </div>
+                <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
+                  <Bloco titulo="Resumo executivo" className="print:break-inside-avoid">
+                    <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
+                      <div className="space-y-3 text-sm leading-6 text-muted-foreground">
+                        {resumoExecutivo(atual, anterior, margemDesejada, qualidade.texto).map(
+                          (texto) => (
+                            <p key={texto}>{texto}</p>
+                          ),
+                        )}
+                      </div>
+                      <div className="rounded-lg border bg-muted/40 p-4">
+                        <p className="text-xs font-semibold normal-case text-muted-foreground">
+                          Base do relatório
+                        </p>
+                        <dl className="mt-3 space-y-2 text-sm">
+                          <Item rotulo="Regime" valor="Caixa" />
+                          <Item rotulo="Lançamentos" valor={String(totalLancamentosMes)} />
+                          <Item rotulo="Não recorrentes" valor={String(naoRecorrentesMes)} />
+                          <Item rotulo="Categorias ativas" valor={String(categorias.length)} />
+                        </dl>
+                      </div>
+                    </div>
+                  </Bloco>
 
-            <div className="grid gap-5 xl:grid-cols-2">
-              <Bloco titulo="Principais impactos do período" className="print:break-inside-avoid">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <ListaImpactos
-                    titulo="Melhoraram o resultado"
-                    itens={impactos.positivos.slice(0, 5)}
+                  <Bloco titulo="Leitura da consultoria" className="print:break-inside-avoid">
+                    {alertas.length === 0 ? (
+                      <SemDados mensagem="Sem observações relevantes." />
+                    ) : (
+                      <ul className="space-y-3">
+                        {alertas.slice(0, 5).map((a) => (
+                          <li key={a.titulo} className="flex gap-3 rounded-lg border p-3 text-sm">
+                            <span
+                              className={cn(
+                                "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                                alertaClasses(a.nivel),
+                              )}
+                            >
+                              {iconeAlerta(a.nivel)}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block font-semibold">{a.titulo}</span>
+                              <span className="mt-0.5 block text-muted-foreground">
+                                {a.detalhe}
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Bloco>
+                </div>
+
+                <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
+                  <Bloco
+                    titulo="Evolução do exercício"
+                    className="overflow-hidden print:break-inside-avoid"
+                  >
+                    {evolucao.length < 2 ? (
+                      <SemDados mensagem="Importe mais meses para visualizar a evolução." />
+                    ) : (
+                      <div className="h-[320px] min-w-[560px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart
+                            data={evolucao}
+                            margin={{ top: 20, right: 18, left: 0, bottom: 0 }}
+                          >
+                            <CartesianGrid
+                              strokeDasharray="3 3"
+                              vertical={false}
+                              stroke="var(--border)"
+                            />
+                            <ReferenceLine
+                              yAxisId="valor"
+                              y={0}
+                              stroke="var(--foreground)"
+                              strokeOpacity={0.35}
+                            />
+                            <XAxis dataKey="mes" tickLine={false} axisLine={false} fontSize={12} />
+                            <YAxis
+                              yAxisId="valor"
+                              tickFormatter={(v) => brl(Number(v), true)}
+                              tickLine={false}
+                              axisLine={false}
+                              fontSize={12}
+                              width={86}
+                            />
+                            <YAxis
+                              yAxisId="margem"
+                              orientation="right"
+                              tickFormatter={(v) => pct(Number(v), 0)}
+                              tickLine={false}
+                              axisLine={false}
+                              fontSize={12}
+                              width={46}
+                            />
+                            <Tooltip
+                              formatter={(v, name) =>
+                                name === "Margem operacional" ? pct(Number(v)) : brl(Number(v))
+                              }
+                            />
+                            <Line
+                              yAxisId="valor"
+                              type="monotone"
+                              dataKey="receita"
+                              name="Receita"
+                              stroke="var(--info)"
+                              strokeWidth={2.5}
+                              dot={{ r: 3 }}
+                            />
+                            <Line
+                              yAxisId="valor"
+                              type="monotone"
+                              dataKey="resultado"
+                              name="Resultado operacional"
+                              stroke="var(--positive)"
+                              strokeWidth={2.5}
+                              dot={{ r: 3 }}
+                            />
+                            <Line
+                              yAxisId="margem"
+                              type="monotone"
+                              dataKey="margem"
+                              name="Margem operacional"
+                              stroke="var(--warning)"
+                              strokeWidth={2.5}
+                              dot={{ r: 3 }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </Bloco>
+
+                  <Bloco titulo="DRE resumido" className="print:break-inside-avoid">
+                    <dl className="space-y-2 text-sm">
+                      <LinhaDre
+                        rotulo="Receita operacional"
+                        valor={atual.receitaBruta}
+                        base={atual.receitaBruta}
+                      />
+                      <LinhaDre
+                        rotulo="(-) Deduções e custos"
+                        valor={-(atual.deducoes + atual.custos)}
+                        base={atual.receitaBruta}
+                      />
+                      <LinhaDre
+                        rotulo="= Resultado bruto"
+                        valor={atual.resultadoBruto}
+                        base={atual.receitaBruta}
+                        destaque
+                      />
+                      <LinhaDre
+                        rotulo="(-) Despesas operacionais"
+                        valor={-atual.despesas}
+                        base={atual.receitaBruta}
+                      />
+                      <LinhaDre
+                        rotulo="= Resultado operacional"
+                        valor={atual.resultadoOperacional}
+                        base={atual.receitaBruta}
+                        destaque
+                      />
+                      <LinhaDre
+                        rotulo="Atividade de investimento"
+                        valor={atual.financeiro}
+                        base={atual.receitaBruta}
+                      />
+                      <LinhaDre
+                        rotulo="Atividade de financiamento"
+                        valor={atual.naoOperacional}
+                        base={atual.receitaBruta}
+                      />
+                      <LinhaDre
+                        rotulo="= Resultado líquido"
+                        valor={atual.resultadoLiquido}
+                        base={atual.receitaBruta}
+                        destaque
+                        forte
+                      />
+                    </dl>
+                  </Bloco>
+                </div>
+
+                <div className="grid gap-5 xl:grid-cols-2">
+                  <TabelaComparativoMensal
+                    atual={atual}
+                    anterior={anterior}
+                    acumulado={acumuladoAno}
                   />
-                  <ListaImpactos
-                    titulo="Pressionaram o resultado"
-                    itens={impactos.negativos.slice(0, 5)}
-                    negativo
+                  <ComposicaoResultado
+                    receitas={receitasPorCategoria}
+                    operacionais={categoriasOperacionais}
+                    receitaTotal={atual.receitaBruta}
+                    saidaTotal={atual.deducoes + atual.custos + atual.despesas}
                   />
                 </div>
-                <p className="mt-4 text-xs text-muted-foreground">
-                  Os impactos comparam o mês selecionado com o mês anterior e consideram efeito no
-                  resultado operacional.
-                </p>
-              </Bloco>
 
-              <Bloco titulo="Plano de ação em aberto" className="print:break-inside-avoid">
-                {acoesAbertas.length === 0 ? (
-                  <SemDados mensagem="Nenhuma ação em aberto." />
-                ) : (
-                  <ol className="space-y-3">
-                    {acoesAbertas.map((p, index) => (
-                      <li key={p.id} className="rounded-lg border p-3 text-sm">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                            {index + 1}
-                          </span>
-                          <BadgePlano tipo="prioridade" valor={p.prioridade} />
-                          <BadgePlano tipo="status" valor={p.status} />
-                        </div>
-                        <p className="mt-2 font-semibold">{p.acao}</p>
-                        <p className="mt-1 text-muted-foreground">{p.problema}</p>
-                        {p.resultado_esperado && (
-                          <p className="mt-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                            Resultado esperado: {p.resultado_esperado}
-                          </p>
-                        )}
-                        <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                          {p.responsavel && <span>Responsável: {p.responsavel}</span>}
-                          {p.categoria && <span>Categoria: {p.categoria}</span>}
-                          {p.prazo && <span>Prazo: {dataBR(p.prazo)}</span>}
-                        </p>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </Bloco>
-            </div>
+                <div className="grid gap-5 xl:grid-cols-2">
+                  <Bloco
+                    titulo="Principais impactos do período"
+                    className="print:break-inside-avoid"
+                  >
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <ListaImpactos
+                        titulo="Melhoraram o resultado"
+                        itens={impactos.positivos.slice(0, 5)}
+                      />
+                      <ListaImpactos
+                        titulo="Pressionaram o resultado"
+                        itens={impactos.negativos.slice(0, 5)}
+                        negativo
+                      />
+                    </div>
+                    <p className="mt-4 text-xs text-muted-foreground">
+                      Os impactos comparam o mês selecionado com o mês anterior e consideram efeito
+                      no resultado operacional.
+                    </p>
+                  </Bloco>
 
-            <RodapeRelatorio
-              empresa={empresa?.nome ?? "Empresa"}
-              periodo={`${periodoLabel} de ${ano}`}
-              acumulado={acumuladoAno}
-            />
+                  <Bloco titulo="Plano de ação em aberto" className="print:break-inside-avoid">
+                    {acoesAbertas.length === 0 ? (
+                      <SemDados mensagem="Nenhuma ação em aberto." />
+                    ) : (
+                      <ol className="space-y-3">
+                        {acoesAbertas.map((p, index) => (
+                          <li key={p.id} className="rounded-lg border p-3 text-sm">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                                {index + 1}
+                              </span>
+                              <BadgePlano tipo="prioridade" valor={p.prioridade} />
+                              <BadgePlano tipo="status" valor={p.status} />
+                            </div>
+                            <p className="mt-2 font-semibold">{p.acao}</p>
+                            <p className="mt-1 text-muted-foreground">{p.problema}</p>
+                            {p.resultado_esperado && (
+                              <p className="mt-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                                Resultado esperado: {p.resultado_esperado}
+                              </p>
+                            )}
+                            <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                              {p.responsavel && <span>Responsável: {p.responsavel}</span>}
+                              {p.categoria && <span>Categoria: {p.categoria}</span>}
+                              {p.prazo && <span>Prazo: {dataBR(p.prazo)}</span>}
+                            </p>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </Bloco>
+                </div>
+
+                <RodapeRelatorio
+                  empresa={empresa?.nome ?? "Empresa"}
+                  periodo={`${periodoLabel} de ${ano}`}
+                  acumulado={acumuladoAno}
+                />
+              </div>
+            </details>
           </article>
         )}
       </main>
     </>
+  );
+}
+
+function ApresentacaoPreview({
+  empresa,
+  periodo,
+  atual,
+  evolucao,
+  receitas,
+  custos,
+  impactosPositivos,
+  impactosNegativos,
+  layout,
+  onLayoutChange,
+}: {
+  empresa: string;
+  periodo: string;
+  atual: ResultadoMes;
+  evolucao: Array<{
+    mes: string;
+    receita: number;
+    resultado: number;
+    resultadoBruto: number;
+    resultadoLiquido: number;
+    margem: number;
+  }>;
+  receitas: CategoriaResumo[];
+  custos: CategoriaResumo[];
+  impactosPositivos: Array<{ nome: string; efeito: number }>;
+  impactosNegativos: Array<{ nome: string; efeito: number }>;
+  layout: RelatorioPptxLayout;
+  onLayoutChange: (layout: RelatorioPptxLayout) => void;
+}) {
+  const [slideAtivo, setSlideAtivo] = useState(1);
+  const titulosSlides = [
+    "Capa",
+    "Dashboard financeiro",
+    ...layout.graficos.map(tituloGraficoRelatorio),
+    "Análise financeira",
+    "Impactos do período",
+    "Plano de ação",
+  ];
+
+  function alterarGrafico(posicao: number, grafico: GraficoRelatorioId) {
+    const graficos = [...layout.graficos];
+    graficos[posicao] = grafico;
+    onLayoutChange({ graficos });
+    setSlideAtivo(posicao + 3);
+  }
+
+  const graficoAtivo = slideAtivo >= 3 && slideAtivo <= 6 ? layout.graficos[slideAtivo - 3] : null;
+
+  return (
+    <section className="overflow-hidden rounded-2xl border bg-card shadow-card print:hidden">
+      <div className="border-b px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-base font-semibold">Prévia da apresentação</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Esta composição e a ordem abaixo serão usadas no arquivo PPTX.
+            </p>
+          </div>
+          <span className="rounded-full bg-info-soft px-3 py-1 text-xs font-semibold text-info">
+            Formato 16:9 · 9 slides
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {layout.graficos.map((grafico, indice) => (
+            <label key={indice} className="space-y-1.5 text-xs font-medium text-muted-foreground">
+              Gráfico do slide {indice + 3}
+              <select
+                value={grafico}
+                onChange={(event) =>
+                  alterarGrafico(indice, event.target.value as GraficoRelatorioId)
+                }
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm font-medium text-foreground outline-none focus:ring-2 focus:ring-ring"
+              >
+                {graficosRelatorio.map((opcao) => (
+                  <option key={opcao.id} value={opcao.id}>
+                    {opcao.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-0 xl:grid-cols-[190px_minmax(0,1fr)]">
+        <div className="max-h-[650px] space-y-2 overflow-y-auto border-b bg-muted/30 p-3 xl:border-r xl:border-b-0">
+          {titulosSlides.map((titulo, indice) => (
+            <button
+              key={`${titulo}-${indice}`}
+              type="button"
+              onClick={() => setSlideAtivo(indice + 1)}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-lg border p-2 text-left transition-colors",
+                slideAtivo === indice + 1
+                  ? "border-primary bg-primary/10"
+                  : "border-transparent hover:border-border hover:bg-background",
+              )}
+            >
+              <span className="flex aspect-video w-16 shrink-0 items-center justify-center rounded bg-[#07356b] text-[10px] font-bold text-white">
+                {String(indice + 1).padStart(2, "0")}
+              </span>
+              <span className="min-w-0 text-xs font-medium leading-4">{titulo}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="bg-muted/20 p-3 sm:p-6">
+          <div className="mx-auto aspect-video w-full max-w-[960px] overflow-hidden rounded-md bg-[#07356b] text-white shadow-2xl ring-1 ring-black/10">
+            {slideAtivo === 1 ? (
+              <PreviewCapa empresa={empresa} periodo={periodo} />
+            ) : slideAtivo === 2 ? (
+              <PreviewDashboard atual={atual} evolucao={evolucao} periodo={periodo} />
+            ) : graficoAtivo ? (
+              <PreviewGrafico
+                grafico={graficoAtivo}
+                numero={slideAtivo}
+                periodo={periodo}
+                atual={atual}
+                evolucao={evolucao}
+                receitas={receitas}
+                custos={custos}
+                impactos={[...impactosPositivos, ...impactosNegativos]}
+              />
+            ) : (
+              <PreviewSlideFinal
+                numero={slideAtivo}
+                titulo={titulosSlides[slideAtivo - 1] ?? "Relatório"}
+                periodo={periodo}
+              />
+            )}
+          </div>
+          <p className="mt-3 text-center text-xs text-muted-foreground">
+            Slide {slideAtivo} de {titulosSlides.length} · {titulosSlides[slideAtivo - 1]}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PreviewMoldura({
+  titulo,
+  periodo,
+  numero,
+  children,
+}: {
+  titulo: string;
+  periodo: string;
+  numero: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="relative flex h-full flex-col border-t-4 border-[#1479d2] px-[4.5%] pb-[3%] pt-[3%]">
+      <div className="flex items-center justify-between gap-4 border-b border-white/15 pb-[1.6%]">
+        <h3 className="truncate text-[clamp(12px,2.2vw,26px)] font-bold uppercase tracking-tight">
+          {titulo}
+        </h3>
+        <span className="shrink-0 text-[clamp(6px,.8vw,10px)] text-blue-100">{periodo}</span>
+      </div>
+      <div className="min-h-0 flex-1">{children}</div>
+      <span className="absolute right-[4.5%] bottom-[2.5%] text-[clamp(6px,.8vw,10px)] font-bold">
+        {String(numero).padStart(2, "0")}
+      </span>
+    </div>
+  );
+}
+
+function PreviewCapa({ empresa, periodo }: { empresa: string; periodo: string }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center border-t-4 border-[#1479d2] px-10 text-center">
+      <p className="text-[clamp(20px,4vw,48px)] font-bold tracking-tight">RELATÓRIO FINANCEIRO</p>
+      <p className="mt-[2%] text-[clamp(10px,2vw,23px)] font-semibold">{periodo}</p>
+      <div className="my-[3%] h-0.5 w-2/5 bg-[#26b9e8]" />
+      <p className="max-w-[80%] text-[clamp(13px,2.5vw,30px)] font-bold">{empresa}</p>
+      <p className="mt-[4%] text-[clamp(7px,1.1vw,13px)] font-semibold tracking-[.25em] text-blue-100">
+        DADOS · ANÁLISE · DECISÃO
+      </p>
+    </div>
+  );
+}
+
+function PreviewDashboard({
+  atual,
+  evolucao,
+  periodo,
+}: {
+  atual: ResultadoMes;
+  evolucao: Array<{ mes: string; receita: number; resultado: number }>;
+  periodo: string;
+}) {
+  return (
+    <PreviewMoldura titulo="Dashboard financeiro" periodo={periodo} numero={2}>
+      <div className="mt-[3%] grid grid-cols-4 gap-[1.5%]">
+        {[
+          ["Receita operacional", atual.receitaBruta],
+          ["Custos operacionais", -(atual.deducoes + atual.custos)],
+          ["Despesas operacionais", -atual.despesas],
+          ["Resultado líquido", atual.resultadoLiquido],
+        ].map(([label, valor]) => (
+          <div key={String(label)} className="rounded bg-[#0a427d] p-[7%] ring-1 ring-white/10">
+            <p className="truncate text-[clamp(5px,.8vw,9px)] font-bold uppercase text-blue-100">
+              {label}
+            </p>
+            <p className="mt-[8%] truncate text-[clamp(8px,1.55vw,18px)] font-bold">
+              {brl(Number(valor), true)}
+            </p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-[3%] grid h-[55%] grid-cols-[2fr_1fr] gap-[2%]">
+        <div className="rounded bg-[#0a427d] p-[3%] ring-1 ring-white/10">
+          <p className="text-[clamp(7px,1.15vw,14px)] font-bold uppercase">Evolução mensal</p>
+          <PreviewBarras
+            itens={evolucao.map((item) => ({ nome: item.mes, valor: item.receita }))}
+          />
+        </div>
+        <div className="rounded bg-[#063b77] p-[7%] ring-1 ring-white/10">
+          <p className="text-[clamp(7px,1.15vw,14px)] font-bold uppercase">Leitura executiva</p>
+          <p className="mt-[8%] text-[clamp(6px,.9vw,11px)] leading-relaxed text-blue-50">
+            Resultado operacional de {brl(atual.resultadoOperacional)} com margem de{" "}
+            {pct(atual.margemOperacional)} no período.
+          </p>
+        </div>
+      </div>
+    </PreviewMoldura>
+  );
+}
+
+function PreviewGrafico({
+  grafico,
+  numero,
+  periodo,
+  atual,
+  evolucao,
+  receitas,
+  custos,
+  impactos,
+}: {
+  grafico: GraficoRelatorioId;
+  numero: number;
+  periodo: string;
+  atual: ResultadoMes;
+  evolucao: Array<{
+    mes: string;
+    receita: number;
+    resultadoBruto: number;
+    resultado: number;
+    resultadoLiquido: number;
+    margem: number;
+  }>;
+  receitas: CategoriaResumo[];
+  custos: CategoriaResumo[];
+  impactos: Array<{ nome: string; efeito: number }>;
+}) {
+  let itens: Array<{ nome: string; valor: number }> = [];
+  if (grafico === "receitas_categoria")
+    itens = receitas.map((item) => ({ nome: item.nome, valor: item.valor }));
+  if (grafico === "custos_categoria")
+    itens = custos.map((item) => ({ nome: item.nome, valor: item.valor }));
+  if (grafico === "receita_mensal")
+    itens = evolucao.map((item) => ({ nome: item.mes, valor: item.receita }));
+  if (grafico === "resultados")
+    itens = [
+      { nome: "Resultado bruto", valor: atual.resultadoBruto },
+      { nome: "Resultado operacional", valor: atual.resultadoOperacional },
+      { nome: "Resultado líquido", valor: atual.resultadoLiquido },
+    ];
+  if (grafico === "margem_meta")
+    itens = [
+      { nome: "Margem atual", valor: atual.margemOperacional },
+      { nome: "Meta", valor: 15 },
+    ];
+  if (grafico === "impactos")
+    itens = impactos.map((item) => ({ nome: item.nome, valor: item.efeito }));
+  const ranking = itens.slice(0, 5);
+  return (
+    <PreviewMoldura titulo={tituloGraficoRelatorio(grafico)} periodo={periodo} numero={numero}>
+      <div className="mt-[3%] grid grid-cols-3 gap-[2%]">
+        {[
+          ["Receita operacional", atual.receitaBruta],
+          ["Resultado operacional", atual.resultadoOperacional],
+          ["Margem operacional", `${pct(atual.margemOperacional)}`],
+        ].map(([label, valor]) => (
+          <div
+            key={String(label)}
+            className="rounded bg-[#0a427d] px-[6%] py-[4%] ring-1 ring-white/10"
+          >
+            <p className="text-[clamp(5px,.75vw,9px)] font-bold uppercase text-blue-100">{label}</p>
+            <p className="mt-[3%] truncate text-[clamp(8px,1.35vw,16px)] font-bold">
+              {typeof valor === "number" ? brl(valor, true) : valor}
+            </p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-[3%] grid h-[57%] grid-cols-[2.2fr_1fr] gap-[2%]">
+        <div className="rounded bg-[#0a427d] p-[3%] ring-1 ring-white/10">
+          <p className="text-[clamp(7px,1.05vw,13px)] font-bold uppercase">
+            {tituloGraficoRelatorio(grafico)}
+          </p>
+          <PreviewBarras itens={itens} percentual={grafico === "margem_meta"} />
+        </div>
+        <div className="rounded bg-[#063b77] p-[6%] ring-1 ring-white/10">
+          <p className="border-b border-[#f2c94c] pb-[4%] text-[clamp(7px,1.05vw,13px)] font-bold uppercase">
+            Leitura do período
+          </p>
+          <ol className="mt-[6%] space-y-[5%] text-[clamp(5px,.75vw,9px)] leading-tight">
+            {ranking.map((item, indice) => (
+              <li key={`${item.nome}-${indice}`}>
+                <strong>
+                  {indice + 1}. {rotuloCategoriaRelatorio(item.nome)}
+                </strong>
+                <br />
+                <span className="text-blue-100">
+                  {grafico === "margem_meta" ? pct(item.valor) : brl(item.valor, true)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    </PreviewMoldura>
+  );
+}
+
+function PreviewBarras({
+  itens,
+  percentual,
+}: {
+  itens: Array<{ nome: string; valor: number }>;
+  percentual?: boolean;
+}) {
+  const dados = itens.slice(0, 7);
+  const maximo = Math.max(...dados.map((item) => Math.abs(item.valor)), 1);
+  const cores = ["#26b9e8", "#1479d2", "#28b78d", "#f2c94c", "#f04f78", "#73c76b", "#7d9fe8"];
+  return (
+    <div className="mt-[3%] flex h-[78%] items-end gap-[2%] border-b border-white/25 px-[1%]">
+      {dados.map((item, indice) => (
+        <div
+          key={`${item.nome}-${indice}`}
+          className="flex h-full min-w-0 flex-1 flex-col justify-end text-center"
+        >
+          <span className="mb-1 truncate text-[clamp(4px,.65vw,8px)] font-bold">
+            {percentual ? pct(item.valor) : brl(Math.abs(item.valor), true)}
+          </span>
+          <div
+            className="mx-auto w-[64%] min-w-2 rounded-t-sm"
+            style={{
+              height: `${Math.max(5, (Math.abs(item.valor) / maximo) * 68)}%`,
+              backgroundColor: cores[indice % cores.length],
+            }}
+          />
+          <span className="mt-1 line-clamp-2 h-[2.1em] text-[clamp(4px,.6vw,8px)] leading-tight">
+            {rotuloCategoriaRelatorio(item.nome)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PreviewSlideFinal({
+  numero,
+  titulo,
+  periodo,
+}: {
+  numero: number;
+  titulo: string;
+  periodo: string;
+}) {
+  return (
+    <PreviewMoldura titulo={titulo} periodo={periodo} numero={numero}>
+      <div className="mt-[5%] grid h-[72%] grid-cols-2 gap-[3%]">
+        <div className="rounded bg-[#0a427d] p-[5%] ring-1 ring-white/10">
+          <div className="h-3 w-2/5 rounded bg-white/80" />
+          <div className="mt-[7%] space-y-[5%]">
+            {[1, 2, 3, 4].map((item) => (
+              <div key={item} className="h-[13%] rounded bg-white/10 ring-1 ring-white/10" />
+            ))}
+          </div>
+        </div>
+        <div className="rounded bg-[#063b77] p-[6%] ring-1 ring-white/10">
+          <div className="h-3 w-1/2 rounded bg-white/80" />
+          <div className="mt-[9%] space-y-[7%]">
+            {[1, 2, 3].map((item) => (
+              <div key={item} className="h-2 rounded bg-white/15" />
+            ))}
+          </div>
+        </div>
+      </div>
+    </PreviewMoldura>
   );
 }
 
@@ -1060,6 +1500,11 @@ function totalizarResultados(resultados: ResultadoMes[]): ResultadoMes {
       naoOperacional: 0,
       aportesEmprestimos: 0,
       resultadoLiquido: 0,
+      acoesSociais: 0,
+      distribuicaoCotistas: 0,
+      ajustesCotistas: 0,
+      resultadoLiquidoComDistrib: 0,
+      resultadoOperacionalCotistas: 0,
       margemBruta: 0,
       margemOperacional: 0,
       margemLiquida: 0,
