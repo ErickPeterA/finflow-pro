@@ -598,60 +598,82 @@ function BlocoCategoriasFinanceiras({
   titulo: string;
   categorias: CategoriaFinanceira[];
 }) {
-  const total = categorias.reduce((s, categoria) => s + categoria.total, 0);
+  const entradas = categorias.filter((categoria) => categoria.total > 0);
+  const saidas = categorias.filter((categoria) => categoria.total < 0);
 
   return (
     <Bloco titulo={titulo}>
       {categorias.length === 0 ? (
         <SemDados mensagem="Nenhuma categoria encontrada no período selecionado." />
       ) : (
-        <div className="space-y-4">
-          <div
-            className={cn(
-              "rounded-lg border p-3",
-              total >= 0 ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative",
-            )}
-          >
-            <p className="text-xs font-medium normal-case">Total do período</p>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <p className="tabular text-xl font-semibold">{brl(total)}</p>
-              <BadgeSinal valor={total} />
-            </div>
-          </div>
-
-          <ul className="space-y-2">
-            {categorias.map((categoria) => (
-              <li
-                key={categoria.nome}
-                className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{categoria.nome}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {categoria.mesesComValor === 1
-                      ? "1 mês com movimento"
-                      : `${categoria.mesesComValor} meses com movimento`}
-                  </span>
-                </span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <BadgeSinal valor={categoria.total} />
-                  <span
-                    className={cn(
-                      "tabular rounded-full px-2 py-0.5 text-xs font-semibold",
-                      categoria.total >= 0
-                        ? "bg-positive-soft text-positive"
-                        : "bg-negative-soft text-negative",
-                    )}
-                  >
-                    {brl(categoria.total, true)}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
+        <div className="space-y-5">
+          <SecaoCategoriasFinanceiras tipo="entrada" categorias={entradas} />
+          <SecaoCategoriasFinanceiras tipo="saida" categorias={saidas} />
         </div>
       )}
     </Bloco>
+  );
+}
+
+function SecaoCategoriasFinanceiras({
+  tipo,
+  categorias,
+}: {
+  tipo: "entrada" | "saida";
+  categorias: CategoriaFinanceira[];
+}) {
+  const entrada = tipo === "entrada";
+  const total = categorias.reduce((s, categoria) => s + categoria.total, 0);
+
+  return (
+    <section className="overflow-hidden rounded-lg border">
+      <div
+        className={cn(
+          "flex items-center justify-between gap-3 border-b px-3 py-2.5",
+          entrada ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative",
+        )}
+      >
+        <div>
+          <h3 className="text-sm font-semibold">{entrada ? "Entradas" : "Saídas"}</h3>
+          <p className="text-xs font-medium opacity-80">
+            {categorias.length} {categorias.length === 1 ? "categoria" : "categorias"}
+          </p>
+        </div>
+        <span className="tabular text-base font-semibold">{brl(total)}</span>
+      </div>
+
+      {categorias.length === 0 ? (
+        <p className="px-3 py-4 text-sm text-muted-foreground">
+          Nenhuma {entrada ? "entrada" : "saída"} no período selecionado.
+        </p>
+      ) : (
+        <ul className="divide-y">
+          {categorias.map((categoria) => (
+            <li
+              key={`${tipo}-${categoria.nome}`}
+              className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover:bg-muted/30"
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-medium">{categoria.nome}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {categoria.mesesComValor === 1
+                    ? "1 mês com movimento"
+                    : `${categoria.mesesComValor} meses com movimento`}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "tabular shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold",
+                  entrada ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative",
+                )}
+              >
+                {brl(categoria.total, true)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

@@ -292,10 +292,11 @@ export function GrupoDetalhe({
   );
   const filtroCustoSelecionado = filtrosCusto.find((opcao) => opcao.id === filtroCusto)!;
   const totalCustoSelecionado = serieCustoSelecionado.reduce((s, item) => s + item.valor, 0);
+  const mesesComCustoSelecionado = serieCustoSelecionado.filter((item) => item.valor !== 0);
   const mediaCustoSelecionado =
-    totalCustoSelecionado /
-    Math.max(serieCustoSelecionado.filter((item) => item.valor > 0).length, 1);
+    totalCustoSelecionado / Math.max(mesesComCustoSelecionado.length, 1);
   const periodoCustoSelecionado = totalCustoSelecionado;
+  const temCustoSelecionado = mesesComCustoSelecionado.length > 0;
 
   const detalhesBase = useMemo(
     () =>
@@ -620,7 +621,12 @@ export function GrupoDetalhe({
                   <ResumoCusto rotulo="Média mensal" valor={mediaCustoSelecionado} />
                 </div>
 
-                {totalCustoSelecionado <= 0 ? (
+                <p className="mb-4 text-xs text-muted-foreground">
+                  Valores positivos representam créditos ou reembolsos; valores negativos
+                  representam custos, impostos ou deduções.
+                </p>
+
+                {!temCustoSelecionado ? (
                   <SemDados mensagem="Sem dados para este filtro no exercício." />
                 ) : (
                   <div className="h-64">
@@ -644,7 +650,7 @@ export function GrupoDetalhe({
                         />
                         <Tooltip content={renderTooltipMensal} />
                         <Bar
-                          dataKey="valor"
+                          dataKey="valorGrafico"
                           fill={coresGraficosGrupo.custoIndividual}
                           radius={[6, 6, 0, 0]}
                         >
@@ -857,8 +863,17 @@ export function GrupoDetalhe({
                             <td className="px-3 py-2 text-muted-foreground">
                               {nomeCategoria(l, categorias)}
                             </td>
-                            <td className="tabular px-5 py-2 text-right font-medium">
-                              {brl(Math.abs(Number(l.valor)))}
+                            <td
+                              className={cn(
+                                "tabular px-5 py-2 text-right font-semibold",
+                                Number(l.valor) > 0
+                                  ? "text-positive"
+                                  : Number(l.valor) < 0
+                                    ? "text-negative"
+                                    : "text-muted-foreground",
+                              )}
+                            >
+                              {brl(Number(l.valor))}
                             </td>
                           </tr>
                         ))
@@ -879,7 +894,14 @@ function ResumoCusto({ rotulo, valor }: { rotulo: string; valor: number }) {
   return (
     <div className="rounded-lg border bg-muted/30 px-3 py-2">
       <p className="text-xs text-muted-foreground">{rotulo}</p>
-      <p className="tabular mt-1 text-lg font-semibold text-warning">{brl(valor)}</p>
+      <p
+        className={cn(
+          "tabular mt-1 text-lg font-semibold",
+          valor > 0 ? "text-positive" : valor < 0 ? "text-negative" : "text-muted-foreground",
+        )}
+      >
+        {brl(valor)}
+      </p>
     </div>
   );
 }
@@ -903,6 +925,7 @@ function serieFiltroCusto(
         mes: mesesCurtos[m.mes],
         mesIndex: m.mes,
         valor,
+        valorGrafico: Math.abs(valor),
         variacaoPct: variacao(valor, valorAnterior),
       };
     });
@@ -914,27 +937,11 @@ function valorFiltroCusto(
   lancamentos: Lancamento[],
   categorias: Categoria[],
 ) {
-  switch (filtro) {
-    case "custos_operacionais":
-      return resultado.deducoes + resultado.custos;
-    case "deducao_receita":
-      return (
-        resultado.deducoes +
-        valorPorPrefixoCusto(lancamentos, categorias, resultado.mes, "2.1", undefined, ["deducoes"])
-      );
-    case "custos_diretos":
-      return valorPorPrefixoCusto(lancamentos, categorias, resultado.mes, "2.2");
-    case "custos_indiretos":
-      return valorPorPrefixoCusto(lancamentos, categorias, resultado.mes, "2.3");
-    case "comissionamento":
-      return valorPorPrefixoCusto(lancamentos, categorias, resultado.mes, "2.4", "comissionamento");
-    case "custos_pessoais":
-      return valorPorPrefixoCusto(lancamentos, categorias, resultado.mes, "2.5", "pessoais");
-    case "custos_marketing":
-      return valorPorPrefixoCusto(lancamentos, categorias, resultado.mes, "2.6", "marketing");
-    case "despesas_operacionais":
-      return resultado.despesas;
-  }
+  return lancamentos.reduce((total, lancamento) => {
+    if (mesDaCompetencia(lancamento.competencia) !== resultado.mes) return total;
+    if (!lancamentoPertenceAoFiltroCusto(filtro, lancamento, categorias)) return total;
+    return total + (Number(lancamento.valor) || 0);
+  }, 0);
 }
 
 function lancamentoPertenceAoFiltroCusto(
@@ -965,25 +972,6 @@ function lancamentoPertenceAoFiltroCusto(
     case "despesas_operacionais":
       return grupoLancamento === "despesas";
   }
-}
-
-function valorPorPrefixoCusto(
-  lancamentos: Lancamento[],
-  categorias: Categoria[],
-  mes: number,
-  prefixo: string,
-  nomeContem?: string,
-  gruposIgnorados: GrupoDre[] = [],
-) {
-  return lancamentos.reduce((total, lancamento) => {
-    if (mesDaCompetencia(lancamento.competencia) !== mes) return total;
-    if (
-      !lancamentoCombinaFiltroCusto(lancamento, categorias, prefixo, nomeContem, gruposIgnorados)
-    ) {
-      return total;
-    }
-    return total + Math.abs(Number(lancamento.valor) || 0);
-  }, 0);
 }
 
 function lancamentoCombinaFiltroCusto(

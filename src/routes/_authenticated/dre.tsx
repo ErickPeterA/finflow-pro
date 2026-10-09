@@ -684,17 +684,31 @@ function DrePage() {
                             />
                           </>
                         )}
-                        <tr className="border-t bg-muted/30 text-xs text-muted-foreground">
-                          <td className="sticky left-0 bg-muted/30 px-4 py-2">
-                            Margem operacional
+                        <tr
+                          className="border-t text-xs text-muted-foreground"
+                          style={{ backgroundColor: "#ffffff" }}
+                        >
+                          <td
+                            className="sticky left-0 z-50 isolate overflow-hidden whitespace-nowrap px-4 py-2 [transform:translateZ(0)]"
+                            style={{
+                              backgroundColor: "#ffffff",
+                              boxShadow: "12px 0 0 #ffffff",
+                            }}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className="absolute inset-0 z-0"
+                              style={{ backgroundColor: "#ffffff" }}
+                            />
+                            <span className="relative z-10">Margem operacional</span>
                           </td>
                           {resultadosVisiveis.map((m) => (
-                            <td key={m.mes} className="tabular px-3 py-2 text-right">
+                            <td key={m.mes} className="relative z-0 tabular px-3 py-2 text-right">
                               {m.temMovimento ? pct(m.margemOperacional) : "—"}
                             </td>
                           ))}
-                          <td className="px-3 py-2" />
-                          <td className="tabular px-4 py-2 text-right">
+                          <td className="relative z-0 px-3 py-2" />
+                          <td className="relative z-0 tabular px-4 py-2 text-right">
                             {pct(mediaFechados(resultadosVisiveis, (m) => m.margemOperacional))}
                           </td>
                         </tr>
