@@ -213,6 +213,7 @@ function RelatoriosPage() {
       const { gerarRelatorioPptx } = await import("@/lib/relatorio-pptx");
       await gerarRelatorioPptx({
         empresa: empresa?.nome ?? "Empresa",
+        logoClienteUrl: empresa?.logo_url ?? null,
         periodo: `${periodoLabel} de ${ano}`,
         ano,
         receita: atual.receitaBruta,
@@ -279,8 +280,10 @@ function RelatoriosPage() {
           <article className="relatorio-print-root mx-auto max-w-6xl space-y-5 print:max-w-none print:space-y-3">
             <ApresentacaoPreview
               empresa={empresa?.nome ?? "Empresa"}
+              logoClienteUrl={empresa?.logo_url ?? null}
               periodo={`${periodoLabel} de ${ano}`}
               atual={atual}
+              margemDesejada={margemDesejada}
               evolucao={evolucao}
               receitas={receitasPorCategoria}
               custos={categoriasOperacionais}
@@ -610,8 +613,10 @@ function RelatoriosPage() {
 
 function ApresentacaoPreview({
   empresa,
+  logoClienteUrl,
   periodo,
   atual,
+  margemDesejada,
   evolucao,
   receitas,
   custos,
@@ -621,8 +626,10 @@ function ApresentacaoPreview({
   onLayoutChange,
 }: {
   empresa: string;
+  logoClienteUrl?: string | null;
   periodo: string;
   atual: ResultadoMes;
+  margemDesejada: number;
   evolucao: Array<{
     mes: string;
     receita: number;
@@ -718,7 +725,11 @@ function ApresentacaoPreview({
         <div className="bg-muted/20 p-3 sm:p-6">
           <div className="mx-auto aspect-video w-full max-w-[960px] overflow-hidden rounded-md bg-[#07356b] text-white shadow-2xl ring-1 ring-black/10">
             {slideAtivo === 1 ? (
-              <PreviewCapa empresa={empresa} periodo={periodo} />
+              <PreviewCapa
+                empresa={empresa}
+                logoClienteUrl={logoClienteUrl ?? null}
+                periodo={periodo}
+              />
             ) : slideAtivo === 2 ? (
               <PreviewDashboard atual={atual} evolucao={evolucao} periodo={periodo} />
             ) : graficoAtivo ? (
@@ -727,6 +738,7 @@ function ApresentacaoPreview({
                 numero={slideAtivo}
                 periodo={periodo}
                 atual={atual}
+                margemDesejada={margemDesejada}
                 evolucao={evolucao}
                 receitas={receitas}
                 custos={custos}
@@ -776,16 +788,58 @@ function PreviewMoldura({
   );
 }
 
-function PreviewCapa({ empresa, periodo }: { empresa: string; periodo: string }) {
+function PreviewCapa({
+  empresa,
+  logoClienteUrl,
+  periodo,
+}: {
+  empresa: string;
+  logoClienteUrl?: string | null;
+  periodo: string;
+}) {
+  const periodoTitulo = periodo.replace(/\s+de\s+(\d{4})$/i, "/$1");
+  const iniciais = empresa
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((parte) => parte.charAt(0))
+    .join("")
+    .toUpperCase();
   return (
-    <div className="flex h-full flex-col items-center justify-center border-t-4 border-[#1479d2] px-10 text-center">
-      <p className="text-[clamp(20px,4vw,48px)] font-bold tracking-tight">RELATÓRIO FINANCEIRO</p>
-      <p className="mt-[2%] text-[clamp(10px,2vw,23px)] font-semibold">{periodo}</p>
-      <div className="my-[3%] h-0.5 w-2/5 bg-[#26b9e8]" />
-      <p className="max-w-[80%] text-[clamp(13px,2.5vw,30px)] font-bold">{empresa}</p>
-      <p className="mt-[4%] text-[clamp(7px,1.1vw,13px)] font-semibold tracking-[.25em] text-blue-100">
-        DADOS · ANÁLISE · DECISÃO
+    <div className="relative flex h-full flex-col items-center overflow-hidden px-[3%] text-center">
+      <div className="absolute inset-x-0 top-0 grid h-[1.7%] grid-cols-4">
+        <span className="bg-[#f04f78]" />
+        <span className="bg-[#f2c94c]" />
+        <span className="bg-[#28b78d]" />
+        <span className="bg-[#1479d2]" />
+      </div>
+      <p className="mt-[15%] text-[clamp(18px,3.5vw,42px)] font-bold tracking-tight">
+        Relatório Financeiro {periodoTitulo}
       </p>
+      <p className="mt-[7%] border-b-2 border-white pb-[1%] text-[clamp(9px,1.7vw,20px)]">
+        <strong className="text-[#f2c94c]">CLAREZA</strong> que gera <strong>RESULTADO!</strong>
+      </p>
+      <div className="grid h-[31%] w-full max-w-[94%] grid-cols-2 border-b-2 border-white">
+        <div className="flex items-center justify-end border-r-2 border-white pr-[9%]">
+          <img src="/logobranca.png" alt="VG Resultados" className="w-[32%] object-contain" />
+        </div>
+        <div className="flex items-center justify-start pl-[9%]">
+          {logoClienteUrl ? (
+            <img
+              src={logoClienteUrl}
+              alt={`Logo ${empresa}`}
+              className="h-[65%] w-[34%] object-contain"
+            />
+          ) : (
+            <div className="flex aspect-square h-[62%] flex-col items-center justify-center rounded-lg border border-white/40 bg-white/10 px-[5%]">
+              <strong className="text-[clamp(10px,2vw,24px)]">{iniciais || "LOGO"}</strong>
+              <span className="mt-[4%] line-clamp-2 text-[clamp(4px,.55vw,7px)] leading-tight text-blue-100">
+                {empresa}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -842,6 +896,7 @@ function PreviewGrafico({
   numero,
   periodo,
   atual,
+  margemDesejada,
   evolucao,
   receitas,
   custos,
@@ -851,6 +906,7 @@ function PreviewGrafico({
   numero: number;
   periodo: string;
   atual: ResultadoMes;
+  margemDesejada: number;
   evolucao: Array<{
     mes: string;
     receita: number;
@@ -879,7 +935,7 @@ function PreviewGrafico({
   if (grafico === "margem_meta")
     itens = [
       { nome: "Margem atual", valor: atual.margemOperacional },
-      { nome: "Meta", valor: 15 },
+      { nome: "Meta", valor: margemDesejada },
     ];
   if (grafico === "impactos")
     itens = impactos.map((item) => ({ nome: item.nome, valor: item.efeito }));
@@ -908,7 +964,11 @@ function PreviewGrafico({
           <p className="text-[clamp(7px,1.05vw,13px)] font-bold uppercase">
             {tituloGraficoRelatorio(grafico)}
           </p>
-          <PreviewBarras itens={itens} percentual={grafico === "margem_meta"} />
+          {grafico === "margem_meta" ? (
+            <PreviewMargem margem={atual.margemOperacional} meta={margemDesejada} />
+          ) : (
+            <PreviewBarras itens={itens} />
+          )}
         </div>
         <div className="rounded bg-[#063b77] p-[6%] ring-1 ring-white/10">
           <p className="border-b border-[#f2c94c] pb-[4%] text-[clamp(7px,1.05vw,13px)] font-bold uppercase">
@@ -965,6 +1025,58 @@ function PreviewBarras({
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function PreviewMargem({ margem, meta }: { margem: number; meta: number }) {
+  const diferenca = margem - meta;
+  const maximo = Math.max(Math.abs(margem), Math.abs(meta), 10) * 1.2;
+  const atingimento = meta > 0 ? (margem / meta) * 100 : 0;
+  return (
+    <div className="mt-[4%] grid h-[76%] grid-cols-[1.25fr_.75fr] gap-[5%]">
+      <div className="flex items-end justify-center gap-[12%] border-b border-white/25 px-[6%]">
+        {[
+          { nome: "Margem atual", valor: margem, cor: diferenca >= 0 ? "#28b78d" : "#f04f78" },
+          { nome: "Meta", valor: meta, cor: "#f2c94c" },
+        ].map((item) => (
+          <div key={item.nome} className="flex h-full w-[34%] flex-col justify-end text-center">
+            <span className="mb-1 text-[clamp(6px,.85vw,10px)] font-bold">{pct(item.valor)}</span>
+            <div
+              className="mx-auto w-[62%] rounded-t-sm"
+              style={{
+                height: `${Math.max(6, (Math.abs(item.valor) / maximo) * 68)}%`,
+                backgroundColor: item.cor,
+              }}
+            />
+            <span className="mt-1 h-[2.1em] text-[clamp(5px,.7vw,9px)] font-semibold leading-tight">
+              {item.nome}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div
+        className={cn(
+          "flex flex-col items-center justify-center rounded-lg border text-center",
+          diferenca >= 0 ? "border-[#28b78d] bg-[#063b77]" : "border-[#f04f78] bg-[#063b77]",
+        )}
+      >
+        <p className="text-[clamp(5px,.7vw,9px)] font-bold uppercase text-blue-100">
+          {diferenca >= 0 ? "Meta superada" : "Distância da meta"}
+        </p>
+        <p
+          className={cn(
+            "mt-[7%] text-[clamp(12px,2.2vw,27px)] font-bold",
+            diferenca >= 0 ? "text-[#28b78d]" : "text-[#f04f78]",
+          )}
+        >
+          {formatarPontos(diferenca)}
+        </p>
+        <p className="text-[clamp(4px,.6vw,8px)] text-blue-100">em relação à meta</p>
+        <p className="mt-[12%] text-[clamp(5px,.7vw,9px)] font-semibold">
+          Atingimento: {pct(atingimento)}
+        </p>
+      </div>
     </div>
   );
 }
