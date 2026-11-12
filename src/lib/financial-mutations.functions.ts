@@ -51,6 +51,17 @@ export const mutateFinancialData = createServerFn({ method: "POST" })
         );
         return r.rows[0];
       }
+      case "updateEmpresaLogo": {
+        const logoUrl = data.logoUrl == null ? null : String(data.logoUrl);
+        if (
+          logoUrl !== null &&
+          (!logoUrl.startsWith("data:image/png;base64,") || logoUrl.length > 1_500_000)
+        ) {
+          throw new Error("Logo invÃ¡lida ou muito grande.");
+        }
+        await query("update empresas set logo_url=$1 where id=$2::uuid", [logoUrl, data.empresaId]);
+        return { ok: true };
+      }
       case "archiveEmpresa": {
         const admin = await query(
           "select 1 from user_roles where user_id=$1::uuid and role='admin'",

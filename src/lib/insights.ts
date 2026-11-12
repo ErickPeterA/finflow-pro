@@ -53,7 +53,8 @@ export function calcularImpactosAno(
   const impactos = agregarPorCategoria(lancamentos, categorias).flatMap((linha) => {
     if (linha.grupo === "financeiro" || linha.grupo === "nao_operacional") return [];
 
-    const efeito = linha.valores.reduce((total, valor) => total + valor, 0);
+    const totalPeriodo = linha.valores.reduce((total, valor) => total + valor, 0);
+    const efeito = linha.grupo === "receita_operacional" ? totalPeriodo : -totalPeriodo;
     if (Math.abs(efeito) < 0.01) return [];
 
     return [

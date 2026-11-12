@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -8,7 +10,10 @@ import {
   CircleDot,
   Download,
   FileText,
+  ImagePlus,
+  Pencil,
   Printer,
+  Trash2,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -44,13 +49,19 @@ import {
   type GrupoDre,
   type ResultadoMes,
 } from "@/lib/dre";
-import { calcularImpactos, gerarAlertas, type NivelAlerta } from "@/lib/insights";
+import {
+  calcularImpactos,
+  calcularImpactosAno,
+  gerarAlertas,
+  type NivelAlerta,
+} from "@/lib/insights";
 import {
   filtrarLancamentosPorMeses,
   mesesDoPeriodoFiltro,
   periodoFiltroLabel,
 } from "@/lib/periodo";
 import { brl, dataBR, mesesCurtos, pct, variacao } from "@/lib/format";
+import { mutateFinancialData } from "@/lib/financial-mutations.functions";
 import { cn } from "@/lib/utils";
 import {
   graficosRelatorio,
@@ -143,8 +154,11 @@ function RelatoriosPage() {
     [lancamentosPeriodo, categorias],
   );
   const impactos = useMemo(
-    () => calcularImpactos(lancamentosFiltrados, categorias, mesReferencia),
-    [lancamentosFiltrados, categorias, mesReferencia],
+    () =>
+      periodo === "ano"
+        ? calcularImpactosAno(lancamentosPeriodo, categorias)
+        : calcularImpactos(lancamentosFiltrados, categorias, mesReferencia),
+    [periodo, lancamentosPeriodo, lancamentosFiltrados, categorias, mesReferencia],
   );
   const alertas = useMemo(
     () =>
@@ -193,10 +207,12 @@ function RelatoriosPage() {
     "custos",
     "despesas",
   ]).slice(0, 7);
-  const receitasPorCategoria = topCategorias(linhas, mesesPeriodo, ["receita_operacional"]).slice(
-    0,
-    5,
-  );
+  const receitasPorCategoria = topCategorias(linhas, mesesPeriodo, ["receita_operacional"])
+    .filter(
+      (categoria) =>
+        !ehChicagoBarbearia(empresa?.nome) || !ehCategoriaReceitaLegadaChicago(categoria.nome),
+    )
+    .slice(0, 5);
 
   function imprimirRelatorio() {
     document.body.classList.add("print-relatorio");
@@ -270,6 +286,13 @@ function RelatoriosPage() {
         }
       />
       <main className="relatorio-page space-y-5 p-6 print:bg-white print:p-0">
+        {empresaId && empresa && (
+          <LogoClienteEditor
+            empresaId={empresaId}
+            empresaNome={empresa.nome}
+            logoUrl={empresa.logo_url}
+          />
+        )}
         {!empresaId ? (
           <SemEmpresa />
         ) : isLoading ? (
@@ -289,6 +312,14 @@ function RelatoriosPage() {
               custos={categoriasOperacionais}
               impactosPositivos={impactos.positivos.slice(0, 5)}
               impactosNegativos={impactos.negativos.slice(0, 5)}
+              alertas={alertas.slice(0, 5)}
+              resumo={resumoExecutivo(atual, anterior, margemDesejada, qualidade.texto)}
+              acoes={acoesAbertas.map((acao) => ({
+                acao: acao.acao,
+                responsavel: acao.responsavel,
+                prazo: acao.prazo ? dataBR(acao.prazo) : null,
+                status: statusLabels[acao.status] ?? acao.status,
+              }))}
               layout={layoutRelatorio}
               onLayoutChange={setLayoutRelatorio}
             />
@@ -611,6 +642,131 @@ function RelatoriosPage() {
   );
 }
 
+function LogoClienteEditor({
+  empresaId,
+  empresaNome,
+  logoUrl,
+}: {
+  empresaId: string;
+  empresaNome: string;
+  logoUrl: string | null;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+  const mutateData = useServerFn(mutateFinancialData);
+
+  const salvarLogo = useMutation({
+    mutationFn: (novaLogo: string | null) =>
+      mutateData({ data: { action: "updateEmpresaLogo", empresaId, logoUrl: novaLogo } }),
+    onSuccess: async (_, novaLogo) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["empresa", empresaId] }),
+        queryClient.invalidateQueries({ queryKey: ["empresas"] }),
+      ]);
+      toast.success(novaLogo ? "Logo do cliente salva." : "Logo do cliente removida.");
+    },
+    onError: (erro) =>
+      toast.error(erro instanceof Error ? erro.message : "NÃ£o foi possÃ­vel salvar a logo."),
+  });
+
+  async function selecionarArquivo(evento: React.ChangeEvent<HTMLInputElement>) {
+    const arquivo = evento.target.files?.[0];
+    evento.target.value = "";
+    if (!arquivo) return;
+    try {
+      salvarLogo.mutate(await otimizarLogo(arquivo));
+    } catch (erro) {
+      toast.error(erro instanceof Error ? erro.message : "NÃ£o foi possÃ­vel processar a imagem.");
+    }
+  }
+
+  return (
+    <section className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 rounded-xl border bg-card p-4 shadow-card print:hidden">
+      <div className="flex h-20 w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-white p-2">
+        {logoUrl ? (
+          <img src={logoUrl} alt={`Logo ${empresaNome}`} className="h-full w-full object-contain" />
+        ) : (
+          <ImagePlus className="h-7 w-7 text-muted-foreground" />
+        )}
+      </div>
+      <div className="min-w-52 flex-1">
+        <h2 className="text-sm font-semibold">Logo do cliente</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Esta logo pertence somente ao projeto {empresaNome} e serÃ¡ usada na capa do slide.
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">PNG, JPG ou WEBP, com atÃ© 5 MB.</p>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={selecionarArquivo}
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={logoUrl ? "outline" : "default"}
+          disabled={salvarLogo.isPending}
+          onClick={() => inputRef.current?.click()}
+        >
+          {logoUrl ? <Pencil className="mr-2 h-4 w-4" /> : <ImagePlus className="mr-2 h-4 w-4" />}
+          {logoUrl ? "Substituir logo" : "Cadastrar logo"}
+        </Button>
+        {logoUrl && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="text-destructive hover:text-destructive"
+            disabled={salvarLogo.isPending}
+            onClick={() =>
+              window.confirm(`Remover a logo do projeto â€œ${empresaNome}â€?`) &&
+              salvarLogo.mutate(null)
+            }
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Excluir logo
+          </Button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+async function otimizarLogo(arquivo: File): Promise<string> {
+  const tiposPermitidos = new Set(["image/png", "image/jpeg", "image/webp"]);
+  if (!tiposPermitidos.has(arquivo.type)) throw new Error("Use uma imagem PNG, JPG ou WEBP.");
+  if (arquivo.size > 5 * 1024 * 1024) throw new Error("A imagem deve ter no mÃ¡ximo 5 MB.");
+
+  const urlTemporaria = URL.createObjectURL(arquivo);
+  try {
+    const imagem = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const elemento = new Image();
+      elemento.onload = () => resolve(elemento);
+      elemento.onerror = () => reject(new Error("O arquivo de imagem nÃ£o pÃ´de ser lido."));
+      elemento.src = urlTemporaria;
+    });
+    const limite = 700;
+    const escala = Math.min(1, limite / Math.max(imagem.naturalWidth, imagem.naturalHeight));
+    const largura = Math.max(1, Math.round(imagem.naturalWidth * escala));
+    const altura = Math.max(1, Math.round(imagem.naturalHeight * escala));
+    const canvas = document.createElement("canvas");
+    canvas.width = largura;
+    canvas.height = altura;
+    const contexto = canvas.getContext("2d");
+    if (!contexto) throw new Error("NÃ£o foi possÃ­vel preparar a imagem.");
+    contexto.drawImage(imagem, 0, 0, largura, altura);
+    const dataUrl = canvas.toDataURL("image/png");
+    if (dataUrl.length > 1_500_000)
+      throw new Error("A logo ficou muito grande. Tente uma imagem com dimensÃµes menores.");
+    return dataUrl;
+  } finally {
+    URL.revokeObjectURL(urlTemporaria);
+  }
+}
+
 function ApresentacaoPreview({
   empresa,
   logoClienteUrl,
@@ -622,6 +778,9 @@ function ApresentacaoPreview({
   custos,
   impactosPositivos,
   impactosNegativos,
+  alertas,
+  resumo,
+  acoes,
   layout,
   onLayoutChange,
 }: {
@@ -642,6 +801,14 @@ function ApresentacaoPreview({
   custos: CategoriaResumo[];
   impactosPositivos: Array<{ nome: string; efeito: number }>;
   impactosNegativos: Array<{ nome: string; efeito: number }>;
+  alertas: Array<{ titulo: string; detalhe: string }>;
+  resumo: string[];
+  acoes: Array<{
+    acao: string;
+    responsavel?: string | null;
+    prazo?: string | null;
+    status: string;
+  }>;
   layout: RelatorioPptxLayout;
   onLayoutChange: (layout: RelatorioPptxLayout) => void;
 }) {
@@ -744,6 +911,21 @@ function ApresentacaoPreview({
                 custos={custos}
                 impactos={[...impactosPositivos, ...impactosNegativos]}
               />
+            ) : slideAtivo === 7 ? (
+              <PreviewAnalise
+                periodo={periodo}
+                alertas={alertas}
+                resumo={resumo}
+                resultadoLiquido={atual.resultadoLiquido}
+              />
+            ) : slideAtivo === 8 ? (
+              <PreviewImpactos
+                periodo={periodo}
+                positivos={impactosPositivos}
+                negativos={impactosNegativos}
+              />
+            ) : slideAtivo === 9 ? (
+              <PreviewPlano periodo={periodo} acoes={acoes} />
             ) : (
               <PreviewSlideFinal
                 numero={slideAtivo}
@@ -1078,6 +1260,192 @@ function PreviewMargem({ margem, meta }: { margem: number; meta: number }) {
         </p>
       </div>
     </div>
+  );
+}
+
+function PreviewAnalise({
+  periodo,
+  alertas,
+  resumo,
+  resultadoLiquido,
+}: {
+  periodo: string;
+  alertas: Array<{ titulo: string; detalhe: string }>;
+  resumo: string[];
+  resultadoLiquido: number;
+}) {
+  return (
+    <PreviewMoldura titulo="AnÃ¡lise financeira" periodo={periodo} numero={7}>
+      <div className="mt-[3%] grid h-[78%] grid-cols-[1.8fr_1fr] gap-[2%]">
+        <div className="rounded bg-[#063b77] p-[4%] ring-1 ring-white/10">
+          <h4 className="border-b border-[#f2c94c] pb-[2%] text-[clamp(7px,1.2vw,15px)] font-bold uppercase">
+            DiagnÃ³stico do perÃ­odo
+          </h4>
+          <div className="mt-[4%] space-y-[2.5%]">
+            {alertas.length ? (
+              alertas.slice(0, 5).map((alerta, indice) => (
+                <div
+                  key={`${alerta.titulo}-${indice}`}
+                  className="grid grid-cols-[10px_1fr_1.8fr] items-center gap-[2%] rounded bg-[#0a427d] px-[3%] py-[2%] ring-1 ring-white/10"
+                >
+                  <span
+                    className={cn(
+                      "aspect-square rounded-full",
+                      indice === 0 ? "bg-[#f04f78]" : "bg-[#f2c94c]",
+                    )}
+                  />
+                  <strong className="text-[clamp(5px,.75vw,10px)] leading-tight">
+                    {alerta.titulo}
+                  </strong>
+                  <span className="line-clamp-2 text-[clamp(4px,.65vw,9px)] leading-tight text-blue-100">
+                    {alerta.detalhe}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <p className="pt-[20%] text-center text-[clamp(6px,1vw,13px)] text-blue-100">
+                Nenhum alerta relevante no perÃ­odo selecionado.
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-col rounded bg-[#063b77] p-[6%] ring-1 ring-white/10">
+          <h4 className="border-b border-[#f2c94c] pb-[4%] text-[clamp(7px,1.2vw,15px)] font-bold uppercase">
+            SÃ­ntese executiva
+          </h4>
+          <ul className="mt-[7%] flex-1 space-y-[7%] text-[clamp(5px,.75vw,10px)] leading-snug text-blue-100">
+            {resumo.map((texto, indice) => (
+              <li key={`${texto}-${indice}`}>â€¢ {texto}</li>
+            ))}
+          </ul>
+          <div
+            className={cn(
+              "rounded px-[4%] py-[4%] text-center",
+              resultadoLiquido >= 0 ? "bg-[#28b78d]" : "bg-[#f04f78]",
+            )}
+          >
+            <p className="text-[clamp(4px,.65vw,8px)] font-bold uppercase">Resultado lÃ­quido</p>
+            <p className="text-[clamp(7px,1.15vw,14px)] font-bold">{brl(resultadoLiquido)}</p>
+          </div>
+        </div>
+      </div>
+    </PreviewMoldura>
+  );
+}
+
+function PreviewImpactos({
+  periodo,
+  positivos,
+  negativos,
+}: {
+  periodo: string;
+  positivos: Array<{ nome: string; efeito: number }>;
+  negativos: Array<{ nome: string; efeito: number }>;
+}) {
+  const maior = Math.max(
+    1,
+    ...positivos.map((item) => Math.abs(item.efeito)),
+    ...negativos.map((item) => Math.abs(item.efeito)),
+  );
+  const coluna = (
+    titulo: string,
+    itens: Array<{ nome: string; efeito: number }>,
+    cor: string,
+    vazio: string,
+  ) => (
+    <div className="rounded bg-[#063b77] p-[5%] ring-1 ring-white/10">
+      <h4 className="border-b border-[#f2c94c] pb-[3%] text-[clamp(7px,1.2vw,15px)] font-bold uppercase">
+        {titulo}
+      </h4>
+      {itens.length ? (
+        <div className="mt-[7%] space-y-[6%]">
+          {itens.slice(0, 5).map((item) => (
+            <div key={`${titulo}-${item.nome}`}>
+              <div className="flex justify-between gap-2 text-[clamp(4px,.7vw,9px)]">
+                <span className="truncate">{item.nome}</span>
+                <strong>{brl(item.efeito, true)}</strong>
+              </div>
+              <div className="mt-[2%] h-[clamp(5px,.75vw,9px)] rounded bg-white/10">
+                <div
+                  className="h-full rounded"
+                  style={{
+                    width: `${Math.max(4, (Math.abs(item.efeito) / maior) * 100)}%`,
+                    background: cor,
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="pt-[30%] text-center text-[clamp(6px,1vw,13px)] text-blue-100">{vazio}</p>
+      )}
+    </div>
+  );
+
+  return (
+    <PreviewMoldura titulo="Impactos do perÃ­odo" periodo={periodo} numero={8}>
+      <div className="mt-[3%] grid h-[78%] grid-cols-2 gap-[2%]">
+        {coluna(
+          "Melhoraram o resultado",
+          positivos,
+          "#28b78d",
+          "Nenhum impacto positivo relevante.",
+        )}
+        {coluna(
+          "Pressionaram o resultado",
+          negativos,
+          "#f04f78",
+          "Nenhum impacto negativo relevante.",
+        )}
+      </div>
+    </PreviewMoldura>
+  );
+}
+
+function PreviewPlano({
+  periodo,
+  acoes,
+}: {
+  periodo: string;
+  acoes: Array<{
+    acao: string;
+    responsavel?: string | null;
+    prazo?: string | null;
+    status: string;
+  }>;
+}) {
+  return (
+    <PreviewMoldura titulo="Plano de aÃ§Ã£o" periodo={periodo} numero={9}>
+      <h4 className="mt-[3%] text-[clamp(7px,1.2vw,15px)] font-bold uppercase">
+        PrÃ³ximos passos prioritÃ¡rios
+      </h4>
+      <div className="mt-[2%] overflow-hidden rounded ring-1 ring-white/15">
+        <div className="grid grid-cols-[3fr_1.1fr_.8fr_1.1fr] bg-[#0d559c] px-[2%] py-[1.5%] text-[clamp(4px,.65vw,8px)] font-bold uppercase">
+          <span>AÃ§Ã£o</span>
+          <span>ResponsÃ¡vel</span>
+          <span>Prazo</span>
+          <span>Status</span>
+        </div>
+        {acoes.length ? (
+          acoes.slice(0, 8).map((acao, indice) => (
+            <div
+              key={`${acao.acao}-${indice}`}
+              className="grid grid-cols-[3fr_1.1fr_.8fr_1.1fr] items-center border-t border-white/10 bg-[#0a427d] px-[2%] py-[1.5%] text-[clamp(4px,.65vw,8px)]"
+            >
+              <span className="truncate pr-2">{acao.acao}</span>
+              <span className="truncate pr-2">{acao.responsavel || "â€”"}</span>
+              <span>{acao.prazo || "â€”"}</span>
+              <span className="truncate">{acao.status}</span>
+            </div>
+          ))
+        ) : (
+          <p className="bg-[#0a427d] py-[16%] text-center text-[clamp(7px,1.2vw,15px)] text-blue-100">
+            Nenhuma aÃ§Ã£o em aberto para o perÃ­odo selecionado.
+          </p>
+        )}
+      </div>
+    </PreviewMoldura>
   );
 }
 
@@ -1563,6 +1931,19 @@ type CategoriaResumo = {
   grupo: GrupoDre;
   valor: number;
 };
+
+function ehChicagoBarbearia(nomeEmpresa: string | null | undefined): boolean {
+  const nomeNormalizado = String(nomeEmpresa ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  return nomeNormalizado.includes("chicago") && nomeNormalizado.includes("barbearia");
+}
+
+function ehCategoriaReceitaLegadaChicago(nomeCategoria: string): boolean {
+  return /^1[.\s-]*1(?:[.\s-]|$)/.test(nomeCategoria.trim());
+}
 
 function topCategorias(
   linhas: ReturnType<typeof agregarPorCategoria>,
