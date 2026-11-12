@@ -666,7 +666,7 @@ function LogoClienteEditor({
       toast.success(novaLogo ? "Logo do cliente salva." : "Logo do cliente removida.");
     },
     onError: (erro) =>
-      toast.error(erro instanceof Error ? erro.message : "NÃ£o foi possÃ­vel salvar a logo."),
+      toast.error(erro instanceof Error ? erro.message : "Não foi possível salvar a logo."),
   });
 
   async function selecionarArquivo(evento: React.ChangeEvent<HTMLInputElement>) {
@@ -676,7 +676,7 @@ function LogoClienteEditor({
     try {
       salvarLogo.mutate(await otimizarLogo(arquivo));
     } catch (erro) {
-      toast.error(erro instanceof Error ? erro.message : "NÃ£o foi possÃ­vel processar a imagem.");
+      toast.error(erro instanceof Error ? erro.message : "Não foi possível processar a imagem.");
     }
   }
 
@@ -692,9 +692,9 @@ function LogoClienteEditor({
       <div className="min-w-52 flex-1">
         <h2 className="text-sm font-semibold">Logo do cliente</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Esta logo pertence somente ao projeto {empresaNome} e serÃ¡ usada na capa do slide.
+          Esta logo pertence somente ao projeto {empresaNome} e será usada na capa do slide.
         </p>
-        <p className="mt-1 text-xs text-muted-foreground">PNG, JPG ou WEBP, com atÃ© 5 MB.</p>
+        <p className="mt-1 text-xs text-muted-foreground">PNG, JPG ou WEBP, com até 5 MB.</p>
       </div>
       <input
         ref={inputRef}
@@ -722,7 +722,7 @@ function LogoClienteEditor({
             className="text-destructive hover:text-destructive"
             disabled={salvarLogo.isPending}
             onClick={() =>
-              window.confirm(`Remover a logo do projeto â€œ${empresaNome}â€?`) &&
+              window.confirm(`Remover a logo do projeto “${empresaNome}”?`) &&
               salvarLogo.mutate(null)
             }
           >
@@ -738,14 +738,14 @@ function LogoClienteEditor({
 async function otimizarLogo(arquivo: File): Promise<string> {
   const tiposPermitidos = new Set(["image/png", "image/jpeg", "image/webp"]);
   if (!tiposPermitidos.has(arquivo.type)) throw new Error("Use uma imagem PNG, JPG ou WEBP.");
-  if (arquivo.size > 5 * 1024 * 1024) throw new Error("A imagem deve ter no mÃ¡ximo 5 MB.");
+  if (arquivo.size > 5 * 1024 * 1024) throw new Error("A imagem deve ter no máximo 5 MB.");
 
   const urlTemporaria = URL.createObjectURL(arquivo);
   try {
     const imagem = await new Promise<HTMLImageElement>((resolve, reject) => {
       const elemento = new Image();
       elemento.onload = () => resolve(elemento);
-      elemento.onerror = () => reject(new Error("O arquivo de imagem nÃ£o pÃ´de ser lido."));
+      elemento.onerror = () => reject(new Error("O arquivo de imagem não pôde ser lido."));
       elemento.src = urlTemporaria;
     });
     const limite = 700;
@@ -756,11 +756,11 @@ async function otimizarLogo(arquivo: File): Promise<string> {
     canvas.width = largura;
     canvas.height = altura;
     const contexto = canvas.getContext("2d");
-    if (!contexto) throw new Error("NÃ£o foi possÃ­vel preparar a imagem.");
+    if (!contexto) throw new Error("Não foi possível preparar a imagem.");
     contexto.drawImage(imagem, 0, 0, largura, altura);
     const dataUrl = canvas.toDataURL("image/png");
     if (dataUrl.length > 1_500_000)
-      throw new Error("A logo ficou muito grande. Tente uma imagem com dimensÃµes menores.");
+      throw new Error("A logo ficou muito grande. Tente uma imagem com dimensões menores.");
     return dataUrl;
   } finally {
     URL.revokeObjectURL(urlTemporaria);
@@ -1275,11 +1275,11 @@ function PreviewAnalise({
   resultadoLiquido: number;
 }) {
   return (
-    <PreviewMoldura titulo="AnÃ¡lise financeira" periodo={periodo} numero={7}>
+    <PreviewMoldura titulo="Análise financeira" periodo={periodo} numero={7}>
       <div className="mt-[3%] grid h-[78%] grid-cols-[1.8fr_1fr] gap-[2%]">
         <div className="rounded bg-[#063b77] p-[4%] ring-1 ring-white/10">
           <h4 className="border-b border-[#f2c94c] pb-[2%] text-[clamp(7px,1.2vw,15px)] font-bold uppercase">
-            DiagnÃ³stico do perÃ­odo
+            Diagnóstico do período
           </h4>
           <div className="mt-[4%] space-y-[2.5%]">
             {alertas.length ? (
@@ -1304,18 +1304,18 @@ function PreviewAnalise({
               ))
             ) : (
               <p className="pt-[20%] text-center text-[clamp(6px,1vw,13px)] text-blue-100">
-                Nenhum alerta relevante no perÃ­odo selecionado.
+                Nenhum alerta relevante no período selecionado.
               </p>
             )}
           </div>
         </div>
         <div className="flex flex-col rounded bg-[#063b77] p-[6%] ring-1 ring-white/10">
           <h4 className="border-b border-[#f2c94c] pb-[4%] text-[clamp(7px,1.2vw,15px)] font-bold uppercase">
-            SÃ­ntese executiva
+            Síntese executiva
           </h4>
           <ul className="mt-[7%] flex-1 space-y-[7%] text-[clamp(5px,.75vw,10px)] leading-snug text-blue-100">
             {resumo.map((texto, indice) => (
-              <li key={`${texto}-${indice}`}>â€¢ {texto}</li>
+              <li key={`${texto}-${indice}`}>• {texto}</li>
             ))}
           </ul>
           <div
@@ -1324,7 +1324,7 @@ function PreviewAnalise({
               resultadoLiquido >= 0 ? "bg-[#28b78d]" : "bg-[#f04f78]",
             )}
           >
-            <p className="text-[clamp(4px,.65vw,8px)] font-bold uppercase">Resultado lÃ­quido</p>
+            <p className="text-[clamp(4px,.65vw,8px)] font-bold uppercase">Resultado líquido</p>
             <p className="text-[clamp(7px,1.15vw,14px)] font-bold">{brl(resultadoLiquido)}</p>
           </div>
         </div>
@@ -1384,7 +1384,7 @@ function PreviewImpactos({
   );
 
   return (
-    <PreviewMoldura titulo="Impactos do perÃ­odo" periodo={periodo} numero={8}>
+    <PreviewMoldura titulo="Impactos do período" periodo={periodo} numero={8}>
       <div className="mt-[3%] grid h-[78%] grid-cols-2 gap-[2%]">
         {coluna(
           "Melhoraram o resultado",
@@ -1416,14 +1416,14 @@ function PreviewPlano({
   }>;
 }) {
   return (
-    <PreviewMoldura titulo="Plano de aÃ§Ã£o" periodo={periodo} numero={9}>
+    <PreviewMoldura titulo="Plano de ação" periodo={periodo} numero={9}>
       <h4 className="mt-[3%] text-[clamp(7px,1.2vw,15px)] font-bold uppercase">
-        PrÃ³ximos passos prioritÃ¡rios
+        Próximos passos prioritários
       </h4>
       <div className="mt-[2%] overflow-hidden rounded ring-1 ring-white/15">
         <div className="grid grid-cols-[3fr_1.1fr_.8fr_1.1fr] bg-[#0d559c] px-[2%] py-[1.5%] text-[clamp(4px,.65vw,8px)] font-bold uppercase">
-          <span>AÃ§Ã£o</span>
-          <span>ResponsÃ¡vel</span>
+          <span>Ação</span>
+          <span>Responsável</span>
           <span>Prazo</span>
           <span>Status</span>
         </div>
@@ -1434,14 +1434,14 @@ function PreviewPlano({
               className="grid grid-cols-[3fr_1.1fr_.8fr_1.1fr] items-center border-t border-white/10 bg-[#0a427d] px-[2%] py-[1.5%] text-[clamp(4px,.65vw,8px)]"
             >
               <span className="truncate pr-2">{acao.acao}</span>
-              <span className="truncate pr-2">{acao.responsavel || "â€”"}</span>
-              <span>{acao.prazo || "â€”"}</span>
+              <span className="truncate pr-2">{acao.responsavel || "—"}</span>
+              <span>{acao.prazo || "—"}</span>
               <span className="truncate">{acao.status}</span>
             </div>
           ))
         ) : (
           <p className="bg-[#0a427d] py-[16%] text-center text-[clamp(7px,1.2vw,15px)] text-blue-100">
-            Nenhuma aÃ§Ã£o em aberto para o perÃ­odo selecionado.
+            Nenhuma ação em aberto para o período selecionado.
           </p>
         )}
       </div>

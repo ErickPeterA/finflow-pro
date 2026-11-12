@@ -76,6 +76,65 @@ const pct = (v: number) => `${v.toFixed(1).replace(".", ",")}%`;
 const pontosPercentuais = (v: number) =>
   `${v > 0 ? "+" : v < 0 ? "-" : ""}${Math.abs(v).toFixed(1).replace(".", ",")} p.p.`;
 
+const substituicoesMojibake: Array<[string, string]> = [
+  ["Ã€", "À"],
+  ["Ã", "Á"],
+  ["Ã‚", "Â"],
+  ["Ãƒ", "Ã"],
+  ["Ã‰", "É"],
+  ["ÃŠ", "Ê"],
+  ["Ã", "Í"],
+  ["Ã“", "Ó"],
+  ["Ã”", "Ô"],
+  ["Ã•", "Õ"],
+  ["Ãš", "Ú"],
+  ["Ã‡", "Ç"],
+  ["Ã ", "à"],
+  ["Ã¡", "á"],
+  ["Ã¢", "â"],
+  ["Ã£", "ã"],
+  ["Ã©", "é"],
+  ["Ãª", "ê"],
+  ["Ã­", "í"],
+  ["Ã³", "ó"],
+  ["Ã´", "ô"],
+  ["Ãµ", "õ"],
+  ["Ãº", "ú"],
+  ["Ã§", "ç"],
+  ["â€¢", "•"],
+  ["â€”", "—"],
+  ["â€“", "–"],
+  ["â€œ", "“"],
+  ["â€", "”"],
+  ["â€˜", "‘"],
+  ["â€™", "’"],
+  ["Â·", "·"],
+  ["Âº", "º"],
+  ["Âª", "ª"],
+];
+
+function corrigirMojibake(texto: string): string {
+  let corrigido = texto;
+  for (const [incorreto, correto] of substituicoesMojibake) {
+    corrigido = corrigido.split(incorreto).join(correto);
+  }
+  return corrigido;
+}
+
+function normalizarTextosRelatorio<T>(valor: T): T {
+  if (typeof valor === "string") return corrigirMojibake(valor) as T;
+  if (Array.isArray(valor)) return valor.map(normalizarTextosRelatorio) as T;
+  if (valor && typeof valor === "object") {
+    return Object.fromEntries(
+      Object.entries(valor).map(([chave, conteudo]) => [
+        chave,
+        normalizarTextosRelatorio(conteudo),
+      ]),
+    ) as T;
+  }
+  return valor;
+}
+
 function periodoCapa(periodo: string) {
   return periodo.replace(/\s+de\s+(\d{4})$/i, "/$1");
 }
@@ -774,7 +833,8 @@ function adicionarSlideGrafico(
   });
 }
 
-export async function gerarRelatorioPptx(d: RelatorioPptxDados) {
+export async function gerarRelatorioPptx(dados: RelatorioPptxDados) {
+  const d = normalizarTextosRelatorio(dados);
   const [logoMarca, logoCliente] = await Promise.all([
     imagemComoDataUri("/logobranca.png"),
     imagemComoDataUri(d.logoClienteUrl),
