@@ -401,6 +401,20 @@ function gerarHash(linha: Omit<LinhaImportada, "hash">, origem: string): string 
   ].join("|");
 }
 
+/**
+ * Mantem a importacao idempotente sem confundir lancamentos legitimamente iguais.
+ *
+ * O Nibo pode exportar duas ou mais baixas com todos os campos visiveis iguais
+ * (inclusive o mesmo ID quando um agendamento possui parcelas/baixas repetidas).
+ * A primeira ocorrencia preserva o hash legado; as seguintes recebem um sufixo
+ * deterministico conforme a ordem em que aparecem no relatorio.
+ */
+function hashPorOcorrencia(hashBase: string, ocorrencias: Map<string, number>): string {
+  const ocorrencia = (ocorrencias.get(hashBase) ?? 0) + 1;
+  ocorrencias.set(hashBase, ocorrencia);
+  return ocorrencia === 1 ? hashBase : `${hashBase}|ocorrencia:${ocorrencia}`;
+}
+
 export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): ResultadoParse {
   const wb = XLSX.read(buffer, { cellDates: true });
   const erros: string[] = [];
@@ -551,6 +565,7 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
 
   let divergenciasSinalCategoria = 0;
 
+  const ocorrenciasLinhas = new Map<string, number>();
   const linhas = candidatas.map((linha) => {
     const tipoPorCodigo = inferirTipoPorCodigo(linha.codigo_nibo, linha.categoria_nibo);
     const tipoPorSinal: TipoLancamento = linha.valorAssinado < 0 ? "paga" : "recebida";
@@ -579,7 +594,8 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
     if (linha.nibo_id) normalizada.nibo_id = linha.nibo_id;
     if (linha.agendamento_id) normalizada.agendamento_id = linha.agendamento_id;
 
-    return { ...normalizada, hash: gerarHash(normalizada, linha.origem) };
+    const hashBase = gerarHash(normalizada, linha.origem);
+    return { ...normalizada, hash: hashPorOcorrencia(hashBase, ocorrenciasLinhas) };
   });
 
   if (divergenciasSinalCategoria) {
@@ -588,6 +604,7 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
     );
   }
 
+  const ocorrenciasTitulos = new Map<string, number>();
   const titulos = candidatas.map((linha, index) => {
     const tipoPorSinal: TipoLancamento = linha.valorAssinado < 0 ? "paga" : "recebida";
     // No fluxo de caixa, o sinal financeiro e a fonte mais confiavel: saidas
@@ -607,10 +624,8 @@ export function parseBufferNibo(buffer: ArrayBuffer, dataPadrao: string): Result
     };
     if (linha.nibo_id) normalizada.nibo_id = linha.nibo_id;
     if (linha.agendamento_id) normalizada.agendamento_id = linha.agendamento_id;
-    return {
-      ...normalizada,
-      hash: gerarHashTitulo(normalizada, `${linha.origem}:${index}`),
-    };
+    const hashBase = gerarHashTitulo(normalizada, `${linha.origem}:${index}`);
+    return { ...normalizada, hash: hashPorOcorrencia(hashBase, ocorrenciasTitulos) };
   });
 
   return {
