@@ -27,19 +27,30 @@ export function calcularImpactos(
   lancamentos: Lancamento[],
   categorias: Categoria[],
   mes: number,
+  lancamentosAnoAnterior: Lancamento[] = [],
 ): ResumoImpactos {
   const linhas = agregarPorCategoria(lancamentos, categorias);
+  const linhasAnoAnterior = agregarPorCategoria(lancamentosAnoAnterior, categorias);
+  const chaves = new Set([
+    ...linhas.map((linha) => `${linha.grupo}::${linha.nome}`),
+    ...(mes === 0 ? linhasAnoAnterior.map((linha) => `${linha.grupo}::${linha.nome}`) : []),
+  ]);
   const impactos: Impacto[] = [];
 
-  for (const l of linhas) {
-    if (l.grupo === "financeiro" || l.grupo === "nao_operacional") continue;
-    const atual = l.valores[mes] ?? 0;
-    const anterior = mes > 0 ? (l.valores[mes - 1] ?? 0) : 0;
+  for (const chave of chaves) {
+    const l = linhas.find((linha) => `${linha.grupo}::${linha.nome}` === chave);
+    const lAnterior = linhasAnoAnterior.find((linha) => `${linha.grupo}::${linha.nome}` === chave);
+    const grupo = l?.grupo ?? lAnterior?.grupo;
+    const nome = l?.nome ?? lAnterior?.nome;
+    if (!grupo || !nome) continue;
+    if (grupo === "financeiro" || grupo === "nao_operacional") continue;
+    const atual = l?.valores[mes] ?? 0;
+    const anterior = mes > 0 ? (l?.valores[mes - 1] ?? 0) : (lAnterior?.valores[11] ?? 0);
     const delta = atual - anterior;
     if (Math.abs(delta) < 0.01) continue;
-    const receita = l.grupo === "receita_operacional";
-    const efeito = receita ? delta : -delta;
-    impactos.push({ nome: l.nome, grupo: grupoLabels[l.grupo], delta, efeito });
+    // Os valores agregados já carregam o sinal contábil: receitas positivas e
+    // custos/despesas negativos. O delta é, portanto, o próprio efeito no resultado.
+    impactos.push({ nome, grupo: grupoLabels[grupo], delta, efeito: delta });
   }
 
   return resumirImpactos(impactos);
@@ -54,7 +65,8 @@ export function calcularImpactosAno(
     if (linha.grupo === "financeiro" || linha.grupo === "nao_operacional") return [];
 
     const totalPeriodo = linha.valores.reduce((total, valor) => total + valor, 0);
-    const efeito = linha.grupo === "receita_operacional" ? totalPeriodo : -totalPeriodo;
+    // O total já é uma contribuição assinada para o resultado operacional.
+    const efeito = totalPeriodo;
     if (Math.abs(efeito) < 0.01) return [];
 
     return [

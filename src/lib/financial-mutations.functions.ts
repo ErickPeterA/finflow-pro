@@ -167,11 +167,22 @@ export const mutateFinancialData = createServerFn({ method: "POST" })
         return { ok: true };
       }
       case "updatePlanoStatus": {
-        await query(
-          "update planos_acao set status=$1, concluido_em=case when $1='concluido' then current_date else null end where id=$2 and empresa_id=$3",
-          [data.status, assertId(data.id), data.empresaId],
+        const statusPermitidos = new Set([
+          "pendente",
+          "em_andamento",
+          "aguardando_cliente",
+          "atrasado",
+          "concluido",
+          "cancelado",
+        ]);
+        const status = String(data["status"] ?? "");
+        if (!statusPermitidos.has(status)) throw new Error("Status da ação inválido.");
+        const resultado = await query(
+          "update planos_acao set status=$1::status_acao, concluido_em=case when $1::status_acao='concluido'::status_acao then current_date else null end where id=$2::uuid and empresa_id=$3::uuid returning id,status",
+          [status, assertId(data["id"]), data.empresaId],
         );
-        return { ok: true };
+        if (!resultado.rowCount) throw new Error("Ação não encontrada para esta empresa.");
+        return { ok: true, plano: resultado.rows[0] };
       }
       case "deletePlano": {
         await query("delete from planos_acao where id=$1 and empresa_id=$2", [

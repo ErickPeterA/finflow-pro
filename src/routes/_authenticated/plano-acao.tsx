@@ -438,8 +438,14 @@ function PlanoAcaoPage() {
       if (!empresaId) throw new Error("Selecione uma empresa.");
       await mutateData({ data: { action: "updatePlanoStatus", empresaId, id, status } });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["planos_acao"] }),
-    onError: () => toast.error("Não foi possível atualizar o status."),
+    onSuccess: (_, variaveis) => {
+      toast.success(`Ação movida para ${statusLabels[variaveis.status]}.`);
+      queryClient.invalidateQueries({ queryKey: ["planos_acao"] });
+    },
+    onError: (erro) =>
+      toast.error(
+        erro instanceof Error ? erro.message : "Não foi possível atualizar o status da ação.",
+      ),
   });
 
   const remover = useMutation({
@@ -492,7 +498,7 @@ function PlanoAcaoPage() {
   const planosPorColuna = colunasKanban.reduce(
     (acc, coluna) => ({
       ...acc,
-      [coluna.id]: planos.filter((plano) => colunaDoStatus(plano.status) === coluna.id),
+      [coluna.id]: acoesParaRelatorio.filter((plano) => colunaDoStatus(plano.status) === coluna.id),
     }),
     {} as Record<ColunaKanban, PlanoAcao[]>,
   );
@@ -689,7 +695,7 @@ function PlanoAcaoPage() {
                 <Bloco titulo="Kanban do plano">
                   {isLoading ? (
                     <SemDados mensagem="Carregando kanban..." />
-                  ) : planos.length === 0 ? (
+                  ) : acoesParaRelatorio.length === 0 ? (
                     <SemDados mensagem="Crie uma ação para montar o kanban." />
                   ) : (
                     <div className="grid gap-4 lg:grid-cols-3">

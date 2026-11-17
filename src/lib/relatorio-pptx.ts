@@ -19,6 +19,7 @@ export interface SerieRelatorioPptx {
 export interface CategoriaRelatorioPptx {
   nome: string;
   valor: number;
+  valorAnterior?: number;
 }
 export interface ImpactoRelatorioPptx {
   nome: string;
@@ -47,12 +48,42 @@ export interface RelatorioPptxDados {
   resumo: string[];
   alertas: Array<{ titulo: string; detalhe: string }>;
   evolucao: SerieRelatorioPptx[];
+  evolucaoDashboard: Array<{
+    mes: string;
+    receita: number;
+    resultado: number;
+    resultadoLiquido: number;
+  }>;
   receitasPorCategoria: CategoriaRelatorioPptx[];
   custosPorCategoria: CategoriaRelatorioPptx[];
+  comparacaoAnterior?: {
+    mes: string;
+    receita: number;
+    resultadoBruto: number;
+    resultadoOperacional: number;
+    resultadoLiquido: number;
+    margemOperacional: number;
+  };
   impactosPositivos: ImpactoRelatorioPptx[];
   impactosNegativos: ImpactoRelatorioPptx[];
   acoes: AcaoRelatorioPptx[];
   layout?: RelatorioPptxLayout;
+}
+
+function graficosUnicos(layout?: RelatorioPptxLayout): GraficoRelatorioId[] {
+  const permitidos = new Set<GraficoRelatorioId>([
+    "receita_mensal",
+    "receitas_categoria",
+    "custos_categoria",
+    "resultados",
+    "margem_meta",
+  ]);
+  const candidatos = [...(layout?.graficos ?? []), ...layoutRelatorioPadrao.graficos];
+  return candidatos
+    .filter(
+      (grafico, indice, todos) => permitidos.has(grafico) && todos.indexOf(grafico) === indice,
+    )
+    .slice(0, 4);
 }
 
 const C = {
@@ -469,10 +500,10 @@ function barrasHorizontais(
 ) {
   const dados = itens.slice(0, 5).map((item) => ({
     nome: rotuloCategoriaRelatorio(item.nome),
-    valor: Math.abs(item.valor),
+    valor: item.valor,
   }));
   if (!dados.length) return;
-  const maximo = Math.max(...dados.map((item) => item.valor), 1);
+  const maximo = Math.max(...dados.map((item) => Math.abs(item.valor)), 1);
   const linhaH = h / dados.length;
 
   dados.forEach((item, indice) => {
@@ -514,7 +545,7 @@ function barrasHorizontais(
     slide.addShape("roundRect", {
       x,
       y: linhaY + 0.28,
-      w: Math.max(0.09, w * (item.valor / maximo)),
+      w: Math.max(0.09, w * (Math.abs(item.valor) / maximo)),
       h: 0.14,
       rectRadius: 0.04,
       fill: { color: cor },
@@ -696,6 +727,107 @@ function graficoMargemMeta(
   });
 }
 
+function variacaoPercentual(atual: number, anterior: number) {
+  if (anterior === 0) return null;
+  return ((atual - anterior) / Math.abs(anterior)) * 100;
+}
+
+function fraseVariacao(atual: number, anterior: number, rotulo: string) {
+  const delta = variacaoPercentual(atual, anterior);
+  if (delta === null) return `${rotulo}: sem base comparável no mês anterior.`;
+  return `${rotulo} ${delta >= 0 ? "cresceu" : "recuou"} ${pct(Math.abs(delta))} frente ao mês anterior.`;
+}
+
+function insightsGrafico(d: RelatorioPptxDados, grafico: GraficoRelatorioId): string[] {
+  if (grafico === "receitas_categoria" || grafico === "custos_categoria") {
+    const itens = grafico === "receitas_categoria" ? d.receitasPorCategoria : d.custosPorCategoria;
+    const total = itens.reduce((soma, item) => soma + Math.abs(item.valor), 0);
+    const lider = itens[0];
+    const top3 = itens.slice(0, 3).reduce((soma, item) => soma + Math.abs(item.valor), 0);
+    const insights: string[] = [];
+    if (lider) {
+      insights.push(
+        `${rotuloCategoriaRelatorio(lider.nome)} representa ${pct((Math.abs(lider.valor) / Math.max(total, 1)) * 100)} do total exibido.`,
+      );
+      if (lider.valorAnterior !== undefined) {
+        insights.push(fraseVariacao(lider.valor, lider.valorAnterior, "A principal categoria"));
+      }
+    }
+    if (itens.length >= 3) {
+      insights.push(
+        `As três maiores categorias concentram ${pct((top3 / Math.max(total, 1)) * 100)} do total.`,
+      );
+    }
+    const maioresAltas = itens
+      .filter((item) => item.valorAnterior !== undefined && item.valorAnterior > 0)
+      .map((item) => ({
+        ...item,
+        variacao: variacaoPercentual(item.valor, item.valorAnterior ?? 0) ?? 0,
+      }))
+      .sort((a, b) => b.variacao - a.variacao);
+    if (maioresAltas[0]) {
+      insights.push(
+        `Maior alta mensal: ${rotuloCategoriaRelatorio(maioresAltas[0].nome)} (${pct(maioresAltas[0].variacao)}).`,
+      );
+    }
+    return insights.length
+      ? insights
+      : ["Sem base suficiente para gerar observações comparativas."];
+  }
+
+  if (grafico === "receita_mensal") {
+    const comMovimento = d.evolucao.filter((item) => item.receita !== 0);
+    const melhor = [...comMovimento].sort((a, b) => b.receita - a.receita)[0];
+    const pior = [...comMovimento].sort((a, b) => a.receita - b.receita)[0];
+    const insights = [];
+    if (melhor) insights.push(`Maior receita: ${melhor.mes}, com ${moeda(melhor.receita)}.`);
+    if (pior && pior !== melhor)
+      insights.push(`Menor receita: ${pior.mes}, com ${moeda(pior.receita)}.`);
+    if (d.comparacaoAnterior) {
+      insights.push(fraseVariacao(d.receita, d.comparacaoAnterior.receita, "A receita"));
+    }
+    return insights;
+  }
+
+  if (grafico === "resultados") {
+    const insights = [
+      `Conversão operacional: ${pct(d.receita ? (d.resultadoOperacional / d.receita) * 100 : 0)} da receita.`,
+      `Diferença entre resultado bruto e operacional: ${moeda(d.resultadoBruto - d.resultadoOperacional)}.`,
+    ];
+    if (d.comparacaoAnterior) {
+      insights.push(
+        fraseVariacao(
+          d.resultadoOperacional,
+          d.comparacaoAnterior.resultadoOperacional,
+          "O resultado operacional",
+        ),
+      );
+    }
+    return insights;
+  }
+
+  if (grafico === "margem_meta") {
+    const distancia = d.margemOperacional - d.margemDesejada;
+    const insights = [
+      `A margem está ${distancia >= 0 ? "acima" : "abaixo"} da meta em ${pontosPercentuais(Math.abs(distancia))}.`,
+    ];
+    if (d.comparacaoAnterior) {
+      const delta = d.margemOperacional - d.comparacaoAnterior.margemOperacional;
+      insights.push(
+        `Frente a ${d.comparacaoAnterior.mes}, a margem ${delta >= 0 ? "avançou" : "recuou"} ${pontosPercentuais(Math.abs(delta))}.`,
+      );
+    }
+    insights.push(
+      d.margemOperacional >= d.margemDesejada
+        ? "O período encerrou dentro da rentabilidade desejada."
+        : "Prioridade: revisar os itens que mais pressionaram o resultado.",
+    );
+    return insights;
+  }
+
+  return d.resumo;
+}
+
 function adicionarSlideGrafico(
   pptx: pptxgen,
   d: RelatorioPptxDados,
@@ -716,14 +848,22 @@ function adicionarSlideGrafico(
     barrasCategorias(slide, d.receitasPorCategoria, 1.02, 3.35, 7.28, 2.95);
   } else if (grafico === "custos_categoria") {
     barrasCategorias(slide, d.custosPorCategoria, 1.02, 3.35, 7.28, 2.95);
-  } else if (grafico === "receita_mensal" && d.evolucao.length > 1) {
+  } else if (grafico === "receita_mensal") {
+    const labels =
+      d.evolucao.length > 1
+        ? d.evolucao.map((item) => item.mes)
+        : [d.comparacaoAnterior?.mes ?? "Mês anterior", d.evolucao[0]?.mes ?? d.periodo];
+    const values =
+      d.evolucao.length > 1
+        ? d.evolucao.map((item) => item.receita)
+        : [d.comparacaoAnterior?.receita ?? 0, d.receita];
     slide.addChart(
       pptx.ChartType.bar,
       [
         {
           name: "Receita",
-          labels: d.evolucao.map((item) => item.mes),
-          values: d.evolucao.map((item) => item.receita),
+          labels,
+          values,
         },
       ],
       {
@@ -742,7 +882,10 @@ function adicionarSlideGrafico(
       },
     );
   } else if (grafico === "resultados") {
-    const labels = d.evolucao.length > 1 ? d.evolucao.map((item) => item.mes) : [d.periodo];
+    const labels =
+      d.evolucao.length > 1
+        ? d.evolucao.map((item) => item.mes)
+        : [d.comparacaoAnterior?.mes ?? "Mês anterior", d.evolucao[0]?.mes ?? d.periodo];
     slide.addChart(
       pptx.ChartType.bar,
       [
@@ -752,7 +895,7 @@ function adicionarSlideGrafico(
           values:
             d.evolucao.length > 1
               ? d.evolucao.map((item) => item.resultadoBruto)
-              : [d.resultadoBruto],
+              : [d.comparacaoAnterior?.resultadoBruto ?? 0, d.resultadoBruto],
         },
         {
           name: "Resultado operacional",
@@ -760,7 +903,7 @@ function adicionarSlideGrafico(
           values:
             d.evolucao.length > 1
               ? d.evolucao.map((item) => item.resultado)
-              : [d.resultadoOperacional],
+              : [d.comparacaoAnterior?.resultadoOperacional ?? 0, d.resultadoOperacional],
         },
         {
           name: "Resultado líquido",
@@ -768,7 +911,7 @@ function adicionarSlideGrafico(
           values:
             d.evolucao.length > 1
               ? d.evolucao.map((item) => item.resultadoLiquido)
-              : [d.resultadoLiquido],
+              : [d.comparacaoAnterior?.resultadoLiquido ?? 0, d.resultadoLiquido],
         },
       ],
       {
@@ -803,22 +946,9 @@ function adicionarSlideGrafico(
     barrasCategorias(slide, d.receitasPorCategoria, 1.02, 3.35, 7.28, 2.95);
   }
 
-  const ranking =
-    grafico === "receitas_categoria"
-      ? d.receitasPorCategoria
-      : grafico === "custos_categoria"
-        ? d.custosPorCategoria
-        : [];
-  const total = ranking.reduce((soma, item) => soma + Math.abs(item.valor), 0);
-  const leitura = ranking.length
-    ? ranking
-        .slice(0, 5)
-        .map(
-          (item, indice) =>
-            `${indice + 1}. ${rotuloCategoriaRelatorio(item.nome)}\n${moeda(item.valor)} • ${pct((Math.abs(item.valor) / Math.max(total, 1)) * 100)}`,
-        )
-        .join("\n\n")
-    : d.resumo.map((texto) => `• ${texto}`).join("\n\n");
+  const leitura = insightsGrafico(d, grafico)
+    .map((texto) => `• ${texto}`)
+    .join("\n\n");
   slide.addText(leitura, {
     x: 9.32,
     y: 3.38,
@@ -993,68 +1123,51 @@ export async function gerarRelatorioPptx(dados: RelatorioPptxDados) {
     moeda(d.resultadoLiquido),
     d.resultadoLiquido >= 0 ? C.green : C.pink,
   );
-  const unicoMes = d.evolucao.length <= 1;
-  panel(dash, 0.62, 2.52, 8.05, 4.2);
-  tituloBloco(dash, unicoMes ? "Composição do mês" : "Evolução mensal", 0.92, 2.82, 7.45);
-  if (unicoMes) {
-    barrasComparativas(
-      dash,
-      [
-        { nome: "Receita operacional", valor: d.receita, cor: C.lime },
-        { nome: "Custos operacionais", valor: -Math.abs(d.deducoesCustos), cor: C.yellow },
-        { nome: "Despesas operacionais", valor: -Math.abs(d.despesas), cor: C.pink },
-        {
-          nome: "Resultado líquido",
-          valor: d.resultadoLiquido,
-          cor: d.resultadoLiquido >= 0 ? C.green : C.pink,
-        },
-      ],
-      0.94,
-      3.3,
-      7.4,
-      2.95,
-    );
-  } else {
-    evolucaoMensal(dash, d.evolucao, 0.94, 3.3, 7.4, 2.95);
-  }
-  panel(dash, 8.92, 2.52, 3.75, 4.2, "063B77");
-  tituloBloco(dash, "Leitura executiva", 9.22, 2.82, 3.15);
-  dash.addText(d.resumo.map((x) => `• ${x}`).join("\n\n"), {
-    x: 9.22,
-    y: 3.35,
-    w: 3.15,
-    h: 2.45,
-    fontFace: "Arial",
-    fontSize: 11.5,
-    color: C.white,
-    margin: 0.02,
-    fit: "shrink",
-    valign: "top",
-  });
-  dash.addShape("roundRect", {
-    x: 9.22,
-    y: 5.98,
-    w: 3.15,
-    h: 0.48,
-    fill: { color: d.margemOperacional >= d.margemDesejada ? C.green : C.pink },
-    line: { color: d.margemOperacional >= d.margemDesejada ? C.green : C.pink },
-  });
-  dash.addText(`Margem ${pct(d.margemOperacional)}  •  Meta ${pct(d.margemDesejada)}`, {
-    x: 9.35,
-    y: 6.14,
-    w: 2.88,
-    h: 0.16,
-    fontFace: "Arial",
-    fontSize: 10,
-    bold: true,
-    color: C.white,
-    align: "center",
-    margin: 0,
-    fit: "shrink",
-  });
+  panel(dash, 0.62, 2.52, 12.05, 4.2);
+  tituloBloco(dash, "Evolução comparativa", 0.92, 2.82, 11.45);
+  dash.addChart(
+    pptx.ChartType.line,
+    [
+      {
+        name: "Receita op.",
+        labels: d.evolucaoDashboard.map((item) => item.mes),
+        values: d.evolucaoDashboard.map((item) => item.receita),
+      },
+      {
+        name: "Resultado op.",
+        labels: d.evolucaoDashboard.map((item) => item.mes),
+        values: d.evolucaoDashboard.map((item) => item.resultado),
+      },
+      {
+        name: "Resultado líq.",
+        labels: d.evolucaoDashboard.map((item) => item.mes),
+        values: d.evolucaoDashboard.map((item) => item.resultadoLiquido),
+      },
+    ],
+    {
+      x: 0.92,
+      y: 3.25,
+      w: 11.45,
+      h: 3.08,
+      ...axis,
+      chartColors: [C.lime, C.cyan, C.pink],
+      showLegend: true,
+      legendColor: C.white,
+      legendFontSize: 9,
+      legendPos: "b",
+      showTitle: false,
+      showValue: d.evolucaoDashboard.length <= 5,
+      dataLabelColor: C.white,
+      dataLabelPosition: "t",
+      dataLabelFormatCode: 'R$ #,##0," mil";[Red]-R$ #,##0," mil"',
+      lineDataSymbol: "circle",
+      lineDataSymbolSize: 6,
+      lineSize: 3,
+      valAxisLabelFormatCode: "R$ #,##0;[Red]-R$ #,##0",
+    },
+  );
 
-  const layout = d.layout ?? layoutRelatorioPadrao;
-  const graficosLayout = [...layout.graficos, ...layoutRelatorioPadrao.graficos].slice(0, 4);
+  const graficosLayout = graficosUnicos(d.layout);
   graficosLayout.forEach((grafico, indice) => adicionarSlideGrafico(pptx, d, grafico, indice + 3));
 
   const analise = pptx.addSlide();
@@ -1118,28 +1231,39 @@ export async function gerarRelatorioPptx(dados: RelatorioPptxDados) {
       margin: 0,
     });
   panel(analise, 8.52, 1.18, 4.15, 5.85);
-  tituloBloco(analise, "Síntese executiva", 8.82, 1.52, 3.55);
-  analise.addText(d.resumo.map((x) => `• ${x}`).join("\n\n"), {
-    x: 8.82,
-    y: 2.08,
-    w: 3.55,
-    h: 3.38,
-    fontFace: "Arial",
-    fontSize: 12,
-    color: C.white,
-    margin: 0,
-    fit: "shrink",
-    valign: "top",
-  });
+  tituloBloco(analise, "Escopo do diagnóstico", 8.82, 1.52, 3.55);
+  analise.addText(
+    [
+      `Alertas relevantes: ${alertas.length}`,
+      `Categorias de receita analisadas: ${d.receitasPorCategoria.length}`,
+      `Categorias de custos e despesas: ${d.custosPorCategoria.length}`,
+      `Impactos identificados: ${d.impactosPositivos.length + d.impactosNegativos.length}`,
+      `Ações abertas: ${d.acoes.length}`,
+    ]
+      .map((x) => `• ${x}`)
+      .join("\n\n"),
+    {
+      x: 8.82,
+      y: 2.08,
+      w: 3.55,
+      h: 3.38,
+      fontFace: "Arial",
+      fontSize: 12,
+      color: C.white,
+      margin: 0,
+      fit: "shrink",
+      valign: "top",
+    },
+  );
   analise.addShape("roundRect", {
     x: 8.82,
     y: 5.72,
     w: 3.55,
     h: 0.72,
-    fill: { color: d.resultadoLiquido >= 0 ? C.green : C.pink },
-    line: { color: d.resultadoLiquido >= 0 ? C.green : C.pink },
+    fill: { color: alertas.length === 0 ? C.green : C.pink },
+    line: { color: alertas.length === 0 ? C.green : C.pink },
   });
-  analise.addText(`RESULTADO LÍQUIDO\n${moeda(d.resultadoLiquido)}`, {
+  analise.addText(`ITENS PARA ACOMPANHAMENTO\n${alertas.length}`, {
     x: 9.02,
     y: 5.87,
     w: 3.15,

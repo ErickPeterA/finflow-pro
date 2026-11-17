@@ -43,6 +43,7 @@ import {
 import {
   agregarPorCategoria,
   calcularDre,
+  calcularDreHartwig,
   grupoLabels,
   mediaFechados,
   qualidadeResultado,
@@ -123,14 +124,24 @@ function RelatoriosPage() {
   const { empresaId, ano, mes, mesesSelecionados, periodo, centroCusto } = useApp();
   const { data: empresa } = useEmpresaAtual(empresaId);
   const { data: lancamentos = [], isLoading } = useLancamentos(empresaId, ano);
+  const { data: lancamentosAnoAnterior = [] } = useLancamentos(empresaId, ano - 1);
   const { data: categorias = [] } = useCategorias(empresaId);
   const { data: planos = [] } = usePlanosAcao(empresaId);
   const { data: config } = useConfiguracao(empresaId);
+  const dreHartwig = String(empresa?.nome ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .includes("hartwig");
 
   const margemDesejada = Number(config?.margem_desejada ?? 15);
   const lancamentosFiltrados = useMemo(
     () => filtrarLancamentosPorCentroCusto(lancamentos, centroCusto),
     [lancamentos, centroCusto],
+  );
+  const lancamentosAnoAnteriorFiltrados = useMemo(
+    () => filtrarLancamentosPorCentroCusto(lancamentosAnoAnterior, centroCusto),
+    [lancamentosAnoAnterior, centroCusto],
   );
   const mesesPeriodo = useMemo(
     () => mesesDoPeriodoFiltro(periodo, mes, mesesSelecionados),
@@ -143,34 +154,64 @@ function RelatoriosPage() {
     [lancamentosFiltrados, mesesPeriodo],
   );
   const resultados = useMemo(
-    () => calcularDre(lancamentosPeriodo, categorias),
-    [lancamentosPeriodo, categorias],
+    () =>
+      dreHartwig
+        ? calcularDreHartwig(lancamentosFiltrados, categorias)
+        : calcularDre(lancamentosFiltrados, categorias),
+    [lancamentosFiltrados, categorias, dreHartwig],
+  );
+  const resultadosAnoAnterior = useMemo(
+    () =>
+      dreHartwig
+        ? calcularDreHartwig(lancamentosAnoAnteriorFiltrados, categorias)
+        : calcularDre(lancamentosAnoAnteriorFiltrados, categorias),
+    [lancamentosAnoAnteriorFiltrados, categorias, dreHartwig],
   );
   const atual = totalizarResultados(resultados.filter((r) => mesesPeriodo.includes(r.mes)));
   const anterior =
-    mesesPeriodo.length === 1 && mesReferencia > 0 ? resultados[mesReferencia - 1] : undefined;
+    mesesPeriodo.length === 1
+      ? mesReferencia > 0
+        ? resultados[mesReferencia - 1]
+        : resultadosAnoAnterior[11]
+      : undefined;
   const linhas = useMemo(
-    () => agregarPorCategoria(lancamentosPeriodo, categorias),
-    [lancamentosPeriodo, categorias],
+    () => agregarPorCategoria(lancamentosFiltrados, categorias),
+    [lancamentosFiltrados, categorias],
+  );
+  const linhasAnoAnterior = useMemo(
+    () => agregarPorCategoria(lancamentosAnoAnteriorFiltrados, categorias),
+    [lancamentosAnoAnteriorFiltrados, categorias],
   );
   const impactos = useMemo(
     () =>
       periodo === "ano"
         ? calcularImpactosAno(lancamentosPeriodo, categorias)
-        : calcularImpactos(lancamentosFiltrados, categorias, mesReferencia),
-    [periodo, lancamentosPeriodo, lancamentosFiltrados, categorias, mesReferencia],
+        : calcularImpactos(
+            lancamentosFiltrados,
+            categorias,
+            mesReferencia,
+            lancamentosAnoAnteriorFiltrados,
+          ),
+    [
+      periodo,
+      lancamentosPeriodo,
+      lancamentosFiltrados,
+      lancamentosAnoAnteriorFiltrados,
+      categorias,
+      mesReferencia,
+    ],
   );
   const alertas = useMemo(
     () =>
       gerarAlertas(
         resultados,
-        lancamentosPeriodo,
+        lancamentosFiltrados,
         categorias,
         mesReferencia,
         undefined,
         margemDesejada,
       ),
-    [resultados, lancamentosPeriodo, categorias, mesReferencia, margemDesejada],
+    [resultados, lancamentosFiltrados, categorias, mesReferencia, margemDesejada],
   );
   const qualidade = qualidadeResultado(atual, margemDesejada);
   const acoesAbertas = planos
@@ -191,8 +232,10 @@ function RelatoriosPage() {
   const totalLancamentosMes = lancamentosPeriodo.length;
   const naoRecorrentesMes = lancamentosPeriodo.filter((l) => l.nao_recorrente).length;
 
+  // Mantém no eixo todos os meses pedidos pelo filtro. Meses sem movimento
+  // continuam como zero, em vez de fazer o ano parecer terminar antes de dezembro.
   const evolucao = resultados
-    .filter((r) => mesesPeriodo.includes(r.mes) && r.temMovimento)
+    .filter((r) => mesesPeriodo.includes(r.mes))
     .map((r) => ({
       mes: mesesCurtos[r.mes] ?? `Mês ${r.mes + 1}`,
       receita: r.receitaBruta,
@@ -201,13 +244,48 @@ function RelatoriosPage() {
       resultadoLiquido: r.resultadoLiquido,
       margem: Number(r.margemOperacional.toFixed(1)),
     }));
+  const primeiroMesPeriodo = Math.min(...mesesPeriodo);
+  const anteriorDashboard =
+    primeiroMesPeriodo > 0 ? resultados[primeiroMesPeriodo - 1] : resultadosAnoAnterior[11];
+  const evolucaoDashboard = [
+    ...(anteriorDashboard
+      ? [
+          {
+            mes: mesesCurtos[anteriorDashboard.mes] ?? "Anterior",
+            receita: anteriorDashboard.receitaBruta,
+            resultado: anteriorDashboard.resultadoOperacional,
+            resultadoLiquido: anteriorDashboard.resultadoLiquido,
+          },
+        ]
+      : []),
+    ...resultados
+      .filter((resultado) => mesesPeriodo.includes(resultado.mes))
+      .map((resultado) => ({
+        mes: mesesCurtos[resultado.mes] ?? `Mês ${resultado.mes + 1}`,
+        receita: resultado.receitaBruta,
+        resultado: resultado.resultadoOperacional,
+        resultadoLiquido: resultado.resultadoLiquido,
+      })),
+    {
+      mes: "Média ano",
+      receita: mediaFechados(resultados, (resultado) => resultado.receitaBruta),
+      resultado: mediaFechados(resultados, (resultado) => resultado.resultadoOperacional),
+      resultadoLiquido: mediaFechados(resultados, (resultado) => resultado.resultadoLiquido),
+    },
+  ];
 
-  const categoriasOperacionais = topCategorias(linhas, mesesPeriodo, [
-    "deducoes",
-    "custos",
-    "despesas",
-  ]).slice(0, 7);
-  const receitasPorCategoria = topCategorias(linhas, mesesPeriodo, ["receita_operacional"])
+  const categoriasOperacionais = topCategorias(
+    linhas,
+    mesesPeriodo,
+    ["deducoes", "custos", "despesas"],
+    linhasAnoAnterior,
+  ).slice(0, 7);
+  const receitasPorCategoria = topCategorias(
+    linhas,
+    mesesPeriodo,
+    ["receita_operacional"],
+    linhasAnoAnterior,
+  )
     .filter(
       (categoria) =>
         !ehChicagoBarbearia(empresa?.nome) || !ehCategoriaReceitaLegadaChicago(categoria.nome),
@@ -243,8 +321,29 @@ function RelatoriosPage() {
         resumo: resumoExecutivo(atual, anterior, margemDesejada, qualidade.texto),
         alertas: alertas.map(({ titulo, detalhe }) => ({ titulo, detalhe })),
         evolucao,
-        receitasPorCategoria: receitasPorCategoria.map(({ nome, valor }) => ({ nome, valor })),
-        custosPorCategoria: categoriasOperacionais.map(({ nome, valor }) => ({ nome, valor })),
+        evolucaoDashboard,
+        receitasPorCategoria: receitasPorCategoria.map(({ nome, valor, valorAnterior }) => ({
+          nome,
+          valor,
+          ...(valorAnterior !== undefined ? { valorAnterior } : {}),
+        })),
+        custosPorCategoria: categoriasOperacionais.map(({ nome, valor, valorAnterior }) => ({
+          nome,
+          valor,
+          ...(valorAnterior !== undefined ? { valorAnterior } : {}),
+        })),
+        ...(anterior
+          ? {
+              comparacaoAnterior: {
+                receita: anterior.receitaBruta,
+                resultadoBruto: anterior.resultadoBruto,
+                resultadoOperacional: anterior.resultadoOperacional,
+                resultadoLiquido: anterior.resultadoLiquido,
+                margemOperacional: anterior.margemOperacional,
+                mes: mesesCurtos[anterior.mes] ?? "Mês anterior",
+              },
+            }
+          : {}),
         impactosPositivos: impactos.positivos.slice(0, 5),
         impactosNegativos: impactos.negativos.slice(0, 5),
         acoes: acoesAbertas.map((acao) => ({
@@ -306,8 +405,10 @@ function RelatoriosPage() {
               logoClienteUrl={empresa?.logo_url ?? null}
               periodo={`${periodoLabel} de ${ano}`}
               atual={atual}
+              anterior={anterior}
               margemDesejada={margemDesejada}
               evolucao={evolucao}
+              evolucaoDashboard={evolucaoDashboard}
               receitas={receitasPorCategoria}
               custos={categoriasOperacionais}
               impactosPositivos={impactos.positivos.slice(0, 5)}
@@ -772,8 +873,10 @@ function ApresentacaoPreview({
   logoClienteUrl,
   periodo,
   atual,
+  anterior,
   margemDesejada,
   evolucao,
+  evolucaoDashboard,
   receitas,
   custos,
   impactosPositivos,
@@ -788,6 +891,7 @@ function ApresentacaoPreview({
   logoClienteUrl?: string | null;
   periodo: string;
   atual: ResultadoMes;
+  anterior: ResultadoMes | undefined;
   margemDesejada: number;
   evolucao: Array<{
     mes: string;
@@ -796,6 +900,12 @@ function ApresentacaoPreview({
     resultadoBruto: number;
     resultadoLiquido: number;
     margem: number;
+  }>;
+  evolucaoDashboard: Array<{
+    mes: string;
+    receita: number;
+    resultado: number;
+    resultadoLiquido: number;
   }>;
   receitas: CategoriaResumo[];
   custos: CategoriaResumo[];
@@ -856,11 +966,19 @@ function ApresentacaoPreview({
                 }
                 className="h-9 w-full rounded-md border bg-background px-3 text-sm font-medium text-foreground outline-none focus:ring-2 focus:ring-ring"
               >
-                {graficosRelatorio.map((opcao) => (
-                  <option key={opcao.id} value={opcao.id}>
-                    {opcao.label}
-                  </option>
-                ))}
+                {graficosRelatorio
+                  .filter((opcao) => opcao.id !== "impactos")
+                  .map((opcao) => (
+                    <option
+                      key={opcao.id}
+                      value={opcao.id}
+                      disabled={layout.graficos.some(
+                        (selecionado, posicao) => posicao !== indice && selecionado === opcao.id,
+                      )}
+                    >
+                      {opcao.label}
+                    </option>
+                  ))}
               </select>
             </label>
           ))}
@@ -898,13 +1016,14 @@ function ApresentacaoPreview({
                 periodo={periodo}
               />
             ) : slideAtivo === 2 ? (
-              <PreviewDashboard atual={atual} evolucao={evolucao} periodo={periodo} />
+              <PreviewDashboard atual={atual} evolucao={evolucaoDashboard} periodo={periodo} />
             ) : graficoAtivo ? (
               <PreviewGrafico
                 grafico={graficoAtivo}
                 numero={slideAtivo}
                 periodo={periodo}
                 atual={atual}
+                anterior={anterior}
                 margemDesejada={margemDesejada}
                 evolucao={evolucao}
                 receitas={receitas}
@@ -912,12 +1031,7 @@ function ApresentacaoPreview({
                 impactos={[...impactosPositivos, ...impactosNegativos]}
               />
             ) : slideAtivo === 7 ? (
-              <PreviewAnalise
-                periodo={periodo}
-                alertas={alertas}
-                resumo={resumo}
-                resultadoLiquido={atual.resultadoLiquido}
-              />
+              <PreviewAnalise periodo={periodo} alertas={alertas} />
             ) : slideAtivo === 8 ? (
               <PreviewImpactos
                 periodo={periodo}
@@ -1032,7 +1146,12 @@ function PreviewDashboard({
   periodo,
 }: {
   atual: ResultadoMes;
-  evolucao: Array<{ mes: string; receita: number; resultado: number }>;
+  evolucao: Array<{
+    mes: string;
+    receita: number;
+    resultado: number;
+    resultadoLiquido: number;
+  }>;
   periodo: string;
 }) {
   return (
@@ -1054,23 +1173,174 @@ function PreviewDashboard({
           </div>
         ))}
       </div>
-      <div className="mt-[3%] grid h-[55%] grid-cols-[2fr_1fr] gap-[2%]">
-        <div className="rounded bg-[#0a427d] p-[3%] ring-1 ring-white/10">
-          <p className="text-[clamp(7px,1.15vw,14px)] font-bold uppercase">Evolução mensal</p>
-          <PreviewBarras
-            itens={evolucao.map((item) => ({ nome: item.mes, valor: item.receita }))}
-          />
+      <div className="mt-[3%] h-[55%] rounded bg-[#0a427d] p-[2.5%] ring-1 ring-white/10">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[clamp(7px,1.15vw,14px)] font-bold uppercase">Evolução comparativa</p>
+          <div className="flex gap-3 text-[clamp(4px,.6vw,8px)] text-blue-100">
+            {[
+              ["Receita op.", "#73c76b"],
+              ["Resultado op.", "#26b9e8"],
+              ["Resultado líq.", "#f04f78"],
+            ].map(([label, cor]) => (
+              <span key={label} className="inline-flex items-center gap-1">
+                <i className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: cor }} />
+                {label}
+              </span>
+            ))}
+          </div>
         </div>
-        <div className="rounded bg-[#063b77] p-[7%] ring-1 ring-white/10">
-          <p className="text-[clamp(7px,1.15vw,14px)] font-bold uppercase">Leitura executiva</p>
-          <p className="mt-[8%] text-[clamp(6px,.9vw,11px)] leading-relaxed text-blue-50">
-            Resultado operacional de {brl(atual.resultadoOperacional)} com margem de{" "}
-            {pct(atual.margemOperacional)} no período.
-          </p>
+        <div className="mt-[1%] h-[82%]">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={evolucao} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2c6094" />
+              <ReferenceLine y={0} stroke="#ffffff" strokeOpacity={0.35} />
+              <XAxis
+                dataKey="mes"
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: "#ddebfa", fontSize: 8 }}
+              />
+              <YAxis
+                tickFormatter={(valor) => brl(Number(valor), true)}
+                tickLine={false}
+                axisLine={false}
+                width={58}
+                tick={{ fill: "#ddebfa", fontSize: 7 }}
+              />
+              <Tooltip
+                formatter={(valor, nome) => [
+                  brl(Number(valor)),
+                  nome === "receita"
+                    ? "Receita operacional"
+                    : nome === "resultado"
+                      ? "Resultado operacional"
+                      : "Resultado líquido",
+                ]}
+                labelFormatter={(rotulo) => String(rotulo)}
+                contentStyle={{
+                  background: "#063b77",
+                  border: "1px solid #2c6094",
+                  borderRadius: 6,
+                  color: "#ffffff",
+                  fontSize: 10,
+                }}
+                itemStyle={{ color: "#ffffff" }}
+                labelStyle={{ color: "#ddebfa", fontWeight: 700 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="receita"
+                stroke="#73c76b"
+                strokeWidth={2.5}
+                dot={{ r: 2.5, fill: "#73c76b" }}
+              />
+              <Line
+                type="monotone"
+                dataKey="resultado"
+                stroke="#26b9e8"
+                strokeWidth={2.5}
+                dot={{ r: 2.5, fill: "#26b9e8" }}
+              />
+              <Line
+                type="monotone"
+                dataKey="resultadoLiquido"
+                stroke="#f04f78"
+                strokeWidth={2.5}
+                dot={{ r: 2.5, fill: "#f04f78" }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </div>
     </PreviewMoldura>
   );
+}
+
+function insightsPreviewGrafico({
+  grafico,
+  atual,
+  anterior,
+  margemDesejada,
+  evolucao,
+  receitas,
+  custos,
+}: {
+  grafico: GraficoRelatorioId;
+  atual: ResultadoMes;
+  anterior: ResultadoMes | undefined;
+  margemDesejada: number;
+  evolucao: Array<{ mes: string; receita: number }>;
+  receitas: CategoriaResumo[];
+  custos: CategoriaResumo[];
+}) {
+  if (grafico === "receitas_categoria" || grafico === "custos_categoria") {
+    const itens = grafico === "receitas_categoria" ? receitas : custos;
+    const total = itens.reduce((soma, item) => soma + Math.abs(item.valor), 0);
+    const lider = itens[0];
+    const top3 = itens.slice(0, 3).reduce((soma, item) => soma + Math.abs(item.valor), 0);
+    const textos: string[] = [];
+    if (lider) {
+      textos.push(
+        `${rotuloCategoriaRelatorio(lider.nome)} concentra ${pct((Math.abs(lider.valor) / Math.max(total, 1)) * 100)} do total.`,
+      );
+      if (lider.valorAnterior !== undefined && lider.valorAnterior !== 0) {
+        const delta = variacao(lider.valor, lider.valorAnterior);
+        textos.push(
+          delta === null
+            ? "A principal categoria não possuía base comparável no mês anterior."
+            : `A principal categoria ${delta >= 0 ? "cresceu" : "recuou"} ${pct(Math.abs(delta))} frente ao mês anterior.`,
+        );
+      }
+    }
+    if (itens.length >= 3) {
+      textos.push(`As três maiores concentram ${pct((top3 / Math.max(total, 1)) * 100)} do total.`);
+    }
+    return textos.length ? textos : ["Sem base suficiente para uma leitura comparativa."];
+  }
+
+  if (grafico === "receita_mensal") {
+    const textos: string[] = [];
+    if (anterior) {
+      const delta = variacao(atual.receitaBruta, anterior.receitaBruta);
+      textos.push(
+        delta === null
+          ? `Não havia receita em ${mesesCurtos[anterior.mes]} para calcular a variação.`
+          : `A receita ${delta >= 0 ? "cresceu" : "recuou"} ${pct(Math.abs(delta))} frente a ${mesesCurtos[anterior.mes]}.`,
+      );
+    }
+    const ativos = evolucao.filter((item) => item.receita !== 0);
+    const melhor = [...ativos].sort((a, b) => b.receita - a.receita)[0];
+    if (melhor && evolucao.length > 1) textos.push(`Maior receita do período: ${melhor.mes}.`);
+    return textos.length ? textos : ["Sem mês anterior disponível para comparação."];
+  }
+
+  if (grafico === "resultados") {
+    const textos = [
+      `Conversão operacional de ${pct(atual.margemOperacional)} sobre a receita.`,
+      `Diferença entre resultado bruto e operacional: ${brl(atual.resultadoBruto - atual.resultadoOperacional, true)}.`,
+    ];
+    if (anterior) {
+      const delta = variacao(atual.resultadoOperacional, anterior.resultadoOperacional);
+      textos.push(
+        delta === null
+          ? "O mês anterior não oferece base percentual para o resultado operacional."
+          : `O resultado operacional ${delta >= 0 ? "melhorou" : "recuou"} ${pct(Math.abs(delta))} frente ao mês anterior.`,
+      );
+    }
+    return textos;
+  }
+
+  const distancia = atual.margemOperacional - margemDesejada;
+  const textos = [
+    `Margem ${distancia >= 0 ? "acima" : "abaixo"} da meta em ${formatarPontos(Math.abs(distancia))}.`,
+  ];
+  if (anterior) {
+    const delta = atual.margemOperacional - anterior.margemOperacional;
+    textos.push(
+      `Na comparação mensal, a margem ${delta >= 0 ? "avançou" : "recuou"} ${formatarPontos(Math.abs(delta))}.`,
+    );
+  }
+  return textos;
 }
 
 function PreviewGrafico({
@@ -1078,6 +1348,7 @@ function PreviewGrafico({
   numero,
   periodo,
   atual,
+  anterior,
   margemDesejada,
   evolucao,
   receitas,
@@ -1088,6 +1359,7 @@ function PreviewGrafico({
   numero: number;
   periodo: string;
   atual: ResultadoMes;
+  anterior: ResultadoMes | undefined;
   margemDesejada: number;
   evolucao: Array<{
     mes: string;
@@ -1107,13 +1379,26 @@ function PreviewGrafico({
   if (grafico === "custos_categoria")
     itens = custos.map((item) => ({ nome: item.nome, valor: item.valor }));
   if (grafico === "receita_mensal")
-    itens = evolucao.map((item) => ({ nome: item.mes, valor: item.receita }));
+    itens =
+      evolucao.length === 1 && anterior
+        ? [
+            { nome: mesesCurtos[anterior.mes] ?? "Anterior", valor: anterior.receitaBruta },
+            { nome: evolucao[0]?.mes ?? "Atual", valor: atual.receitaBruta },
+          ]
+        : evolucao.map((item) => ({ nome: item.mes, valor: item.receita }));
   if (grafico === "resultados")
-    itens = [
-      { nome: "Resultado bruto", valor: atual.resultadoBruto },
-      { nome: "Resultado operacional", valor: atual.resultadoOperacional },
-      { nome: "Resultado líquido", valor: atual.resultadoLiquido },
-    ];
+    itens = anterior
+      ? [
+          { nome: "Operacional anterior", valor: anterior.resultadoOperacional },
+          { nome: "Operacional atual", valor: atual.resultadoOperacional },
+          { nome: "Líquido anterior", valor: anterior.resultadoLiquido },
+          { nome: "Líquido atual", valor: atual.resultadoLiquido },
+        ]
+      : [
+          { nome: "Resultado bruto", valor: atual.resultadoBruto },
+          { nome: "Resultado operacional", valor: atual.resultadoOperacional },
+          { nome: "Resultado líquido", valor: atual.resultadoLiquido },
+        ];
   if (grafico === "margem_meta")
     itens = [
       { nome: "Margem atual", valor: atual.margemOperacional },
@@ -1121,7 +1406,15 @@ function PreviewGrafico({
     ];
   if (grafico === "impactos")
     itens = impactos.map((item) => ({ nome: item.nome, valor: item.efeito }));
-  const ranking = itens.slice(0, 5);
+  const insights = insightsPreviewGrafico({
+    grafico,
+    atual,
+    anterior,
+    margemDesejada,
+    evolucao,
+    receitas,
+    custos,
+  });
   return (
     <PreviewMoldura titulo={tituloGraficoRelatorio(grafico)} periodo={periodo} numero={numero}>
       <div className="mt-[3%] grid grid-cols-3 gap-[2%]">
@@ -1149,26 +1442,18 @@ function PreviewGrafico({
           {grafico === "margem_meta" ? (
             <PreviewMargem margem={atual.margemOperacional} meta={margemDesejada} />
           ) : (
-            <PreviewBarras itens={itens} />
+            <PreviewBarras itens={itens} limite={grafico === "receita_mensal" ? 12 : 7} />
           )}
         </div>
         <div className="rounded bg-[#063b77] p-[6%] ring-1 ring-white/10">
           <p className="border-b border-[#f2c94c] pb-[4%] text-[clamp(7px,1.05vw,13px)] font-bold uppercase">
             Leitura do período
           </p>
-          <ol className="mt-[6%] space-y-[5%] text-[clamp(5px,.75vw,9px)] leading-tight">
-            {ranking.map((item, indice) => (
-              <li key={`${item.nome}-${indice}`}>
-                <strong>
-                  {indice + 1}. {rotuloCategoriaRelatorio(item.nome)}
-                </strong>
-                <br />
-                <span className="text-blue-100">
-                  {grafico === "margem_meta" ? pct(item.valor) : brl(item.valor, true)}
-                </span>
-              </li>
+          <ul className="mt-[6%] space-y-[8%] text-[clamp(5px,.75vw,9px)] leading-snug text-blue-100">
+            {insights.map((texto, indice) => (
+              <li key={`${texto}-${indice}`}>• {texto}</li>
             ))}
-          </ol>
+          </ul>
         </div>
       </div>
     </PreviewMoldura>
@@ -1178,11 +1463,13 @@ function PreviewGrafico({
 function PreviewBarras({
   itens,
   percentual,
+  limite = 7,
 }: {
   itens: Array<{ nome: string; valor: number }>;
   percentual?: boolean;
+  limite?: number;
 }) {
-  const dados = itens.slice(0, 7);
+  const dados = itens.slice(0, limite);
   const maximo = Math.max(...dados.map((item) => Math.abs(item.valor)), 1);
   const cores = ["#26b9e8", "#1479d2", "#28b78d", "#f2c94c", "#f04f78", "#73c76b", "#7d9fe8"];
   return (
@@ -1266,13 +1553,9 @@ function PreviewMargem({ margem, meta }: { margem: number; meta: number }) {
 function PreviewAnalise({
   periodo,
   alertas,
-  resumo,
-  resultadoLiquido,
 }: {
   periodo: string;
   alertas: Array<{ titulo: string; detalhe: string }>;
-  resumo: string[];
-  resultadoLiquido: number;
 }) {
   return (
     <PreviewMoldura titulo="Análise financeira" periodo={periodo} numero={7}>
@@ -1311,21 +1594,23 @@ function PreviewAnalise({
         </div>
         <div className="flex flex-col rounded bg-[#063b77] p-[6%] ring-1 ring-white/10">
           <h4 className="border-b border-[#f2c94c] pb-[4%] text-[clamp(7px,1.2vw,15px)] font-bold uppercase">
-            Síntese executiva
+            Escopo do diagnóstico
           </h4>
           <ul className="mt-[7%] flex-1 space-y-[7%] text-[clamp(5px,.75vw,10px)] leading-snug text-blue-100">
-            {resumo.map((texto, indice) => (
-              <li key={`${texto}-${indice}`}>• {texto}</li>
-            ))}
+            <li>• {alertas.length} alertas relevantes identificados</li>
+            <li>• Evidências ordenadas por prioridade para acompanhamento</li>
+            <li>• Detalhamento restrito aos pontos que exigem decisão</li>
           </ul>
           <div
             className={cn(
               "rounded px-[4%] py-[4%] text-center",
-              resultadoLiquido >= 0 ? "bg-[#28b78d]" : "bg-[#f04f78]",
+              alertas.length === 0 ? "bg-[#28b78d]" : "bg-[#f04f78]",
             )}
           >
-            <p className="text-[clamp(4px,.65vw,8px)] font-bold uppercase">Resultado líquido</p>
-            <p className="text-[clamp(7px,1.15vw,14px)] font-bold">{brl(resultadoLiquido)}</p>
+            <p className="text-[clamp(4px,.65vw,8px)] font-bold uppercase">
+              Itens para acompanhamento
+            </p>
+            <p className="text-[clamp(7px,1.15vw,14px)] font-bold">{alertas.length}</p>
           </div>
         </div>
       </div>
@@ -1930,6 +2215,7 @@ type CategoriaResumo = {
   nome: string;
   grupo: GrupoDre;
   valor: number;
+  valorAnterior?: number;
 };
 
 function ehChicagoBarbearia(nomeEmpresa: string | null | undefined): boolean {
@@ -1949,6 +2235,7 @@ function topCategorias(
   linhas: ReturnType<typeof agregarPorCategoria>,
   mesesVisiveis: number[],
   grupos: GrupoDre[],
+  linhasAnoAnterior: ReturnType<typeof agregarPorCategoria> = [],
 ): CategoriaResumo[] {
   return linhas
     .filter((linha) => grupos.includes(linha.grupo))
@@ -1956,6 +2243,17 @@ function topCategorias(
       nome: linha.nome,
       grupo: linha.grupo,
       valor: mesesVisiveis.reduce((s, mes) => s + Math.abs(linha.valores[mes] ?? 0), 0),
+      ...(mesesVisiveis.length === 1 && mesesVisiveis[0] !== undefined
+        ? {
+            valorAnterior: Math.abs(
+              mesesVisiveis[0] > 0
+                ? (linha.valores[mesesVisiveis[0] - 1] ?? 0)
+                : (linhasAnoAnterior.find(
+                    (anterior) => anterior.nome === linha.nome && anterior.grupo === linha.grupo,
+                  )?.valores[11] ?? 0),
+            ),
+          }
+        : {}),
     }))
     .filter((linha) => linha.valor > 0)
     .sort((a, b) => b.valor - a.valor);
@@ -2027,7 +2325,7 @@ function resumoExecutivo(
   const distanciaMeta = atual.margemOperacional - margemDesejada;
 
   return [
-    `A operação encerrou o mês com receita operacional de ${brl(atual.receitaBruta)} e resultado operacional de ${brl(atual.resultadoOperacional)}, equivalente a uma margem de ${pct(atual.margemOperacional)}.`,
+    `A operação encerrou o período com receita operacional de ${brl(atual.receitaBruta)} e resultado operacional de ${brl(atual.resultadoOperacional)}, equivalente a uma margem de ${pct(atual.margemOperacional)}.`,
     receitaVar === null
       ? "Não há base comparável do mês anterior para medir variação de receita."
       : `Em relação ao mês anterior, a receita ${receitaVar >= 0 ? "cresceu" : "recuou"} ${pct(Math.abs(receitaVar))} e o resultado operacional variou ${resultadoVar && resultadoVar > 0 ? "+" : ""}${brl(resultadoVar ?? 0)}.`,
