@@ -106,15 +106,15 @@ const sql: Record<string, (d: RequestData, userId: string) => { text: string; va
       values: [d.empresaId],
     }),
     titulos: (d) => ({
-      text: "select * from fluxo_titulos_nibo where empresa_id=$1::uuid and external_source in ('fluxo_caixa','manual_fluxo_caixa') and data_projetada between $2::date and $3::date and status <> 'cancelado' order by data_projetada,id",
+      text: "select * from fluxo_titulos_nibo where empresa_id=$1::uuid and external_source in ('fluxo_caixa','manual_fluxo_caixa','nibo_api_fluxo') and data_projetada between $2::date and $3::date and status <> 'cancelado' order by data_projetada,id",
       values: [d.empresaId, d.inicio, d.fim],
     }),
     titulosReceberVencidos: (d) => ({
-      text: "select * from fluxo_titulos_nibo where empresa_id=$1::uuid and external_source in ('fluxo_caixa','manual_fluxo_caixa') and tipo='recebida' and vencimento<$2::date and status <> 'cancelado' order by vencimento limit 50",
+      text: "select * from fluxo_titulos_nibo where empresa_id=$1::uuid and external_source in ('fluxo_caixa','manual_fluxo_caixa','nibo_api_fluxo') and tipo='recebida' and vencimento<$2::date and status <> 'cancelado' order by vencimento limit 50",
       values: [d.empresaId, d.hoje],
     }),
     titulosPagarVencidos: (d) => ({
-      text: "select * from fluxo_titulos_nibo where empresa_id=$1::uuid and external_source in ('fluxo_caixa','manual_fluxo_caixa') and tipo='paga' and vencimento<$2::date and status not in ('cancelado','pago','recebido') order by vencimento limit 50",
+      text: "select * from fluxo_titulos_nibo where empresa_id=$1::uuid and external_source in ('fluxo_caixa','manual_fluxo_caixa','nibo_api_fluxo') and tipo='paga' and vencimento<$2::date and status not in ('cancelado','pago','recebido') order by vencimento limit 50",
       values: [d.empresaId, d.hoje],
     }),
     metas: (d) => ({

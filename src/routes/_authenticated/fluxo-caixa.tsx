@@ -24,6 +24,7 @@ import {
   Loader2,
   Plus,
   Printer,
+  RefreshCw,
   Search,
   Trash2,
   Upload,
@@ -80,6 +81,7 @@ import { mutateFinancialData } from "@/lib/financial-mutations.functions";
 import { importarManual } from "@/lib/importacao/importer.functions";
 import { brl, competenciaDate, dataBR } from "@/lib/format";
 import { parseArquivoNibo, type TituloImportado } from "@/lib/nibo";
+import { sincronizarFluxoNiboApi } from "@/integrations/nibo/api.functions";
 import type { Json } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
 
@@ -309,6 +311,7 @@ function FluxoCaixaPage() {
   const queryClient = useQueryClient();
   const mutateData = useServerFn(mutateFinancialData);
   const importarServidor = useServerFn(importarManual);
+  const sincronizarFluxoNiboServidor = useServerFn(sincronizarFluxoNiboApi);
   const { empresaId, centroCusto, ano, mes } = useApp();
   const { data: empresa } = useEmpresaAtual(empresaId);
   const hoje = hojeISO();
@@ -383,6 +386,40 @@ function FluxoCaixaPage() {
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Falha ao importar títulos."),
+  });
+
+  const sincronizarTitulosNibo = useMutation({
+    mutationFn: async () => {
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+      return sincronizarFluxoNiboServidor({ data: { empresaId } });
+    },
+    onSuccess: async (resultado) => {
+      const pagas = resultado.pagas;
+      const recebidas = resultado.recebidas;
+      const novas = (pagas?.novas ?? 0) + (recebidas?.novas ?? 0);
+      const removidas = (pagas?.removidas ?? 0) + (recebidas?.removidas ?? 0);
+      if (resultado.status === "success") {
+        if (novas > 0) {
+          toast.success(
+            `${novas} conta(s) a pagar ou a receber encontrada(s) e adicionada(s).${removidas ? ` ${removidas} conta(s) encerrada(s) removida(s).` : ""}`,
+          );
+        } else {
+          toast.info(
+            `Nenhuma conta nova encontrada.${removidas ? ` ${removidas} conta(s) encerrada(s) removida(s).` : ""}`,
+          );
+        }
+      } else {
+        toast.warning(`Sincronizacao parcial: ${resultado.erros.join(" | ")}`);
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-nibo"] }),
+        queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-pagar-vencidos"] }),
+        queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-receber-vencidos"] }),
+        queryClient.invalidateQueries({ queryKey: ["fluxo-checklist-pagamentos"] }),
+      ]);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Falha ao sincronizar com o Nibo."),
   });
 
   const excluirTitulosFluxo = useMutation({
@@ -1029,6 +1066,16 @@ function FluxoCaixaPage() {
                   </DialogContent>
                 </Dialog>
                 <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => sincronizarTitulosNibo.mutate()}
+                    disabled={sincronizarTitulosNibo.isPending}
+                  >
+                    <RefreshCw
+                      className={cn("h-4 w-4", sincronizarTitulosNibo.isPending && "animate-spin")}
+                    />
+                    {sincronizarTitulosNibo.isPending ? "Sincronizando..." : "Sincronizar NIBO"}
+                  </Button>
                   <input
                     ref={inputImportacaoFluxoRef}
                     className="sr-only"
@@ -2134,6 +2181,9 @@ function linhaParaExportacao(linha: LinhaFluxo) {
 }
 
 function tipoProjetadoTitulo(titulo: FluxoTituloNibo) {
+  // A API ja informa a natureza pelo endpoint debit/credit. Nao deixe o nome
+  // da categoria inverter uma conta a receber classificada em grupo de custo.
+  if (titulo.external_source === "nibo_api_fluxo") return titulo.tipo;
   // Títulos negativos já foram classificados como contas a pagar durante a
   // leitura. Não permita que texto ou categoria mudem essa natureza depois.
   if (titulo.tipo === "paga") return "paga";

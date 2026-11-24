@@ -4,6 +4,7 @@ import { assertEmpresaAccess } from "@/lib/authorization";
 import { query, withTransaction } from "@/lib/postgres";
 import { NiboApiClient } from "./api-client";
 import {
+  adaptarAgendamentosAbertosNibo,
   adaptarBaixasNibo,
   deveEntrarDreNibo,
   obterIdOriginalNibo,
@@ -57,6 +58,12 @@ function hojeEmSaoPaulo() {
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
+function fimDoProximoMes(hoje: string) {
+  const [ano, mes] = hoje.split("-").map(Number);
+  if (!ano || !mes) throw new Error("Nao foi possivel determinar o periodo de sincronizacao.");
+  return new Date(Date.UTC(ano, mes + 1, 0)).toISOString().slice(0, 10);
+}
+
 function normalizarCategoria(valor: string) {
   return valor
     .normalize("NFD")
@@ -64,6 +71,55 @@ function normalizarCategoria(valor: string) {
     .trim()
     .replace(/\s+/g, " ")
     .toLowerCase();
+}
+
+async function persistirTitulosAbertos(
+  empresaId: string,
+  tipo: "paga" | "recebida",
+  linhas: ReturnType<typeof adaptarAgendamentosAbertosNibo>,
+) {
+  return withTransaction(async (client) => {
+    const ids = linhas.map((linha) => linha.external_id);
+    const existentes = await client.query<{ external_id: string }>(
+      "select external_id from fluxo_titulos_nibo where empresa_id=$1::uuid and external_source='nibo_api_fluxo' and tipo=$2",
+      [empresaId, tipo],
+    );
+    const idsExistentes = new Set(existentes.rows.map((row) => row.external_id));
+    const novas = linhas.filter((linha) => !idsExistentes.has(linha.external_id)).length;
+    const atualizadas = linhas.length - novas;
+
+    for (let offset = 0; offset < linhas.length; offset += 200) {
+      const batch = linhas.slice(offset, offset + 200);
+      await client.query(
+        `insert into fluxo_titulos_nibo
+          (empresa_id,tipo,vencimento,data_projetada,competencia,descricao,categoria_nibo,pessoa,centro_custo,valor,status,hash,external_source,external_id,source_content_hash,payload)
+         select $1::uuid,x.tipo::tipo_lancamento,x.vencimento::date,x.data_projetada::date,
+          x.competencia::date,x.descricao,x.categoria_nibo,x.pessoa,x.centro_custo,x.valor,
+          x.status,x.hash,'nibo_api_fluxo',x.external_id,x.source_content_hash,x.payload
+         from jsonb_to_recordset($2::jsonb) as x(
+          tipo text,vencimento text,data_projetada text,competencia text,descricao text,
+          categoria_nibo text,pessoa text,centro_custo text,valor numeric,status text,
+          hash text,external_id text,source_content_hash text,payload jsonb)
+         on conflict (empresa_id,external_source,external_id)
+          where external_source is not null and external_id is not null
+         do update set
+          tipo=excluded.tipo,vencimento=excluded.vencimento,data_projetada=excluded.data_projetada,
+          competencia=excluded.competencia,descricao=excluded.descricao,categoria_nibo=excluded.categoria_nibo,
+          pessoa=excluded.pessoa,centro_custo=excluded.centro_custo,valor=excluded.valor,
+          status=excluded.status,hash=excluded.hash,source_content_hash=excluded.source_content_hash,
+          payload=excluded.payload`,
+        [empresaId, JSON.stringify(batch)],
+      );
+    }
+
+    const removidas = await client.query(
+      `delete from fluxo_titulos_nibo
+       where empresa_id=$1::uuid and external_source='nibo_api_fluxo' and tipo=$2
+         and (cardinality($3::text[])=0 or not (external_id = any($3::text[])))`,
+      [empresaId, tipo, ids],
+    );
+    return { encontradas: linhas.length, novas, atualizadas, removidas: removidas.rowCount ?? 0 };
+  });
 }
 
 async function persistir(
@@ -319,4 +375,51 @@ export const sincronizarNiboApi = createServerFn({ method: "POST" })
       ],
     );
     return { status, ...result };
+  });
+
+export const sincronizarFluxoNiboApi = createServerFn({ method: "POST" })
+  .middleware([requireAuthenticatedUser])
+  .validator((data: { empresaId: string }) => data)
+  .handler(async ({ context, data }) => {
+    await assertEmpresaAccess(String(context.userId), data.empresaId);
+    if (!(await config(data.empresaId)))
+      throw new Error("Integracao Nibo nao habilitada para esta empresa.");
+    const hoje = hojeEmSaoPaulo();
+    const horizonteFim = fimDoProximoMes(hoje);
+    const client = apiClient();
+    const result = {
+      pagas: null as Awaited<ReturnType<typeof persistirTitulosAbertos>> | null,
+      recebidas: null as Awaited<ReturnType<typeof persistirTitulosAbertos>> | null,
+      erros: [] as string[],
+    };
+    for (const entry of [
+      {
+        endpoint: "schedules/debit/opened" as const,
+        tipo: "paga" as const,
+        key: "pagas" as const,
+      },
+      {
+        endpoint: "schedules/credit/opened" as const,
+        tipo: "recebida" as const,
+        key: "recebidas" as const,
+      },
+    ]) {
+      try {
+        const raw = await client.listAllOpenedSchedules(entry.endpoint, horizonteFim);
+        const linhas = adaptarAgendamentosAbertosNibo(raw, entry.tipo, hoje).filter(
+          (linha) => linha.valor > 0,
+        );
+        result[entry.key] = await persistirTitulosAbertos(data.empresaId, entry.tipo, linhas);
+      } catch (error) {
+        result.erros.push(
+          `${entry.tipo === "paga" ? "Contas a pagar" : "Contas a receber"}: ${error instanceof Error ? error.message : "falha desconhecida"}`,
+        );
+      }
+    }
+    if (!result.pagas && !result.recebidas) throw new Error(result.erros.join(" | "));
+    return {
+      status: result.erros.length ? ("partial_success" as const) : ("success" as const),
+      horizonteFim,
+      ...result,
+    };
   });

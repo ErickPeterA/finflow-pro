@@ -66,6 +66,23 @@ export interface NiboApiLinha extends LinhaImportada {
   payload: ApiRecord;
 }
 
+export interface NiboApiTitulo {
+  tipo: TipoLancamento;
+  vencimento: string;
+  data_projetada: string;
+  competencia: string;
+  descricao: string;
+  categoria_nibo: string;
+  pessoa: string;
+  centro_custo: string;
+  valor: number;
+  status: "aberto" | "vencido";
+  hash: string;
+  external_id: string;
+  source_content_hash: string;
+  payload: ApiRecord;
+}
+
 export function obterIdOriginalNibo(item: ApiRecord) {
   return text(item["entryId"], item["paymentId"], item["receiptId"], item["id"]);
 }
@@ -188,5 +205,52 @@ export function adaptarBaixasNibo(items: ApiRecord[], tipo: TipoLancamento): Nib
         return { ...linhaSemHash, hash: `nibo_api|${externalId}` };
       });
     });
+  });
+}
+
+export function adaptarAgendamentosAbertosNibo(
+  items: ApiRecord[],
+  tipo: TipoLancamento,
+  hoje: string,
+): NiboApiTitulo[] {
+  return items.map((item, index) => {
+    const scheduleId = text(item["scheduleId"], item["id"]);
+    if (!scheduleId) throw new Error(`Agendamento ${index + 1} do Nibo sem identificador.`);
+    const dueDate = date(item["dueDate"]);
+    if (!dueDate) throw new Error(`Agendamento Nibo ${scheduleId} sem vencimento valido.`);
+    const projectedDate = date(item["scheduleDate"]) || dueDate;
+    const accrualDate = date(item["accrualDate"]) || dueDate;
+    const stakeholder = record(item["stakeholder"]);
+    const categories = array(item["categories"]);
+    const singleCategory = record(item["category"]);
+    const costCenters = array(item["costCenters"] ?? item["costcenters"]);
+    const singleCostCenter = record(item["costCenter"]);
+    const openValue = optionalNumber(item["openValue"]);
+    const value = Math.abs(openValue ?? number(item["value"]));
+    const categoryNames = categories.length
+      ? categories.map((category) => text(category["categoryName"], category["name"]))
+      : [text(singleCategory?.["name"], singleCategory?.["categoryName"])];
+    const centerNames = costCenters.length
+      ? costCenters.map((center) =>
+          text(center["costCenterDescription"], center["description"], center["name"]),
+        )
+      : [text(singleCostCenter?.["description"], singleCostCenter?.["name"])];
+    const externalId = `${tipo}:${scheduleId}`;
+    return {
+      tipo,
+      vencimento: dueDate,
+      data_projetada: projectedDate,
+      competencia: `${accrualDate.slice(0, 7)}-01`,
+      descricao: text(item["description"], item["reference"]),
+      categoria_nibo: [...new Set(categoryNames.filter(Boolean))].join(" • "),
+      pessoa: text(stakeholder?.["name"], item["stakeholderName"]),
+      centro_custo: [...new Set(centerNames.filter(Boolean))].join(" • "),
+      valor: Number(value.toFixed(2)),
+      status: item["isDued"] === true || dueDate < hoje ? "vencido" : "aberto",
+      hash: `nibo_api_fluxo|${externalId}`,
+      external_id: externalId,
+      source_content_hash: stableHash({ adapterVersion: 1, item, value }),
+      payload: item,
+    };
   });
 }

@@ -1,7 +1,8 @@
 const DEFAULT_BASE_URL = "https://api.nibo.com.br/empresas/v1";
 export const NIBO_PAGE_SIZE = 500;
 
-export type NiboEndpoint = "payments" | "receipts";
+export type NiboEndpoint =
+  "payments" | "receipts" | "schedules/debit/opened" | "schedules/credit/opened";
 
 export interface NiboApiPage<T = Record<string, unknown>> {
   items: T[];
@@ -52,13 +53,37 @@ export class NiboApiClient {
     return items;
   }
 
+  async listAllOpenedSchedules(
+    endpoint: "schedules/debit/opened" | "schedules/credit/opened",
+    dueDateEnd?: string,
+  ) {
+    const items: Record<string, unknown>[] = [];
+    for (let skip = 0; ; skip += NIBO_PAGE_SIZE) {
+      const page = await this.getPage(endpoint, {
+        skip,
+        top: NIBO_PAGE_SIZE,
+        ...(dueDateEnd ? { dueDateEnd } : {}),
+      });
+      items.push(...page.items);
+      if (!page.items.length || items.length >= page.count) break;
+    }
+    return items;
+  }
+
   private async getPage(
     endpoint: NiboEndpoint,
-    params: { inicio: string; fim: string; skip: number; top: number },
+    params: { inicio?: string; fim?: string; dueDateEnd?: string; skip: number; top: number },
   ): Promise<NiboApiPage> {
     const url = new URL(`${this.baseUrl}/${endpoint}`);
-    url.searchParams.set("$filter", `date ge ${params.inicio} and date le ${params.fim}`);
-    url.searchParams.set("$orderby", "date asc");
+    if (params.inicio && params.fim) {
+      url.searchParams.set("$filter", `date ge ${params.inicio} and date le ${params.fim}`);
+    } else if (params.dueDateEnd) {
+      url.searchParams.set("$filter", `dueDate le ${params.dueDateEnd}`);
+    }
+    url.searchParams.set(
+      "$orderby",
+      endpoint.startsWith("schedules/") ? "dueDate asc" : "date asc",
+    );
     url.searchParams.set("$skip", String(params.skip));
     url.searchParams.set("$top", String(params.top));
     const controller = new AbortController();

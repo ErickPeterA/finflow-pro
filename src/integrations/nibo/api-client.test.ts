@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { adaptarBaixasNibo, deveEntrarDreNibo } from "./api-adapter";
+import {
+  adaptarAgendamentosAbertosNibo,
+  adaptarBaixasNibo,
+  deveEntrarDreNibo,
+} from "./api-adapter";
 import { NiboApiClient, NiboApiError } from "./api-client";
 
 function json(body: unknown, status = 200) {
@@ -55,6 +59,27 @@ test("receipts: usa o endpoint de recebimentos", async () => {
   });
   await client.listAll("receipts", "2026-01-01", "2026-01-31");
   assert.match(pathname, /\/receipts$/);
+});
+
+test("agendamentos abertos: pagina e ordena pelo vencimento", async () => {
+  const calls: URL[] = [];
+  const client = new NiboApiClient({
+    token: "x",
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      calls.push(url);
+      const skip = Number(url.searchParams.get("$skip"));
+      return json({
+        items: Array.from({ length: skip === 0 ? 500 : 1 }, (_, id) => ({ scheduleId: id })),
+        count: 501,
+      });
+    },
+  });
+  const result = await client.listAllOpenedSchedules("schedules/debit/opened", "2026-12-31");
+  assert.equal(result.length, 501);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0]!.searchParams.get("$orderby"), "dueDate asc");
+  assert.equal(calls[0]!.searchParams.get("$filter"), "dueDate le 2026-12-31");
 });
 
 for (const status of [401, 403, 500]) {
@@ -228,4 +253,35 @@ test("adapter normaliza rateios originais ao valor efetivamente baixado", () => 
     rows.reduce((sum, row) => sum + row.valor, 0),
     50,
   );
+});
+
+test("adapter de fluxo usa saldo aberto e datas do agendamento", () => {
+  const [titulo] = adaptarAgendamentosAbertosNibo(
+    [
+      {
+        scheduleId: "s1",
+        dueDate: "2026-11-20T00:00:00Z",
+        scheduleDate: "2026-11-25T00:00:00Z",
+        accrualDate: "2026-10-01T00:00:00Z",
+        value: 1000,
+        paidValue: 750,
+        openValue: 250,
+        description: "Fornecedor",
+        stakeholder: { name: "Pessoa" },
+        categories: [{ categoryName: "2.3 Software" }],
+        costCenters: [{ costCenterDescription: "Operacional" }],
+        isDued: true,
+      },
+    ],
+    "paga",
+    "2026-11-24",
+  );
+  assert.equal(titulo?.valor, 250);
+  assert.equal(titulo?.vencimento, "2026-11-20");
+  assert.equal(titulo?.data_projetada, "2026-11-25");
+  assert.equal(titulo?.competencia, "2026-10-01");
+  assert.equal(titulo?.status, "vencido");
+  assert.equal(titulo?.external_id, "paga:s1");
+  assert.equal(titulo?.categoria_nibo, "2.3 Software");
+  assert.equal(titulo?.centro_custo, "Operacional");
 });
