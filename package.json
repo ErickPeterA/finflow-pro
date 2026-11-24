@@ -13,6 +13,8 @@
     "nibo:sync": "tsx src/integrations/nibo/cli.ts",
     "preview": "vite preview",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx src/integrations/nibo/api-client.test.ts",
     "format": "prettier --write ."
   },
   "dependencies": {

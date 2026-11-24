@@ -126,7 +126,7 @@ const sql: Record<string, (d: RequestData, userId: string) => { text: string; va
       values: [d.empresaId],
     }),
     importacoes: (d) => ({
-      text: "select * from importacoes where empresa_id=$1::uuid order by created_at desc",
+      text: "select * from importacoes where empresa_id=$1::uuid order by competencia desc, created_at desc",
       values: [d.empresaId],
     }),
     planos: (d) => ({

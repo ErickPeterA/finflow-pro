@@ -1,8 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState, type DragEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, Trash2, Upload } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  FileSpreadsheet,
+  RefreshCw,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/TopBar";
 import { Bloco, SemDados, SemEmpresa } from "@/components/ui-blocos";
@@ -43,6 +50,11 @@ import {
 } from "@/lib/nibo";
 import { brl, competenciaDate, dataBR, meses } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  obterStatusNiboApi,
+  sincronizarNiboApi,
+  testarConexaoNiboApi,
+} from "@/integrations/nibo/api.functions";
 
 export const Route = createFileRoute("/_authenticated/importacao")({
   head: () => ({
@@ -72,6 +84,9 @@ function ImportacaoPage() {
   const importarLoteServidor = useServerFn(importarLoteManual);
   const finalizarImportacaoServidor = useServerFn(finalizarImportacaoManual);
   const removerServidor = useServerFn(removerImportacaoManual);
+  const obterStatusNiboServidor = useServerFn(obterStatusNiboApi);
+  const sincronizarNiboServidor = useServerFn(sincronizarNiboApi);
+  const testarConexaoNiboServidor = useServerFn(testarConexaoNiboApi);
   const { data: importacoes = [] } = useImportacoes(empresaId);
   const { data: mapeamentos = [] } = useMapeamentos(empresaId);
   const { data: hashes = [] } = useLancamentoHashes(empresaId, ano);
@@ -86,6 +101,15 @@ function ImportacaoPage() {
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
   const [tipoLimpeza, setTipoLimpeza] = useState<TipoLimpezaImportacao>("paga");
   const [arrastando, setArrastando] = useState(false);
+  const [resumoNibo, setResumoNibo] = useState<Awaited<
+    ReturnType<typeof sincronizarNiboServidor>
+  > | null>(null);
+
+  const statusNibo = useQuery({
+    queryKey: ["nibo-api-status", empresaId],
+    enabled: !!empresaId,
+    queryFn: () => obterStatusNiboServidor({ data: { empresaId: empresaId! } }),
+  });
 
   const hashesExistentes = useMemo(() => new Set(hashes), [hashes]);
 
@@ -306,6 +330,38 @@ function ImportacaoPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao limpar as importações."),
   });
 
+  const testarNibo = useMutation({
+    mutationFn: async () => {
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+      return testarConexaoNiboServidor({ data: { empresaId } });
+    },
+    onSuccess: () => {
+      toast.success("Conexao com o Nibo validada.");
+      statusNibo.refetch();
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Falha ao testar conexao."),
+  });
+
+  const sincronizarNibo = useMutation({
+    mutationFn: async () => {
+      if (!empresaId) throw new Error("Selecione uma empresa.");
+      return sincronizarNiboServidor({ data: { empresaId } });
+    },
+    onSuccess: (resultado) => {
+      setResumoNibo(resultado);
+      if (resultado.status === "success") toast.success("Sincronizacao Nibo concluida.");
+      else toast.warning("Sincronizacao concluida com falhas. Consulte o resumo.");
+      statusNibo.refetch();
+      queryClient.invalidateQueries({ queryKey: ["importacoes"] });
+      queryClient.invalidateQueries({ queryKey: ["lancamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["lancamento-hashes"] });
+      queryClient.invalidateQueries({ queryKey: ["centros-custo"] });
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Falha ao sincronizar Nibo."),
+  });
+
   return (
     <>
       <TopBar titulo="Importação NIBO" descricao="Contas recebidas e pagas · regime de caixa" />
@@ -314,6 +370,87 @@ function ImportacaoPage() {
           <SemEmpresa />
         ) : (
           <>
+            {statusNibo.data?.disponivel && (
+              <Bloco
+                titulo="Sincronizar com Nibo"
+                acoes={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => testarNibo.mutate()}
+                    disabled={testarNibo.isPending}
+                  >
+                    {testarNibo.isPending ? "Testando..." : "Testar conexao"}
+                  </Button>
+                }
+              >
+                <div className="flex flex-wrap items-center gap-4">
+                  <Button
+                    onClick={() => sincronizarNibo.mutate()}
+                    disabled={sincronizarNibo.isPending || statusNibo.data.status !== "conectado"}
+                  >
+                    <RefreshCw
+                      className={cn("mr-2 h-4 w-4", sincronizarNibo.isPending && "animate-spin")}
+                    />
+                    {sincronizarNibo.isPending ? "Sincronizando..." : "Sincronizar Nibo"}
+                  </Button>
+                  <p className="text-sm text-muted-foreground">
+                    Confere todo o historico do Nibo ate hoje, incluindo alteracoes e exclusoes.
+                  </p>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                  <span>
+                    Nibo:{" "}
+                    <strong>
+                      {statusNibo.data.status === "conectado" ? "Conectado" : "Nao configurado"}
+                    </strong>
+                  </span>
+                  {statusNibo.data.syncStartDate && (
+                    <span>
+                      Inicio da API: <strong>{dataBR(statusNibo.data.syncStartDate)}</strong>
+                    </span>
+                  )}
+                  <span>
+                    Ultima sincronizacao:{" "}
+                    <strong>
+                      {statusNibo.data.ultimaSincronizacao
+                        ? new Date(statusNibo.data.ultimaSincronizacao).toLocaleString("pt-BR")
+                        : "Nunca"}
+                    </strong>
+                  </span>
+                </div>
+                {resumoNibo && (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {(["pagas", "recebidas"] as const).map((key) => {
+                      const item = resumoNibo[key];
+                      return (
+                        <div
+                          key={key}
+                          className={cn(
+                            "rounded-lg border p-4",
+                            item.erro && "border-negative bg-negative-soft",
+                          )}
+                        >
+                          <p className="font-semibold">Contas {key}</p>
+                          {item.periodoInicio && item.periodoFim && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Periodo: {dataBR(item.periodoInicio)} a {dataBR(item.periodoFim)}
+                            </p>
+                          )}
+                          <p className="mt-2 text-sm">
+                            Encontradas: {item.encontradas} · Novas: {item.novas} · Atualizadas:{" "}
+                            {item.atualizadas} · Ignoradas: {item.ignoradas}
+                          </p>
+                          {item.erro && (
+                            <p className="mt-2 text-sm text-negative">Erro: {item.erro}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Bloco>
+            )}
             <Bloco titulo="Nova importação">
               <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
                 <div className="space-y-4">
