@@ -94,7 +94,28 @@ export function deveEntrarDreNibo(item: ApiRecord) {
   return item["isTransfer"] !== true;
 }
 
-export function adaptarBaixasNibo(items: ApiRecord[], tipo: TipoLancamento): NiboApiLinha[] {
+export function coletarNomesCentrosCustoNibo(
+  items: ApiRecord[],
+  nomes = new Map<string, string>(),
+) {
+  for (const item of items) {
+    const centers = array(item["costCenters"] ?? item["costcenters"]);
+    const single = record(item["costCenter"]);
+    if (single) centers.push(single);
+    for (const center of centers) {
+      const id = text(center["costCenterId"], center["id"]);
+      const nome = text(center["costCenterDescription"], center["description"], center["name"]);
+      if (id && nome) nomes.set(id, nome);
+    }
+  }
+  return nomes;
+}
+
+export function adaptarBaixasNibo(
+  items: ApiRecord[],
+  tipo: TipoLancamento,
+  nomesCentros = new Map<string, string>(),
+): NiboApiLinha[] {
   return items.flatMap((item, itemIndex) => {
     const id = obterIdOriginalNibo(item);
     if (!id) throw new Error(`Registro ${itemIndex + 1} do Nibo sem identificador original.`);
@@ -176,7 +197,11 @@ export function adaptarBaixasNibo(items: ApiRecord[], tipo: TipoLancamento): Nib
           item["supplierName"],
           item["customerName"],
         );
-        const centro = text(center["costCenterDescription"], center["description"], center["name"]);
+        const centerId = text(center["costCenterId"], center["id"]);
+        const centro =
+          text(center["costCenterDescription"], center["description"], center["name"]) ||
+          nomesCentros.get(centerId) ||
+          "";
         const descricao = text(item["description"], item["identifier"], item["reference"]);
         const signedValue = tipo === "paga" ? -Math.abs(allocated) : Math.abs(allocated);
         const linhaSemHash: Omit<NiboApiLinha, "hash"> = {
@@ -196,7 +221,14 @@ export function adaptarBaixasNibo(items: ApiRecord[], tipo: TipoLancamento): Nib
           external_id: externalId,
           // A versao faz alteracoes de regra do adapter dispararem update mesmo
           // quando o payload bruto do Nibo nao mudou.
-          source_content_hash: stableHash({ adapterVersion: 4, item, category, center, allocated }),
+          source_content_hash: stableHash({
+            adapterVersion: 5,
+            item,
+            category,
+            center,
+            allocated,
+            centro,
+          }),
           reference: text(item["reference"]),
           cpf_cnpj: text(stakeholder?.["cpfCnpj"], item["cpfCnpj"]),
           categoria_pai: text(category["parent"], category["parentName"]),
@@ -212,6 +244,7 @@ export function adaptarAgendamentosAbertosNibo(
   items: ApiRecord[],
   tipo: TipoLancamento,
   hoje: string,
+  nomesCentros = new Map<string, string>(),
 ): NiboApiTitulo[] {
   return items.map((item, index) => {
     const scheduleId = text(item["scheduleId"], item["id"]);
@@ -231,10 +264,17 @@ export function adaptarAgendamentosAbertosNibo(
       ? categories.map((category) => text(category["categoryName"], category["name"]))
       : [text(singleCategory?.["name"], singleCategory?.["categoryName"])];
     const centerNames = costCenters.length
-      ? costCenters.map((center) =>
-          text(center["costCenterDescription"], center["description"], center["name"]),
+      ? costCenters.map(
+          (center) =>
+            text(center["costCenterDescription"], center["description"], center["name"]) ||
+            nomesCentros.get(text(center["costCenterId"], center["id"])) ||
+            "",
         )
-      : [text(singleCostCenter?.["description"], singleCostCenter?.["name"])];
+      : [
+          text(singleCostCenter?.["description"], singleCostCenter?.["name"]) ||
+            nomesCentros.get(text(singleCostCenter?.["costCenterId"], singleCostCenter?.["id"])) ||
+            "",
+        ];
     const externalId = `${tipo}:${scheduleId}`;
     return {
       tipo,

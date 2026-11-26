@@ -21,6 +21,7 @@ dist-ssr
 .nibo-downloads/
 .nibo-auth/
 storageState*.json
+.playwright-mcp/
 
 # Wrangler / Cloudflare
 .wrangler/

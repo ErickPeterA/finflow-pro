@@ -395,7 +395,7 @@ function ImportacaoPage() {
                     {sincronizarNibo.isPending ? "Sincronizando..." : "Sincronizar Nibo"}
                   </Button>
                   <p className="text-sm text-muted-foreground">
-                    Confere todo o historico do Nibo ate hoje, incluindo alteracoes e exclusoes.
+                    Confere todo o periodo configurado no Nibo, sem cortar os dias anteriores.
                   </p>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">

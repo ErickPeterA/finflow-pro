@@ -3,9 +3,11 @@ import { requireAuthenticatedUser } from "@/lib/auth-middleware";
 import { assertEmpresaAccess } from "@/lib/authorization";
 import { query, withTransaction } from "@/lib/postgres";
 import { NiboApiClient } from "./api-client";
+import { dataInicialNiboLegada, tokenNiboDaEmpresa } from "./api-config";
 import {
   adaptarAgendamentosAbertosNibo,
   adaptarBaixasNibo,
+  coletarNomesCentrosCustoNibo,
   deveEntrarDreNibo,
   obterIdOriginalNibo,
   type NiboApiLinha,
@@ -13,12 +15,14 @@ import {
 
 type SyncInput = { empresaId: string };
 
-function apiClient() {
+function apiClient(empresaId: string) {
   const baseUrl = process.env["NIBO_API_BASE_URL"];
   return new NiboApiClient({
-    token: process.env["NIBO_HARTWIG_API_TOKEN"] ?? "",
+    token: tokenNiboDaEmpresa(empresaId),
     ...(baseUrl ? { baseUrl } : {}),
-    timeoutMs: Number(process.env["NIBO_API_TIMEOUT_MS"] ?? 15_000),
+    timeoutMs: Number(process.env["NIBO_API_TIMEOUT_MS"] ?? 60_000),
+    pageConcurrency: Number(process.env["NIBO_API_PAGE_CONCURRENCY"] ?? 4),
+    maxRetries: Number(process.env["NIBO_API_MAX_RETRIES"] ?? 2),
   });
 }
 
@@ -31,18 +35,11 @@ async function config(empresaId: string) {
     nibo_company_id: string | null;
     nibo_company_name: string | null;
   }>(
-    "select e.id as empresa_id,e.nome,c.sync_start_date,c.last_verified_at,c.nibo_company_id,c.nibo_company_name from empresas e left join nibo_project_configs c on c.empresa_id=e.id where e.id=$1::uuid and e.ativo=true",
+    "select e.id as empresa_id,e.nome,c.sync_start_date,c.last_verified_at,c.nibo_company_id,c.nibo_company_name from empresas e join nibo_project_configs c on c.empresa_id=e.id and c.nibo_enabled=true where e.id=$1::uuid and e.ativo=true",
     [empresaId],
   );
   const row = result.rows[0];
   if (!row) return null;
-  const configuredId = process.env["NIBO_HARTWIG_EMPRESA_ID"]?.trim();
-  const nameMatches = row.nome
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .includes("hartwig");
-  if (configuredId ? configuredId !== row.empresa_id : !nameMatches) return null;
   return row;
 }
 
@@ -157,6 +154,18 @@ async function persistir(
     const mapa = new Map(
       maps.rows.map((row) => [normalizarCategoria(row.categoria_nibo), row.categoria_id]),
     );
+    const existentes = await client.query<{
+      external_id: string;
+      source_content_hash: string | null;
+    }>(
+      `select external_id,source_content_hash from lancamentos
+       where empresa_id=$1::uuid and tipo=$2 and external_source='nibo_api'
+         and data_efetiva between $3::date and $4::date`,
+      [empresaId, tipoLancamento, inicio, fim],
+    );
+    const hashesExistentes = new Map(
+      existentes.rows.map((row) => [row.external_id, row.source_content_hash]),
+    );
     const tipo = linhas[0]!.tipo;
     const imp = await client.query<{ id: string }>(
       "insert into importacoes (empresa_id,tipo,competencia,arquivo_nome,origem,total_registros,valor_total,duplicados,status,periodo_inicio,periodo_fim,nibo_sync_run_id) values ($1,$2,$3,$4,'nibo_auto',$5,$6,0,'processando',$7,$8,$9) returning id",
@@ -176,11 +185,10 @@ async function persistir(
     let atualizadas = 0;
     let ignoradas = 0;
     for (const row of linhas) {
-      const existing = await client.query<{ source_content_hash: string | null }>(
-        "select source_content_hash from lancamentos where empresa_id=$1::uuid and external_source='nibo_api' and external_id=$2",
-        [empresaId, row.external_id],
-      );
-      if (existing.rows[0]?.source_content_hash === row.source_content_hash) {
+      const externalId = row.external_id;
+      if (!externalId) throw new Error("Lancamento Nibo sem identificador externo.");
+      const hashExistente = hashesExistentes.get(externalId);
+      if (hashExistente === row.source_content_hash) {
         ignoradas++;
         continue;
       }
@@ -206,7 +214,7 @@ async function persistir(
           row.source_content_hash,
         ],
       );
-      if (existing.rowCount) atualizadas++;
+      if (hashesExistentes.has(externalId)) atualizadas++;
       else novas++;
     }
     await client.query(
@@ -236,12 +244,12 @@ export const obterStatusNiboApi = createServerFn({ method: "GET" })
     );
     return {
       disponivel: true,
-      status: process.env["NIBO_HARTWIG_API_TOKEN"]
+      status: tokenNiboDaEmpresa(data.empresaId)
         ? ("conectado" as const)
         : ("nao_configurado" as const),
       ultimaSincronizacao: last.rows[0]?.finished_at ?? null,
       ultimoResultado: last.rows[0]?.status ?? null,
-      syncStartDate: cfg.sync_start_date ?? process.env["NIBO_HARTWIG_SYNC_START_DATE"] ?? null,
+      syncStartDate: cfg.sync_start_date ?? dataInicialNiboLegada(data.empresaId),
     };
   });
 
@@ -252,7 +260,7 @@ export const testarConexaoNiboApi = createServerFn({ method: "POST" })
     await assertEmpresaAccess(String(context.userId), data.empresaId);
     if (!(await config(data.empresaId)))
       throw new Error("Integracao Nibo nao habilitada para esta empresa.");
-    await apiClient().testConnection();
+    await apiClient(data.empresaId).testConnection();
     await query(
       "update nibo_project_configs set last_verified_at=now() where empresa_id=$1::uuid",
       [data.empresaId],
@@ -267,9 +275,8 @@ export const sincronizarNiboApi = createServerFn({ method: "POST" })
     await assertEmpresaAccess(String(context.userId), data.empresaId);
     const cfg = await config(data.empresaId);
     if (!cfg) throw new Error("Integracao Nibo nao habilitada para esta empresa.");
-    const startDate = cfg.sync_start_date ?? process.env["NIBO_HARTWIG_SYNC_START_DATE"] ?? null;
-    if (!startDate)
-      throw new Error("Defina NIBO_HARTWIG_SYNC_START_DATE antes da primeira sincronizacao.");
+    const startDate = cfg.sync_start_date ?? dataInicialNiboLegada(data.empresaId);
+    if (!startDate) throw new Error("Defina a data inicial da integracao Nibo para esta empresa.");
     const hoje = hojeEmSaoPaulo();
     if (startDate > hoje)
       throw new Error(`A data inicial da integracao (${startDate}) esta no futuro.`);
@@ -277,7 +284,7 @@ export const sincronizarNiboApi = createServerFn({ method: "POST" })
       "insert into nibo_sync_runs (trigger_source,status,created_by,projects_total) values ('manual','running',$1::uuid,1) returning id",
       [String(context.userId)],
     );
-    const client = apiClient();
+    const client = apiClient(data.empresaId);
     const result = {
       pagas: {
         encontradas: 0,
@@ -298,12 +305,14 @@ export const sincronizarNiboApi = createServerFn({ method: "POST" })
         erro: null as string | null,
       },
     };
+    const nomesCentros = new Map<string, string>();
     for (const entry of [
       { endpoint: "payments" as const, tipo: "paga" as const, key: "pagas" as const },
       { endpoint: "receipts" as const, tipo: "recebida" as const, key: "recebidas" as const },
     ]) {
-      // Reprocessa todo o historico disponivel para tambem detectar exclusoes
-      // e alteracoes feitas em periodos anteriores no Nibo.
+      // O periodo configurado e sempre reconciliado por inteiro. Alem de garantir
+      // o fechamento completo do mes, isso recupera dados caso uma execucao anterior
+      // tenha terminado parcialmente ou o banco ainda nao contenha todo o periodo.
       const inicio = startDate;
       const fim = hoje;
       const item = await query<{ id: string }>(
@@ -320,6 +329,7 @@ export const sincronizarNiboApi = createServerFn({ method: "POST" })
       );
       try {
         const raw = await client.listAll(entry.endpoint, inicio, fim);
+        coletarNomesCentrosCustoNibo(raw, nomesCentros);
         result[entry.key].encontradas = raw.length;
         const elegiveis = raw.filter(deveEntrarDreNibo);
         const filtradas = raw.filter((item) => !deveEntrarDreNibo(item));
@@ -330,7 +340,7 @@ export const sincronizarNiboApi = createServerFn({ method: "POST" })
           inicio,
           fim,
           entry.tipo,
-          adaptarBaixasNibo(elegiveis, entry.tipo),
+          adaptarBaixasNibo(elegiveis, entry.tipo, nomesCentros),
           idsFiltrados,
         );
         Object.assign(result[entry.key], persisted, {
@@ -386,12 +396,13 @@ export const sincronizarFluxoNiboApi = createServerFn({ method: "POST" })
       throw new Error("Integracao Nibo nao habilitada para esta empresa.");
     const hoje = hojeEmSaoPaulo();
     const horizonteFim = fimDoProximoMes(hoje);
-    const client = apiClient();
+    const client = apiClient(data.empresaId);
     const result = {
       pagas: null as Awaited<ReturnType<typeof persistirTitulosAbertos>> | null,
       recebidas: null as Awaited<ReturnType<typeof persistirTitulosAbertos>> | null,
       erros: [] as string[],
     };
+    const nomesCentros = new Map<string, string>();
     for (const entry of [
       {
         endpoint: "schedules/debit/opened" as const,
@@ -406,7 +417,8 @@ export const sincronizarFluxoNiboApi = createServerFn({ method: "POST" })
     ]) {
       try {
         const raw = await client.listAllOpenedSchedules(entry.endpoint, horizonteFim);
-        const linhas = adaptarAgendamentosAbertosNibo(raw, entry.tipo, hoje).filter(
+        coletarNomesCentrosCustoNibo(raw, nomesCentros);
+        const linhas = adaptarAgendamentosAbertosNibo(raw, entry.tipo, hoje, nomesCentros).filter(
           (linha) => linha.valor > 0,
         );
         result[entry.key] = await persistirTitulosAbertos(data.empresaId, entry.tipo, linhas);

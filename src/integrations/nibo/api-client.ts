@@ -13,6 +13,8 @@ export interface NiboApiClientOptions {
   token: string;
   baseUrl?: string;
   timeoutMs?: number;
+  pageConcurrency?: number;
+  maxRetries?: number;
   fetchImpl?: typeof fetch;
 }
 
@@ -30,12 +32,16 @@ export class NiboApiError extends Error {
 export class NiboApiClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly pageConcurrency: number;
+  private readonly maxRetries: number;
   private readonly fetchImpl: typeof fetch;
 
   constructor(private readonly options: NiboApiClientOptions) {
     if (!options.token.trim()) throw new NiboApiError("Token da API do Nibo nao configurado.");
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.pageConcurrency = Math.max(1, options.pageConcurrency ?? 4);
+    this.maxRetries = Math.max(0, options.maxRetries ?? 2);
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
@@ -44,33 +50,65 @@ export class NiboApiClient {
   }
 
   async listAll(endpoint: NiboEndpoint, inicio: string, fim: string) {
-    const items: Record<string, unknown>[] = [];
-    for (let skip = 0; ; skip += NIBO_PAGE_SIZE) {
-      const page = await this.getPage(endpoint, { inicio, fim, skip, top: NIBO_PAGE_SIZE });
-      items.push(...page.items);
-      if (page.items.length < NIBO_PAGE_SIZE || items.length >= page.count) break;
-    }
-    return items;
+    return this.listPages(endpoint, { inicio, fim });
   }
 
   async listAllOpenedSchedules(
     endpoint: "schedules/debit/opened" | "schedules/credit/opened",
     dueDateEnd?: string,
   ) {
-    const items: Record<string, unknown>[] = [];
-    for (let skip = 0; ; skip += NIBO_PAGE_SIZE) {
-      const page = await this.getPage(endpoint, {
-        skip,
-        top: NIBO_PAGE_SIZE,
-        ...(dueDateEnd ? { dueDateEnd } : {}),
-      });
-      items.push(...page.items);
-      if (!page.items.length || items.length >= page.count) break;
+    return this.listPages(endpoint, dueDateEnd ? { dueDateEnd } : {});
+  }
+
+  private async listPages(
+    endpoint: NiboEndpoint,
+    filter: { inicio?: string; fim?: string; dueDateEnd?: string },
+  ) {
+    const first = await this.getPage(endpoint, { ...filter, skip: 0, top: NIBO_PAGE_SIZE });
+    if (first.items.length >= first.count || first.items.length < NIBO_PAGE_SIZE)
+      return first.items;
+
+    const offsets: number[] = [];
+    for (let skip = NIBO_PAGE_SIZE; skip < first.count; skip += NIBO_PAGE_SIZE) {
+      offsets.push(skip);
     }
-    return items;
+    const items = [...first.items];
+    for (let index = 0; index < offsets.length; index += this.pageConcurrency) {
+      const pages = await Promise.all(
+        offsets
+          .slice(index, index + this.pageConcurrency)
+          .map((skip) => this.getPage(endpoint, { ...filter, skip, top: NIBO_PAGE_SIZE })),
+      );
+      for (const page of pages) items.push(...page.items);
+    }
+    return items.slice(0, first.count);
   }
 
   private async getPage(
+    endpoint: NiboEndpoint,
+    params: { inicio?: string; fim?: string; dueDateEnd?: string; skip: number; top: number },
+  ): Promise<NiboApiPage> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        return await this.requestPage(endpoint, params);
+      } catch (error) {
+        lastError = error;
+        if (!this.isRetryable(error) || attempt === this.maxRetries) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 150 * 2 ** attempt));
+      }
+    }
+    throw lastError;
+  }
+
+  private isRetryable(error: unknown) {
+    return (
+      error instanceof NiboApiError &&
+      (error.status === undefined || error.status === 429 || error.status >= 500)
+    );
+  }
+
+  private async requestPage(
     endpoint: NiboEndpoint,
     params: { inicio?: string; fim?: string; dueDateEnd?: string; skip: number; top: number },
   ): Promise<NiboApiPage> {
@@ -82,7 +120,7 @@ export class NiboApiClient {
     }
     url.searchParams.set(
       "$orderby",
-      endpoint.startsWith("schedules/") ? "dueDate asc" : "date asc",
+      endpoint.startsWith("schedules/") ? "dueDate asc,scheduleId asc" : "date asc,entryId asc",
     );
     url.searchParams.set("$skip", String(params.skip));
     url.searchParams.set("$top", String(params.top));

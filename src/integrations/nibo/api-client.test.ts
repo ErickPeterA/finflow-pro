@@ -3,9 +3,25 @@ import test from "node:test";
 import {
   adaptarAgendamentosAbertosNibo,
   adaptarBaixasNibo,
+  coletarNomesCentrosCustoNibo,
   deveEntrarDreNibo,
 } from "./api-adapter";
 import { NiboApiClient, NiboApiError } from "./api-client";
+import { tokenNiboDaEmpresa, tokensNiboPorEmpresa } from "./api-config";
+
+test("configuracao seleciona um token diferente para cada empresa", () => {
+  const env = {
+    NIBO_API_TOKENS_JSON: JSON.stringify({ empresaA: "token-a", empresaB: "token-b" }),
+  };
+  assert.equal(tokenNiboDaEmpresa("empresaA", env), "token-a");
+  assert.equal(tokenNiboDaEmpresa("empresaB", env), "token-b");
+  assert.equal(tokenNiboDaEmpresa("empresaC", env), "");
+});
+
+test("configuracao rejeita mapa de tokens invalido", () => {
+  assert.throws(() => tokensNiboPorEmpresa("nao-e-json"), /objeto JSON valido/);
+  assert.throws(() => tokensNiboPorEmpresa("[]"), /objeto JSON valido/);
+});
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -30,7 +46,7 @@ test("payments: consulta uma pagina com filtro, ordenacao e token no header", as
   assert.equal(result.length, 1);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.url.searchParams.get("$top"), "500");
-  assert.equal(calls[0]!.url.searchParams.get("$orderby"), "date asc");
+  assert.equal(calls[0]!.url.searchParams.get("$orderby"), "date asc,entryId asc");
   assert.equal(calls[0]!.token, "segredo");
 });
 
@@ -78,7 +94,7 @@ test("agendamentos abertos: pagina e ordena pelo vencimento", async () => {
   const result = await client.listAllOpenedSchedules("schedules/debit/opened", "2026-12-31");
   assert.equal(result.length, 501);
   assert.equal(calls.length, 2);
-  assert.equal(calls[0]!.searchParams.get("$orderby"), "dueDate asc");
+  assert.equal(calls[0]!.searchParams.get("$orderby"), "dueDate asc,scheduleId asc");
   assert.equal(calls[0]!.searchParams.get("$filter"), "dueDate le 2026-12-31");
 });
 
@@ -136,6 +152,31 @@ test("adapter preserva ID, categoria, pessoa e sinal e usa regime de caixa", () 
   assert.equal(row?.valor, -100);
   assert.equal(row?.pessoa, "Fornecedor");
   assert.equal(row?.cpf_cnpj, "123");
+});
+
+test("adapter resolve nome ausente do centro pelo ID visto em outro endpoint", () => {
+  const nomes = coletarNomesCentrosCustoNibo([
+    {
+      costCenters: [
+        { costCenterId: "centro-1", costCenterDescription: "Matriz", value: 100, percent: 100 },
+      ],
+    },
+  ]);
+  const [row] = adaptarBaixasNibo(
+    [
+      {
+        entryId: "recebimento-1",
+        date: "2026-11-25",
+        value: 50,
+        categories: [{ categoryId: "cat-1", categoryName: "1.2 Vendas", value: 50 }],
+        costCenters: [{ costCenterId: "centro-1", value: 50, percent: 100 }],
+      },
+    ],
+    "recebida",
+    nomes,
+  );
+  assert.equal(row?.centro_custo, "Matriz");
+  assert.equal(row?.valor, 50);
 });
 
 test("adapter reconhece o formato real de baixas com entryId e identifier", () => {
