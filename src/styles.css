@@ -219,3 +219,323 @@
     background: white !important;
   }
 }
+
+.fluxo-print-root {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  body.print-fluxo-caixa {
+    background: white !important;
+  }
+
+  body.print-fluxo-caixa * {
+    visibility: hidden !important;
+  }
+
+  body.print-fluxo-caixa .fluxo-print-root,
+  body.print-fluxo-caixa .fluxo-print-root * {
+    visibility: visible !important;
+  }
+
+  body.print-fluxo-caixa .fluxo-print-root {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    display: block !important;
+    width: 210mm !important;
+    margin: 0 !important;
+    color: #172033 !important;
+    background: white !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .fluxo-print-page {
+    box-sizing: border-box;
+    width: 210mm;
+    min-height: 297mm;
+    padding: 11mm 12mm 12mm;
+    background: white;
+  }
+
+  .fluxo-print-paineis {
+    break-before: page;
+  }
+
+  .fluxo-print-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12mm;
+    margin-bottom: 5mm;
+    padding-bottom: 4mm;
+    border-bottom: 2px solid #12386b;
+  }
+
+  .fluxo-print-header h1 {
+    margin: 1mm 0 0;
+    color: #10243f;
+    font-size: 18pt;
+    line-height: 1.15;
+  }
+
+  .fluxo-print-kicker {
+    margin: 0;
+    color: #3167a5;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .fluxo-print-periodo {
+    min-width: 55mm;
+    text-align: right;
+  }
+
+  .fluxo-print-periodo span,
+  .fluxo-print-periodo small {
+    display: block;
+    color: #64748b;
+    font-size: 7.5pt;
+  }
+
+  .fluxo-print-periodo strong {
+    display: block;
+    margin: 1mm 0;
+    color: #10243f;
+    font-size: 11pt;
+  }
+
+  .fluxo-print-bancos {
+    margin-bottom: 5mm;
+    overflow: hidden;
+    border: 1px solid #d7dee8;
+    border-radius: 2mm;
+    background: #f7f9fc;
+  }
+
+  .fluxo-print-bancos-titulo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2.2mm 3mm;
+    color: #475569;
+    background: #eaf0f7;
+    border-bottom: 1px solid #d7dee8;
+    font-size: 7pt;
+  }
+
+  .fluxo-print-bancos-titulo span {
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .fluxo-print-bancos-lista {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(38mm, 1fr));
+  }
+
+  .fluxo-print-banco {
+    padding: 3mm;
+    border-right: 1px solid #d7dee8;
+    border-bottom: 1px solid #d7dee8;
+  }
+
+  .fluxo-print-banco span,
+  .fluxo-print-banco strong {
+    display: block;
+  }
+
+  .fluxo-print-banco span {
+    margin-bottom: 1mm;
+    color: #475569;
+    font-size: 7.5pt;
+    font-weight: 600;
+  }
+
+  .fluxo-print-banco strong {
+    color: #12386b;
+    font-size: 9pt;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fluxo-print-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 7.5pt;
+  }
+
+  .fluxo-print-table thead {
+    display: table-header-group;
+  }
+
+  .fluxo-print-table tr {
+    break-inside: avoid;
+  }
+
+  .fluxo-print-table th {
+    padding: 2.2mm 1.5mm;
+    color: #475569;
+    background: #eaf0f7;
+    border-bottom: 1px solid #b9c6d6;
+    font-size: 6.7pt;
+    font-weight: 700;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  .fluxo-print-table td {
+    padding: 2mm 1.5mm;
+    border-bottom: 1px solid #dce3eb;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+
+  .fluxo-print-table td small {
+    display: block;
+    margin-top: 0.6mm;
+    color: #64748b;
+    font-size: 6.5pt;
+    font-weight: 400;
+  }
+
+  .fluxo-print-table .numero {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fluxo-print-table .positivo,
+  .fluxo-print-positivo {
+    color: #07824d !important;
+  }
+
+  .fluxo-print-table .negativo,
+  .fluxo-print-negativo {
+    color: #cf2634 !important;
+  }
+
+  .fluxo-print-table .saldo {
+    color: #12386b;
+    font-weight: 700;
+  }
+
+  .fluxo-print-table-lancamentos th:nth-child(1) {
+    width: 16mm;
+  }
+
+  .fluxo-print-table-lancamentos th:nth-child(2) {
+    width: 31mm;
+  }
+
+  .fluxo-print-table-lancamentos th:nth-child(3) {
+    width: 55mm;
+  }
+
+  .fluxo-print-table-lancamentos th:nth-child(4),
+  .fluxo-print-table-lancamentos th:nth-child(5),
+  .fluxo-print-table-lancamentos th:nth-child(6) {
+    width: 25mm;
+  }
+
+  .fluxo-print-grid-resumo {
+    display: grid;
+    grid-template-columns: 1fr;
+    margin-bottom: 5mm;
+  }
+
+  .fluxo-print-card {
+    margin-bottom: 5mm;
+    overflow: hidden;
+    border: 1px solid #cfd8e5;
+    border-radius: 2mm;
+    break-inside: avoid;
+  }
+
+  .fluxo-print-card h2,
+  .fluxo-print-card-title {
+    margin: 0;
+    padding: 3mm 4mm;
+    color: #10243f;
+    background: #eef3f8;
+    border-bottom: 1px solid #cfd8e5;
+    font-size: 10pt;
+  }
+
+  .fluxo-print-card-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .fluxo-print-card-title h2 {
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .fluxo-print-card-title strong {
+    color: #64748b;
+    font-size: 7.5pt;
+  }
+
+  .fluxo-print-dl {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    margin: 0;
+  }
+
+  .fluxo-print-dl > div {
+    padding: 4mm;
+    border-right: 1px solid #dce3eb;
+  }
+
+  .fluxo-print-dl > div:last-child {
+    border-right: 0;
+  }
+
+  .fluxo-print-dl dt {
+    margin-bottom: 1.2mm;
+    color: #64748b;
+    font-size: 7.5pt;
+  }
+
+  .fluxo-print-dl dd {
+    margin: 0;
+    font-size: 10pt;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fluxo-print-atrasos .fluxo-print-table th:first-child {
+    width: 50%;
+  }
+
+  .fluxo-print-atrasos .status {
+    font-weight: 700;
+  }
+
+  .fluxo-print-table tfoot td {
+    padding-top: 3mm;
+    background: #f7f9fc;
+    border-top: 1px solid #b9c6d6;
+    font-weight: 700;
+  }
+
+  .fluxo-print-vazio {
+    margin: 0;
+    padding: 8mm 4mm;
+    color: #64748b;
+    font-size: 8pt;
+    text-align: center;
+  }
+}

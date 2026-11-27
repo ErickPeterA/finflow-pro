@@ -1062,6 +1062,20 @@ function FluxoCaixaPage() {
     XLSX.writeFile(workbook, `fluxo-caixa-${range.inicio}-${range.fim}.xlsx`);
   }
 
+  function imprimirFluxoCaixa() {
+    const tituloAnterior = document.title;
+    const limparImpressao = () => {
+      document.body.classList.remove("print-fluxo-caixa");
+      document.title = tituloAnterior;
+      window.removeEventListener("afterprint", limparImpressao);
+    };
+
+    document.title = `Fluxo de Caixa - ${empresa?.nome ?? "Empresa"} - ${periodoLabel}`;
+    document.body.classList.add("print-fluxo-caixa");
+    window.addEventListener("afterprint", limparImpressao);
+    window.print();
+  }
+
   return (
     <>
       <TopBar
@@ -1518,7 +1532,7 @@ function FluxoCaixaPage() {
                         <FileSpreadsheet className="h-4 w-4" />
                         Excel
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => window.print()}>
+                      <Button variant="outline" size="sm" onClick={imprimirFluxoCaixa}>
                         <Printer className="h-4 w-4" />
                         PDF
                       </Button>
@@ -1914,6 +1928,22 @@ function FluxoCaixaPage() {
           </>
         )}
       </main>
+      {empresaId && !carregando && (
+        <RelatorioFluxoCaixaPrint
+          empresa={empresa?.nome ?? "Empresa"}
+          periodo={periodoLabel}
+          centroCusto={centroCusto}
+          bancos={contasExibidas.map((conta) => ({
+            id: conta.id,
+            nome: conta.nome,
+            saldo: numeroDoCampo(saldosEditados[conta.id] ?? "0"),
+          }))}
+          linhas={linhas}
+          resumo={resumo}
+          inadimplentes={inadimplentes}
+          pagamentosAtrasados={pagamentosAtrasados}
+        />
+      )}
     </>
   );
 }
@@ -2037,6 +2067,8 @@ function CardConta({
       <Input
         value={valor}
         onChange={(event) => onValor(event.target.value)}
+        onFocus={(event) => event.currentTarget.select()}
+        onClick={(event) => event.currentTarget.select()}
         onBlur={() => onValor(formatarCampoMonetario(valor))}
         inputMode="decimal"
         className="tabular mt-2 h-8 text-base font-semibold text-positive"
@@ -2153,6 +2185,215 @@ function CampoSelect<T extends string>({
         <SelectContent>{children}</SelectContent>
       </Select>
     </div>
+  );
+}
+
+function RelatorioFluxoCaixaPrint({
+  empresa,
+  periodo,
+  centroCusto,
+  bancos,
+  linhas,
+  resumo,
+  inadimplentes,
+  pagamentosAtrasados,
+}: {
+  empresa: string;
+  periodo: string;
+  centroCusto: string;
+  bancos: { id: string; nome: string; saldo: number }[];
+  linhas: LinhaFluxo[];
+  resumo: ReturnType<typeof resumirFluxo>;
+  inadimplentes: ItemAtraso[];
+  pagamentosAtrasados: ItemAtraso[];
+}) {
+  return (
+    <section className="fluxo-print-root" aria-hidden="true">
+      <article className="fluxo-print-page fluxo-print-lancamentos">
+        <header className="fluxo-print-header">
+          <div>
+            <p className="fluxo-print-kicker">Fluxo de Caixa</p>
+            <h1>{empresa}</h1>
+          </div>
+          <div className="fluxo-print-periodo">
+            <span>Período apresentado</span>
+            <strong>{periodo}</strong>
+            <small>{centroCusto === "todos" ? "Todos os centros" : centroCusto}</small>
+          </div>
+        </header>
+
+        <div className="fluxo-print-bancos">
+          <div className="fluxo-print-bancos-titulo">
+            <span>Bancos considerados</span>
+            <strong>{bancos.length} selecionado(s)</strong>
+          </div>
+          <div className="fluxo-print-bancos-lista">
+            {bancos.length ? (
+              bancos.map((banco) => (
+                <div key={banco.id} className="fluxo-print-banco">
+                  <span>{banco.nome}</span>
+                  <strong>{brl(banco.saldo)}</strong>
+                </div>
+              ))
+            ) : (
+              <div className="fluxo-print-banco">
+                <span>Nenhum banco selecionado</span>
+                <strong>{brl(0)}</strong>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <table className="fluxo-print-table fluxo-print-table-lancamentos">
+          <thead>
+            <tr>
+              <th>Vencimento</th>
+              <th>Nome</th>
+              <th>Descrição / centro de custo</th>
+              <th className="numero">Recebimento</th>
+              <th className="numero">Pagamento</th>
+              <th className="numero">Saldo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map((linha) => (
+              <tr key={linha.id}>
+                <td className="data">{dataBR(linha.vencimento)}</td>
+                <td className="nome">{linha.nome}</td>
+                <td>
+                  <strong>{linha.descricao}</strong>
+                  <small>{linha.subdescricao}</small>
+                </td>
+                <td className="numero positivo">
+                  {linha.recebimento ? brl(linha.recebimento) : "—"}
+                </td>
+                <td className="numero negativo">{linha.pagamento ? brl(linha.pagamento) : "—"}</td>
+                <td className={`numero saldo ${linha.saldoProjetado < 0 ? "negativo" : ""}`}>
+                  {brl(linha.saldoProjetado)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {linhas.length === 0 && <p className="fluxo-print-vazio">Nenhum lançamento no período.</p>}
+      </article>
+
+      <article className="fluxo-print-page fluxo-print-paineis">
+        <header className="fluxo-print-header fluxo-print-header-secundario">
+          <div>
+            <p className="fluxo-print-kicker">Complemento do relatório</p>
+            <h1>Resumo e títulos em atraso</h1>
+          </div>
+          <div className="fluxo-print-periodo">
+            <span>Período do fluxo</span>
+            <strong>{periodo}</strong>
+            <small>{empresa}</small>
+          </div>
+        </header>
+
+        <div className="fluxo-print-grid-resumo">
+          <section className="fluxo-print-card">
+            <h2>Resumo do período</h2>
+            <dl className="fluxo-print-dl">
+              <div>
+                <dt>Entradas previstas</dt>
+                <dd className="fluxo-print-positivo">{brl(resumo.recebimentos)}</dd>
+              </div>
+              <div>
+                <dt>Saídas previstas</dt>
+                <dd className="fluxo-print-negativo">{brl(resumo.pagamentos)}</dd>
+              </div>
+              <div>
+                <dt>Variação líquida</dt>
+                <dd
+                  className={
+                    resumo.variacaoLiquida < 0 ? "fluxo-print-negativo" : "fluxo-print-positivo"
+                  }
+                >
+                  {brl(resumo.variacaoLiquida)}
+                </dd>
+              </div>
+              <div>
+                <dt>Saldo final projetado</dt>
+                <dd
+                  className={
+                    resumo.saldoFinal < 0 ? "fluxo-print-negativo" : "fluxo-print-positivo"
+                  }
+                >
+                  {brl(resumo.saldoFinal)}
+                </dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+
+        <TabelaAtrasosPrint
+          titulo="Panorama de inadimplentes"
+          nomeColuna="Cliente"
+          totalRotulo="Total em atraso"
+          itens={inadimplentes}
+        />
+        <TabelaAtrasosPrint
+          titulo="Pagamentos em atraso"
+          nomeColuna="Fornecedor"
+          totalRotulo="Total vencido"
+          itens={pagamentosAtrasados}
+        />
+      </article>
+    </section>
+  );
+}
+
+function TabelaAtrasosPrint({
+  titulo,
+  nomeColuna,
+  totalRotulo,
+  itens,
+}: {
+  titulo: string;
+  nomeColuna: string;
+  totalRotulo: string;
+  itens: ItemAtraso[];
+}) {
+  const total = itens.reduce((soma, item) => soma + item.valor, 0);
+  return (
+    <section className="fluxo-print-card fluxo-print-atrasos">
+      <div className="fluxo-print-card-title">
+        <h2>{titulo}</h2>
+        <strong>{itens.length} título(s)</strong>
+      </div>
+      {itens.length ? (
+        <table className="fluxo-print-table">
+          <thead>
+            <tr>
+              <th>{nomeColuna}</th>
+              <th className="numero">Dias</th>
+              <th className="numero">Valor</th>
+              <th className="numero">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {itens.map((item) => (
+              <tr key={item.id}>
+                <td>{item.nome}</td>
+                <td className="numero">{item.dias}</td>
+                <td className="numero">{brl(item.valor)}</td>
+                <td className="numero status">{item.status}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={2}>{totalRotulo}</td>
+              <td className="numero fluxo-print-negativo">{brl(total)}</td>
+              <td />
+            </tr>
+          </tfoot>
+        </table>
+      ) : (
+        <p className="fluxo-print-vazio">Nenhum título em atraso.</p>
+      )}
+    </section>
   );
 }
 
