@@ -22,6 +22,7 @@ import {
   Download,
   FileSpreadsheet,
   Loader2,
+  Pencil,
   Plus,
   Printer,
   RefreshCw,
@@ -110,6 +111,7 @@ type LinhaFluxo = {
   id: string;
   origem: "titulo" | "manual";
   titulo?: FluxoTituloNibo;
+  tituloIds: string[];
   dataProjetada: string;
   vencimento: string;
   nome: string;
@@ -130,6 +132,7 @@ type CentroCustoFluxo = {
 
 type TituloFluxoConsolidado = FluxoTituloNibo & {
   centrosCusto: CentroCustoFluxo[];
+  tituloIds: string[];
 };
 
 function consolidarTitulosPorAgendamento(titulos: TituloImportado[]) {
@@ -192,6 +195,7 @@ function consolidarTitulosParaExibicao(titulos: FluxoTituloNibo[]) {
         ...titulo,
         valor,
         centrosCusto: [{ nome: titulo.centro_custo?.trim() || "Sem centro de custo", valor }],
+        tituloIds: [titulo.id],
       });
       continue;
     }
@@ -210,6 +214,7 @@ function consolidarTitulosParaExibicao(titulos: FluxoTituloNibo[]) {
       Math.abs(Number(titulo.valor) || 0),
     );
     atual.centro_custo = [...centros].join(" • ");
+    atual.tituloIds.push(titulo.id);
   }
 
   return [...consolidados.values()];
@@ -221,6 +226,13 @@ type FormularioLancamentoManual = {
   descricao: string;
   tipo: "recebida" | "paga";
   valor: string;
+};
+
+type FormularioEdicaoTitulo = FormularioLancamentoManual & {
+  ids: string[];
+  categoria: string;
+  centrosCusto: CentroCustoFluxo[];
+  origemNibo: boolean;
 };
 
 type BancoPreConfigurado = {
@@ -333,6 +345,7 @@ function FluxoCaixaPage() {
   const [lancamentoManual, setLancamentoManual] = useState<FormularioLancamentoManual>(() =>
     criarFormularioLancamentoManual(hoje),
   );
+  const [tituloEmEdicao, setTituloEmEdicao] = useState<FormularioEdicaoTitulo | null>(null);
   const lateralFluxoRef = useRef<HTMLElement | null>(null);
   const inputImportacaoFluxoRef = useRef<HTMLInputElement | null>(null);
   const saldosPersistidosRef = useRef<Record<string, number>>({});
@@ -719,6 +732,7 @@ function FluxoCaixaPage() {
         id: titulo.id,
         origem: titulo.external_source === "manual_fluxo_caixa" ? "manual" : "titulo",
         titulo,
+        tituloIds: titulo.tituloIds,
         dataProjetada: vencimento,
         vencimento,
         nome: titulo.pessoa?.trim() || "Sem nome",
@@ -843,6 +857,61 @@ function FluxoCaixaPage() {
     onError: (e) =>
       toast.error(e instanceof Error ? e.message : "Nao foi possivel incluir o lancamento."),
   });
+
+  const editarTituloFluxo = useMutation({
+    mutationFn: async () => {
+      if (!empresaId || !tituloEmEdicao) throw new Error("Selecione um titulo.");
+      const valor = Math.abs(numeroDoCampo(tituloEmEdicao.valor));
+      if (valor <= 0) throw new Error("Informe um valor maior que zero.");
+      return mutateData({
+        data: {
+          action: "updateFluxoTitulo",
+          empresaId,
+          ids: tituloEmEdicao.ids,
+          titulo: {
+            tipo: tituloEmEdicao.tipo,
+            vencimento: tituloEmEdicao.vencimento,
+            pessoa: tituloEmEdicao.nome,
+            descricao: tituloEmEdicao.descricao,
+            categoria: tituloEmEdicao.categoria,
+            valor,
+          },
+        },
+      });
+    },
+    onSuccess: async () => {
+      toast.success("Lancamento atualizado.");
+      setTituloEmEdicao(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-nibo", empresaId] }),
+        queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-pagar-vencidos", empresaId] }),
+        queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-receber-vencidos", empresaId] }),
+      ]);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Nao foi possivel editar o lancamento."),
+  });
+
+  function abrirEdicaoTitulo(linha: LinhaFluxo) {
+    setTituloEmEdicao({
+      ids: linha.tituloIds,
+      vencimento: linha.vencimento,
+      nome: linha.nome,
+      descricao: linha.titulo?.descricao?.trim() || linha.descricao,
+      categoria: linha.categoria === "Nao classificado" ? "" : linha.categoria,
+      tipo: linha.recebimento > 0 ? "recebida" : "paga",
+      valor: formatarCampoMonetario(String(linha.recebimento || linha.pagamento)),
+      centrosCusto: linha.centrosCusto,
+      origemNibo: linha.titulo?.external_source !== "manual_fluxo_caixa",
+    });
+  }
+
+  function atualizarTituloEmEdicao<K extends keyof FormularioEdicaoTitulo>(
+    campo: K,
+    valor: FormularioEdicaoTitulo[K],
+  ) {
+    setTituloEmEdicao((atual) => (atual ? { ...atual, [campo]: valor } : atual));
+  }
 
   function abrirLancamentoManual(aberto: boolean) {
     setLancamentoManualAberto(aberto);
@@ -1168,7 +1237,7 @@ function FluxoCaixaPage() {
             <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
               <div className="min-h-0 xl:h-[var(--altura-projecao)]" style={estiloAlturaProjecao}>
                 <Bloco
-                  titulo="Projecao de caixa"
+                  titulo="Projeção de Fluxo de Caixa"
                   className="flex h-full min-h-0 flex-col overflow-hidden [&>div:first-child]:shrink-0 [&>div:last-child]:flex [&>div:last-child]:min-h-0 [&>div:last-child]:flex-1 [&>div:last-child]:flex-col"
                   acoes={
                     <div className="flex flex-wrap items-center gap-2">
@@ -1292,6 +1361,157 @@ function FluxoCaixaPage() {
                               </Button>
                             </DialogFooter>
                           </form>
+                        </DialogContent>
+                      </Dialog>
+                      <Dialog
+                        open={tituloEmEdicao !== null}
+                        onOpenChange={(aberto) => {
+                          if (!aberto) setTituloEmEdicao(null);
+                        }}
+                      >
+                        <DialogContent className="max-w-xl">
+                          <DialogHeader>
+                            <DialogTitle>Editar lancamento</DialogTitle>
+                          </DialogHeader>
+                          {tituloEmEdicao && (
+                            <form
+                              className="space-y-4"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                editarTituloFluxo.mutate();
+                              }}
+                            >
+                              {tituloEmEdicao.origemNibo && (
+                                <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-muted-foreground">
+                                  Este titulo veio do Nibo. Uma nova sincronizacao pode substituir
+                                  os campos editados pelos dados atuais do Nibo.
+                                </div>
+                              )}
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="space-y-1.5">
+                                  <Label htmlFor="edicao-vencimento">Vencimento</Label>
+                                  <Input
+                                    id="edicao-vencimento"
+                                    type="date"
+                                    value={tituloEmEdicao.vencimento}
+                                    onChange={(event) =>
+                                      atualizarTituloEmEdicao("vencimento", event.target.value)
+                                    }
+                                    required
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <Label htmlFor="edicao-tipo">Tipo</Label>
+                                  <Select
+                                    value={tituloEmEdicao.tipo}
+                                    onValueChange={(valor) =>
+                                      atualizarTituloEmEdicao(
+                                        "tipo",
+                                        valor as FormularioEdicaoTitulo["tipo"],
+                                      )
+                                    }
+                                  >
+                                    <SelectTrigger id="edicao-tipo">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="paga">Pagamento</SelectItem>
+                                      <SelectItem value="recebida">Recebimento</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <Label htmlFor="edicao-nome">Nome</Label>
+                                  <Input
+                                    id="edicao-nome"
+                                    value={tituloEmEdicao.nome}
+                                    onChange={(event) =>
+                                      atualizarTituloEmEdicao("nome", event.target.value)
+                                    }
+                                    maxLength={180}
+                                    required
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <Label htmlFor="edicao-valor">Valor total</Label>
+                                  <Input
+                                    id="edicao-valor"
+                                    value={tituloEmEdicao.valor}
+                                    onChange={(event) =>
+                                      atualizarTituloEmEdicao("valor", event.target.value)
+                                    }
+                                    onBlur={() =>
+                                      atualizarTituloEmEdicao(
+                                        "valor",
+                                        formatarCampoMonetario(tituloEmEdicao.valor),
+                                      )
+                                    }
+                                    inputMode="decimal"
+                                    className="tabular"
+                                    required
+                                  />
+                                </div>
+                                <div className="space-y-1.5 sm:col-span-2">
+                                  <Label htmlFor="edicao-descricao">Descricao</Label>
+                                  <Input
+                                    id="edicao-descricao"
+                                    value={tituloEmEdicao.descricao}
+                                    onChange={(event) =>
+                                      atualizarTituloEmEdicao("descricao", event.target.value)
+                                    }
+                                    maxLength={500}
+                                  />
+                                </div>
+                                <div className="space-y-1.5 sm:col-span-2">
+                                  <Label htmlFor="edicao-categoria">Categoria</Label>
+                                  <Input
+                                    id="edicao-categoria"
+                                    value={tituloEmEdicao.categoria}
+                                    onChange={(event) =>
+                                      atualizarTituloEmEdicao("categoria", event.target.value)
+                                    }
+                                    maxLength={240}
+                                  />
+                                </div>
+                              </div>
+                              <div className="rounded-md bg-muted/40 px-3 py-2 text-xs">
+                                <p className="font-medium">Centros de custo preservados</p>
+                                {tituloEmEdicao.centrosCusto.map((centro) => (
+                                  <div
+                                    key={centro.nome}
+                                    className="mt-1 flex justify-between gap-3 text-muted-foreground"
+                                  >
+                                    <span>{centro.nome}</span>
+                                    <span className="tabular">{brl(centro.valor)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <DialogFooter>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={() => setTituloEmEdicao(null)}
+                                >
+                                  Cancelar
+                                </Button>
+                                <Button
+                                  type="submit"
+                                  disabled={
+                                    editarTituloFluxo.isPending ||
+                                    !tituloEmEdicao.nome.trim() ||
+                                    numeroDoCampo(tituloEmEdicao.valor) <= 0
+                                  }
+                                >
+                                  {editarTituloFluxo.isPending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Pencil className="h-4 w-4" />
+                                  )}
+                                  Salvar alteracoes
+                                </Button>
+                              </DialogFooter>
+                            </form>
+                          )}
                         </DialogContent>
                       </Dialog>
                       <Button variant="outline" size="sm" onClick={exportarExcel}>
@@ -1475,7 +1695,7 @@ function FluxoCaixaPage() {
                     <SemDados mensagem="Nenhum lancamento encontrado para o periodo e filtros atuais." />
                   ) : (
                     <div className="-mx-5 -mb-5 min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
-                      <table className="w-full min-w-[720px] text-xs">
+                      <table className="w-full min-w-[760px] text-xs">
                         <thead>
                           <tr className="sticky top-0 z-10 border-b bg-muted/80 text-[10px] normal-case text-muted-foreground backdrop-blur">
                             <th className="px-3 py-1.5 text-left font-medium">Vencimento</th>
@@ -1484,6 +1704,9 @@ function FluxoCaixaPage() {
                             <th className="px-2 py-1.5 text-right font-medium">Receb.</th>
                             <th className="px-2 py-1.5 text-right font-medium">Pag.</th>
                             <th className="px-3 py-1.5 text-right font-medium">Saldo</th>
+                            <th className="w-10 px-2 py-1.5">
+                              <span className="sr-only">Acoes</span>
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1547,6 +1770,19 @@ function FluxoCaixaPage() {
                                 )}
                               >
                                 {brl(linha.saldoProjetado)}
+                              </td>
+                              <td className="px-2 py-1 text-right">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={() => abrirEdicaoTitulo(linha)}
+                                  aria-label={`Editar lancamento ${linha.nome}`}
+                                  title="Editar lancamento"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
                               </td>
                             </tr>
                           ))}
