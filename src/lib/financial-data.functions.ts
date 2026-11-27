@@ -29,6 +29,7 @@ const companyResources = new Set([
   "titulos",
   "titulosReceberVencidos",
   "titulosPagarVencidos",
+  "niboSyncHistorico",
   "metas",
   "configuracao",
   "importacoes",
@@ -116,6 +117,14 @@ const sql: Record<string, (d: RequestData, userId: string) => { text: string; va
     titulosPagarVencidos: (d) => ({
       text: "select * from fluxo_titulos_nibo where empresa_id=$1::uuid and external_source in ('fluxo_caixa','manual_fluxo_caixa','nibo_api_fluxo') and tipo='paga' and vencimento<$2::date and status not in ('cancelado','pago','recebido') order by vencimento limit 50",
       values: [d.empresaId, d.hoje],
+    }),
+    niboSyncHistorico: (d) => ({
+      text: `select i.id,i.tipo,i.periodo_inicio,i.periodo_fim,i.started_at,i.finished_at,
+                    i.status,i.registros_encontrados,i.registros_inseridos,i.registros_atualizados,
+                    i.registros_ignorados,i.error_message,r.status as run_status
+             from nibo_sync_items i join nibo_sync_runs r on r.id=i.run_id
+             where i.empresa_id=$1::uuid order by i.started_at desc limit 30`,
+      values: [d.empresaId],
     }),
     metas: (d) => ({
       text: "select * from metas where empresa_id=$1::uuid and competencia between $2::date and $3::date",

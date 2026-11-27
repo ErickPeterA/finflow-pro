@@ -25,10 +25,13 @@ export const mutateFinancialData = createServerFn({ method: "POST" })
         await withTransaction(async (client) => {
           for (const s of saldos) {
             const row = s as { contaId?: unknown; saldo?: unknown };
-            await client.query(
-              "insert into fluxo_saldos_bancarios (empresa_id,conta_id,saldo,informado_por) values ($1,$2,$3,$4)",
-              [data.empresaId, assertId(row.contaId, "Conta"), Number(row.saldo) || 0, userId],
+            const salvo = await client.query(
+              `insert into fluxo_saldos_bancarios (empresa_id,conta_id,saldo,informado_por)
+               select $1::uuid,id,$3::numeric,null from fluxo_contas_bancarias
+               where id=$2::uuid and empresa_id=$1::uuid returning id`,
+              [data.empresaId, assertId(row.contaId, "Conta"), Number(row.saldo) || 0],
             );
+            if (!salvo.rowCount) throw new Error("Conta bancaria nao encontrada nesta empresa.");
           }
         });
         return { ok: true };

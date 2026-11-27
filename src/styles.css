@@ -245,10 +245,12 @@
 
   body.print-fluxo-caixa .fluxo-print-root {
     position: absolute !important;
-    inset: 0 auto auto 0 !important;
+    top: 0 !important;
+    left: 50% !important;
     display: block !important;
     width: 210mm !important;
     margin: 0 !important;
+    transform: translateX(-50%) !important;
     color: #172033 !important;
     background: white !important;
     font-family: Arial, Helvetica, sans-serif !important;

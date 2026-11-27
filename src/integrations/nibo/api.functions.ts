@@ -310,10 +310,17 @@ export const sincronizarNiboApi = createServerFn({ method: "POST" })
       { endpoint: "payments" as const, tipo: "paga" as const, key: "pagas" as const },
       { endpoint: "receipts" as const, tipo: "recebida" as const, key: "recebidas" as const },
     ]) {
-      // O periodo configurado e sempre reconciliado por inteiro. Alem de garantir
-      // o fechamento completo do mes, isso recupera dados caso uma execucao anterior
-      // tenha terminado parcialmente ou o banco ainda nao contenha todo o periodo.
-      const inicio = startDate;
+      const ultimaSincronizacao = await query<{ periodo_fim: string }>(
+        `select i.periodo_fim::text from nibo_sync_items i
+         where i.empresa_id=$1::uuid and i.tipo=$2 and i.status='success'
+         order by i.finished_at desc nulls last limit 1`,
+        [data.empresaId, entry.tipo],
+      );
+      // Repete o ultimo dia conferido para capturar conciliacoes e alteracoes
+      // feitas no Nibo depois da sincronizacao anterior, sem reler todo o historico.
+      const ultimoFim = ultimaSincronizacao.rows[0]?.periodo_fim;
+      const inicio =
+        ultimoFim && ultimoFim >= startDate && ultimoFim <= hoje ? ultimoFim : startDate;
       const fim = hoje;
       const item = await query<{ id: string }>(
         "insert into nibo_sync_items (run_id,empresa_id,tipo,nibo_company_id,nibo_company_name,periodo_inicio,periodo_fim,status) values ($1::uuid,$2::uuid,$3,$4,$5,$6::date,$7::date,'running') returning id",
@@ -392,10 +399,13 @@ export const sincronizarFluxoNiboApi = createServerFn({ method: "POST" })
   .validator((data: { empresaId: string }) => data)
   .handler(async ({ context, data }) => {
     await assertEmpresaAccess(String(context.userId), data.empresaId);
-    if (!(await config(data.empresaId)))
-      throw new Error("Integracao Nibo nao habilitada para esta empresa.");
+    const cfg = await config(data.empresaId);
+    if (!cfg) throw new Error("Integracao Nibo nao habilitada para esta empresa.");
     const hoje = hojeEmSaoPaulo();
     const horizonteFim = fimDoProximoMes(hoje);
+    const run = await query<{ id: string }>(
+      "insert into nibo_sync_runs (trigger_source,status,projects_total) values ('manual','running',1) returning id",
+    );
     const client = apiClient(data.empresaId);
     const result = {
       pagas: null as Awaited<ReturnType<typeof persistirTitulosAbertos>> | null,
@@ -415,6 +425,20 @@ export const sincronizarFluxoNiboApi = createServerFn({ method: "POST" })
         key: "recebidas" as const,
       },
     ]) {
+      const item = await query<{ id: string }>(
+        `insert into nibo_sync_items
+          (run_id,empresa_id,tipo,nibo_company_id,nibo_company_name,periodo_inicio,periodo_fim,status)
+         values ($1::uuid,$2::uuid,$3,$4,$5,$6::date,$7::date,'running') returning id`,
+        [
+          run.rows[0]!.id,
+          data.empresaId,
+          entry.tipo,
+          cfg.nibo_company_id ?? "nibo-api-fluxo",
+          cfg.nibo_company_name ?? cfg.nome,
+          hoje,
+          horizonteFim,
+        ],
+      );
       try {
         const raw = await client.listAllOpenedSchedules(entry.endpoint, horizonteFim);
         coletarNomesCentrosCustoNibo(raw, nomesCentros);
@@ -422,15 +446,53 @@ export const sincronizarFluxoNiboApi = createServerFn({ method: "POST" })
           (linha) => linha.valor > 0,
         );
         result[entry.key] = await persistirTitulosAbertos(data.empresaId, entry.tipo, linhas);
+        await query(
+          `update nibo_sync_items set status='success',finished_at=now(),
+             registros_encontrados=$1,registros_inseridos=$2,registros_atualizados=$3
+           where id=$4::uuid`,
+          [
+            result[entry.key]?.encontradas ?? 0,
+            result[entry.key]?.novas ?? 0,
+            result[entry.key]?.atualizadas ?? 0,
+            item.rows[0]!.id,
+          ],
+        );
       } catch (error) {
+        const mensagem = error instanceof Error ? error.message : "falha desconhecida";
         result.erros.push(
-          `${entry.tipo === "paga" ? "Contas a pagar" : "Contas a receber"}: ${error instanceof Error ? error.message : "falha desconhecida"}`,
+          `${entry.tipo === "paga" ? "Contas a pagar" : "Contas a receber"}: ${mensagem}`,
+        );
+        await query(
+          "update nibo_sync_items set status='failed',finished_at=now(),error_message=$1 where id=$2::uuid",
+          [mensagem, item.rows[0]!.id],
         );
       }
     }
+    const status = result.erros.length
+      ? result.erros.length === 1
+        ? "partial_success"
+        : "failed"
+      : "success";
+    await query(
+      `update nibo_sync_runs set status=$1,finished_at=now(),projects_success=$2,projects_failed=$3,
+         pagas_success=$4,pagas_failed=$5,recebidas_success=$6,recebidas_failed=$7,
+         summary=$8::jsonb,error_message=$9 where id=$10::uuid`,
+      [
+        status,
+        status === "success" ? 1 : 0,
+        status === "success" ? 0 : 1,
+        result.pagas ? 1 : 0,
+        result.pagas ? 0 : 1,
+        result.recebidas ? 1 : 0,
+        result.recebidas ? 0 : 1,
+        JSON.stringify(result),
+        result.erros.join(" | ") || null,
+        run.rows[0]!.id,
+      ],
+    );
     if (!result.pagas && !result.recebidas) throw new Error(result.erros.join(" | "));
     return {
-      status: result.erros.length ? ("partial_success" as const) : ("success" as const),
+      status,
       horizonteFim,
       ...result,
     };

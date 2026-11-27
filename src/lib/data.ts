@@ -21,6 +21,21 @@ export type FluxoChecklistPagamento =
   Database["public"]["Tables"]["fluxo_checklist_pagamentos"]["Row"];
 export type FluxoTituloNibo = Database["public"]["Tables"]["fluxo_titulos_nibo"]["Row"];
 export type StatusChecklistFluxo = Database["public"]["Enums"]["status_checklist_fluxo"];
+export type NiboSyncHistorico = {
+  id: string;
+  tipo: "paga" | "recebida";
+  periodo_inicio: string;
+  periodo_fim: string;
+  started_at: string;
+  finished_at: string | null;
+  status: "running" | "success" | "failed" | "skipped";
+  run_status: "running" | "success" | "partial_success" | "failed";
+  registros_encontrados: number;
+  registros_inseridos: number;
+  registros_atualizados: number;
+  registros_ignorados: number;
+  error_message: string | null;
+};
 function useData<T>(
   key: unknown[],
   resource: string,
@@ -164,6 +179,13 @@ export const useFluxoTitulosPagarVencidos = (empresaId: string | null, hoje: str
     ["fluxo-titulos-pagar-vencidos", empresaId, hoje],
     "titulosPagarVencidos",
     { empresaId, hoje },
+    !!empresaId,
+  );
+export const useNiboSyncHistorico = (empresaId: string | null) =>
+  useData<NiboSyncHistorico[]>(
+    ["nibo-sync-historico", empresaId],
+    "niboSyncHistorico",
+    { empresaId },
     !!empresaId,
   );
 export const useMetas = (empresaId: string | null, ano: number) =>

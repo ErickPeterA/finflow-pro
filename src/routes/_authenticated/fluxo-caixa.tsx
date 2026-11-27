@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Area,
   AreaChart,
@@ -33,7 +34,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import * as XLSX from "xlsx";
 import { TopBar } from "@/components/TopBar";
 import { Bloco, SemDados, SemEmpresa } from "@/components/ui-blocos";
 import { Button } from "@/components/ui/button";
@@ -74,6 +74,7 @@ import {
   useFluxoTitulosNibo,
   useFluxoTitulosPagarVencidos,
   useFluxoTitulosReceberVencidos,
+  useNiboSyncHistorico,
   type FluxoContaBancaria,
   type FluxoTituloNibo,
   type StatusChecklistFluxo,
@@ -83,7 +84,6 @@ import { importarManual } from "@/lib/importacao/importer.functions";
 import { brl, competenciaDate, dataBR } from "@/lib/format";
 import { parseArquivoNibo, type TituloImportado } from "@/lib/nibo";
 import { sincronizarFluxoNiboApi } from "@/integrations/nibo/api.functions";
-import type { Json } from "@/integrations/supabase/types";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/fluxo-caixa")({
@@ -355,7 +355,9 @@ function FluxoCaixaPage() {
   const [lendoImportacaoFluxo, setLendoImportacaoFluxo] = useState(false);
   const [arrastandoImportacaoFluxo, setArrastandoImportacaoFluxo] = useState(false);
   const [exclusaoFluxoAberta, setExclusaoFluxoAberta] = useState(false);
+  const [historicoAberto, setHistoricoAberto] = useState(false);
   const [titulosSelecionados, setTitulosSelecionados] = useState<string[]>([]);
+  const [portalImpressaoPronto, setPortalImpressaoPronto] = useState(false);
 
   const range = useMemo(
     () => rangePeriodo(periodo, hoje, inicioPersonalizado, fimPersonalizado),
@@ -371,7 +373,11 @@ function FluxoCaixaPage() {
   const { data: contas = [], isLoading: carregandoContas } = useFluxoContasBancarias(empresaId);
   const { data: saldos = [] } = useFluxoSaldosBancarios(empresaId);
   const { data: checklist = [] } = useFluxoChecklistPagamentos(empresaId);
+  const { data: historicoSync = [], isLoading: carregandoHistorico } =
+    useNiboSyncHistorico(empresaId);
   const carregando = carregandoTitulos || carregandoContas;
+
+  useEffect(() => setPortalImpressaoPronto(true), []);
 
   const importarTitulosFluxo = useMutation({
     mutationFn: async () => {
@@ -429,6 +435,7 @@ function FluxoCaixaPage() {
         queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-pagar-vencidos"] }),
         queryClient.invalidateQueries({ queryKey: ["fluxo-titulos-receber-vencidos"] }),
         queryClient.invalidateQueries({ queryKey: ["fluxo-checklist-pagamentos"] }),
+        queryClient.invalidateQueries({ queryKey: ["nibo-sync-historico", empresaId] }),
       ]);
     },
     onError: (error) =>
@@ -780,7 +787,6 @@ function FluxoCaixaPage() {
     () => montarSerieSaldo(linhas, saldoDisponivel, range.inicio, range.fim),
     [linhas, range.fim, range.inicio, saldoDisponivel],
   );
-  const pagamentosSemana = linhas.filter((linha) => linha.pagamento > 0);
   const inadimplentes = useMemo(
     () => montarInadimplentes(filtrarLancamentosPorCentroCusto(titulosVencidos, centroCusto), hoje),
     [centroCusto, titulosVencidos, hoje],
@@ -971,95 +977,11 @@ function FluxoCaixaPage() {
   }
 
   function atualizarSaldoConta(contaId: string, valor: string) {
-    setSaldosEditados((atuais) => ({ ...atuais, [contaId]: valor }));
+    setSaldosEditados((atuais) => ({
+      ...atuais,
+      [contaId]: formatarDigitacaoMonetaria(valor),
+    }));
     setSaldosPendentes((atuais) => ({ ...atuais, [contaId]: true }));
-  }
-
-  async function salvarHistorico() {
-    if (!empresaId) return;
-    const pagamentosSelecionados = pagamentosSemana
-      .filter(
-        (linha) => statusChecklistLinha(linha, checklistPorTitulo) === "selecionado_pagamento",
-      )
-      .map((linha) => ({
-        origem: linha.origem,
-        registro_id: linha.id,
-        descricao: linha.descricao,
-        valor: linha.pagamento,
-      }));
-
-    await mutateData({
-      data: {
-        action: "createHistorico",
-        empresaId,
-        historico: {
-          inicio: range.inicio,
-          fim: range.fim,
-          saldoInicial: saldoDisponivel,
-          recebimentos: resumo.recebimentos,
-          pagamentos: resumo.pagamentos,
-          saldoFinal: resumo.saldoFinal,
-          empresa_id: empresaId,
-          periodo_inicio: range.inicio,
-          periodo_fim: range.fim,
-          saldo_inicial: saldoDisponivel,
-          recebimentos_previstos: resumo.recebimentos,
-          pagamentos_previstos: resumo.pagamentos,
-          saldo_final_previsto: resumo.saldoFinal,
-          contas_consideradas: contas
-            .filter((conta) => contasSelecionadas.includes(conta.id))
-            .map((conta) => ({
-              id: conta.id,
-              nome: conta.nome,
-              saldo: numeroDoCampo(saldosEditados[conta.id] ?? "0"),
-            })) as Json,
-          pagamentos_selecionados: pagamentosSelecionados as Json,
-          payload: {
-            linhas: linhas.map(linhaParaExportacao),
-            alertas: {
-              menorSaldo: alertas.menorSaldo,
-              dataMenorSaldo: alertas.dataMenorSaldo,
-              primeiroNegativo: alertas.primeiroNegativo,
-              maiorPagamento: alertas.maiorPagamento
-                ? {
-                    descricao: alertas.maiorPagamento.descricao,
-                    valor: alertas.maiorPagamento.pagamento,
-                  }
-                : null,
-              diaMaiorPagamento: alertas.diaMaiorPagamento ?? null,
-              necessidadeCaixa: alertas.necessidadeCaixa,
-            },
-          },
-        },
-      },
-    });
-  }
-
-  function exportarExcel() {
-    const workbook = XLSX.utils.book_new();
-    const fluxo = linhas.map(linhaParaExportacao);
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(fluxo), "Fluxo");
-    const resumoSheet = [
-      { item: "Saldo inicial", valor: saldoDisponivel },
-      { item: "Entradas previstas", valor: resumo.recebimentos },
-      { item: "Saidas previstas", valor: resumo.pagamentos },
-      { item: "Variacao liquida", valor: resumo.variacaoLiquida },
-      { item: "Saldo final projetado", valor: resumo.saldoFinal },
-    ];
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(resumoSheet), "Resumo");
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.json_to_sheet(
-        pagamentosSemana.map((linha) => ({
-          pagamento: linha.descricao,
-          fornecedor: linha.nome,
-          valor: linha.pagamento,
-          status: labelStatus(statusChecklistLinha(linha, checklistPorTitulo)),
-        })),
-      ),
-      "Checklist",
-    );
-    XLSX.writeFile(workbook, `fluxo-caixa-${range.inicio}-${range.fim}.xlsx`);
   }
 
   function imprimirFluxoCaixa() {
@@ -1214,7 +1136,7 @@ function FluxoCaixaPage() {
                   )}
                 </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="flex flex-wrap gap-2">
                 {contasExibidas.map((conta) => (
                   <CardConta
                     key={conta.id}
@@ -1528,18 +1450,88 @@ function FluxoCaixaPage() {
                           )}
                         </DialogContent>
                       </Dialog>
-                      <Button variant="outline" size="sm" onClick={exportarExcel}>
-                        <FileSpreadsheet className="h-4 w-4" />
-                        Excel
-                      </Button>
                       <Button variant="outline" size="sm" onClick={imprimirFluxoCaixa}>
                         <Printer className="h-4 w-4" />
                         PDF
                       </Button>
-                      <Button variant="outline" size="sm" onClick={salvarHistorico}>
-                        <Download className="h-4 w-4" />
-                        Historico
-                      </Button>
+                      <Dialog open={historicoAberto} onOpenChange={setHistoricoAberto}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            <Download className="h-4 w-4" />
+                            Histórico
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-3xl">
+                          <DialogHeader>
+                            <DialogTitle>Histórico de sincronizações Nibo</DialogTitle>
+                          </DialogHeader>
+                          <p className="text-sm text-muted-foreground">
+                            Mostra quando a API foi consultada e até qual data os dados foram
+                            conferidos.
+                          </p>
+                          <div className="max-h-[60vh] overflow-y-auto rounded-md border">
+                            {carregandoHistorico ? (
+                              <div className="flex justify-center p-8">
+                                <Loader2 className="h-5 w-5 animate-spin" />
+                              </div>
+                            ) : historicoSync.length === 0 ? (
+                              <p className="p-8 text-center text-sm text-muted-foreground">
+                                Nenhuma sincronização registrada.
+                              </p>
+                            ) : (
+                              <table className="w-full text-xs">
+                                <thead className="sticky top-0 bg-card">
+                                  <tr className="border-b text-muted-foreground">
+                                    <th className="p-3 text-left">Sincronização</th>
+                                    <th className="p-3 text-left">Tipo</th>
+                                    <th className="p-3 text-left">Período consultado</th>
+                                    <th className="p-3 text-right">Registros</th>
+                                    <th className="p-3 text-right">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {historicoSync.map((item) => (
+                                    <tr key={item.id} className="border-b last:border-0">
+                                      <td className="p-3">
+                                        {dataHoraBR(item.finished_at ?? item.started_at)}
+                                      </td>
+                                      <td className="p-3">
+                                        {item.tipo === "paga"
+                                          ? "Contas a pagar"
+                                          : "Contas a receber"}
+                                      </td>
+                                      <td className="p-3 tabular">
+                                        {dataBR(item.periodo_inicio)} até {dataBR(item.periodo_fim)}
+                                      </td>
+                                      <td className="p-3 text-right tabular">
+                                        {item.registros_encontrados}
+                                      </td>
+                                      <td className="p-3 text-right">
+                                        <span
+                                          className={cn(
+                                            "rounded-full px-2 py-1 font-medium",
+                                            item.status === "success"
+                                              ? "bg-positive-soft text-positive"
+                                              : item.status === "failed"
+                                                ? "bg-negative-soft text-negative"
+                                                : "bg-warning-soft text-warning",
+                                          )}
+                                        >
+                                          {item.status === "success"
+                                            ? "Concluída"
+                                            : item.status === "failed"
+                                              ? "Falhou"
+                                              : "Em andamento"}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                       <Dialog open={exclusaoFluxoAberta} onOpenChange={setExclusaoFluxoAberta}>
                         <DialogTrigger asChild>
                           <Button variant="outline" size="sm">
@@ -1928,22 +1920,26 @@ function FluxoCaixaPage() {
           </>
         )}
       </main>
-      {empresaId && !carregando && (
-        <RelatorioFluxoCaixaPrint
-          empresa={empresa?.nome ?? "Empresa"}
-          periodo={periodoLabel}
-          centroCusto={centroCusto}
-          bancos={contasExibidas.map((conta) => ({
-            id: conta.id,
-            nome: conta.nome,
-            saldo: numeroDoCampo(saldosEditados[conta.id] ?? "0"),
-          }))}
-          linhas={linhas}
-          resumo={resumo}
-          inadimplentes={inadimplentes}
-          pagamentosAtrasados={pagamentosAtrasados}
-        />
-      )}
+      {portalImpressaoPronto &&
+        empresaId &&
+        !carregando &&
+        createPortal(
+          <RelatorioFluxoCaixaPrint
+            empresa={empresa?.nome ?? "Empresa"}
+            periodo={periodoLabel}
+            centroCusto={centroCusto}
+            bancos={contasExibidas.map((conta) => ({
+              id: conta.id,
+              nome: conta.nome,
+              saldo: numeroDoCampo(saldosEditados[conta.id] ?? "0"),
+            }))}
+            linhas={linhas}
+            resumo={resumo}
+            inadimplentes={inadimplentes}
+            pagamentosAtrasados={pagamentosAtrasados}
+          />,
+          document.body,
+        )}
     </>
   );
 }
@@ -2046,12 +2042,16 @@ function CardConta({
   return (
     <div
       className={cn(
-        "rounded-lg border bg-card p-3 shadow-card",
+        "w-full rounded-lg border bg-card p-2.5 shadow-card sm:w-[230px]",
         selecionada ? "border-info/35" : "opacity-75",
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <BancoImagem nome={conta.nome} imagemUrl={imagemBancoLocal(conta.nome, conta.imagem_url)} />
+        <BancoImagem
+          nome={conta.nome}
+          imagemUrl={imagemBancoLocal(conta.nome, conta.imagem_url)}
+          compacto
+        />
         <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <Checkbox
             checked={selecionada}
@@ -2070,7 +2070,7 @@ function CardConta({
         onFocus={(event) => event.currentTarget.select()}
         onClick={(event) => event.currentTarget.select()}
         onBlur={() => onValor(formatarCampoMonetario(valor))}
-        inputMode="decimal"
+        inputMode="numeric"
         className="tabular mt-2 h-8 text-base font-semibold text-positive"
       />
       <p className="mt-1.5 truncate text-[10px] text-muted-foreground">
@@ -2084,9 +2084,22 @@ function CardConta({
   );
 }
 
-function BancoImagem({ nome, imagemUrl }: { nome: string; imagemUrl: string | null | undefined }) {
+function BancoImagem({
+  nome,
+  imagemUrl,
+  compacto = false,
+}: {
+  nome: string;
+  imagemUrl: string | null | undefined;
+  compacto?: boolean;
+}) {
   return (
-    <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg border bg-muted text-[11px] font-semibold text-muted-foreground">
+    <span
+      className={cn(
+        "grid shrink-0 place-items-center overflow-hidden rounded-lg border bg-muted font-semibold text-muted-foreground",
+        compacto ? "size-7 text-[9px]" : "size-9 text-[11px]",
+      )}
+    >
       {imagemUrl ? (
         <img src={imagemUrl} alt="" className="h-full w-full object-contain p-1" />
       ) : (
@@ -2115,14 +2128,14 @@ function KpiFluxo({
   tom: "positivo" | "negativo";
 }) {
   return (
-    <div className="rounded-lg border bg-card p-3 shadow-card">
+    <div className="w-full rounded-lg border bg-card p-2.5 shadow-card sm:w-[230px]">
       <span
         className={cn(
-          "grid size-9 place-items-center rounded-lg",
+          "grid size-7 place-items-center rounded-md",
           tom === "positivo" ? "bg-positive-soft text-positive" : "bg-negative-soft text-negative",
         )}
       >
-        <Icone className="h-4 w-4" />
+        <Icone className="h-3.5 w-3.5" />
       </span>
       <p className="mt-2 text-[10px] font-medium normal-case text-muted-foreground">{titulo}</p>
       <p
@@ -2643,20 +2656,6 @@ function montarPagamentosAtrasados(titulosVencidos: FluxoTituloNibo[], hoje: str
     .slice(0, 8);
 }
 
-function linhaParaExportacao(linha: LinhaFluxo) {
-  return {
-    Vencimento: dataBR(linha.vencimento),
-    Nome: linha.nome,
-    Descricao: linha.descricao,
-    Recebimentos: linha.recebimento,
-    Pagamentos: linha.pagamento,
-    "Saldo projetado": linha.saldoProjetado,
-    Categoria: linha.categoria,
-    "ID NIBO": linha.identificadorNibo,
-    Origem: linha.origem === "manual" ? "Lancamento manual" : "Titulo futuro",
-  };
-}
-
 function tipoProjetadoTitulo(titulo: FluxoTituloNibo) {
   // A API ja informa a natureza pelo endpoint debit/credit. Nao deixe o nome
   // da categoria inverter uma conta a receber classificada em grupo de custo.
@@ -2798,6 +2797,12 @@ function numeroDoCampo(valor: string) {
 
 function formatarCampoMonetario(valor: string | number) {
   return brl(typeof valor === "number" ? valor : numeroDoCampo(valor));
+}
+
+function formatarDigitacaoMonetaria(valor: string) {
+  const digitos = valor.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+  const centavos = Number(digitos || "0");
+  return brl(centavos / 100);
 }
 
 function iniciaisBanco(nome: string) {
